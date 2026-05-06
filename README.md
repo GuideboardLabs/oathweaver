@@ -2,10 +2,10 @@
 
 # Oathweaver
 
-[![CI](https://github.com/GuideboardLabs/Oathweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/GuideboardLabs/Oathweaver/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.10+-blue)
+![Backend](https://img.shields.io/badge/python-3.10+-blue)
+![Frontend](https://img.shields.io/badge/VueJS-3.5.13-purple)
 ![Runtime](https://img.shields.io/badge/runtime-local--only-darkgreen)
-![LLM](https://img.shields.io/badge/LLM-Ollama%20%7C%20llama.cpp-black)
+![LLM](https://img.shields.io/badge/LLM-Ollama-black)
 ![Status](https://img.shields.io/badge/status-experimental-yellow)
 ![License](https://img.shields.io/badge/license-Service--Only%20Source--Available-orange)
 
