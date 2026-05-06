@@ -2,11 +2,11 @@
 
 # Oathweaver
 
-![Backend](https://img.shields.io/badge/python-3.10+-blue)
+![Backend](https://img.shields.io/badge/Python-3.10+-blue)
 ![Frontend](https://img.shields.io/badge/VueJS-3.5.13-purple)
-![Runtime](https://img.shields.io/badge/runtime-local--only-darkgreen)
+![Runtime](https://img.shields.io/badge/runtime-Local--Only-darkgreen)
 ![LLM](https://img.shields.io/badge/LLM-Ollama-black)
-![Status](https://img.shields.io/badge/status-experimental-yellow)
+![Status](https://img.shields.io/badge/status-Experimental-yellow)
 ![License](https://img.shields.io/badge/license-Service--Only%20Source--Available-orange)
 
 **Self-hosted AI workspace. No API keys. No cloud. No subscriptions. No frontier model calls. Ever.**
@@ -17,7 +17,7 @@ There is no external API integration and there never will be. The architecture i
 
 ## Why Oathweaver
 
-| | Oathweaver | Cloud AI assistants |
+| | Oathweaver | Frontier AI |
 |---|---|---|
 | **Runs on** | Your own hardware | Provider's servers |
 | **AI models** | Any Ollama-compatible or llama.cpp model | Locked to provider |
