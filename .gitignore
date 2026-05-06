@@ -5,6 +5,7 @@ __pycache__/
 *.pyd
 .env
 .venv/
+.codex
 
 Runtime/logs/*
 Runtime/artifacts/*
