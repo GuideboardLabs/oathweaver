@@ -35,7 +35,7 @@ def _normalize_target(raw: str | None) -> str:
 
 def _normalize_topic_type(raw: str | None) -> str:
     value = str(raw or "").strip().lower()
-    return value if value in VALID_TOPIC_TYPES else "general"
+    return value if value in VALID_TOPIC_TYPES else "general_research"
 
 
 class ProjectPipelineRepository:

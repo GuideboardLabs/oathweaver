@@ -22,16 +22,13 @@
         <div class="app-shell">
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-top">
-                    <button class="brand-mark brand-home-btn" type="button" title="Go to landing page" @click="goToLandingHome">
-            <img src="{{ url_for('static', filename='branding/logo.png', v=asset_v) }}" alt="Oathweaver logo" />
-          </button>
+                    <img class="brand-mark brand-home-btn" src="{{ url_for('static', filename='branding/logo.png', v=asset_v) }}" alt="Oathweaver logo" title="Go to landing page" @click="goToLandingHome" />
                     <div class="sidebar-title-wrap">
                         <h1>Oathweaver</h1>
                     </div>
                 </div>
 
                 <div class="new-chat-actions">
-                    <button class="new-chat-btn" type="button" @click="createConversation('general')">+ Chat</button>
                     <button class="new-chat-btn new-general-btn" type="button" @click="beginProjectCreation()">+ Project</button>
                 </div>
 
@@ -103,7 +100,7 @@
                 <span class="junction-icon junction-icon-fieldbook" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false"><path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H18v18h-9.5A2.5 2.5 0 0 0 6 22V4.5zm12 13.7V3.8H8.5A.7.7 0 0 0 7.8 4.5v14.13c.24-.07.47-.1.7-.1H18zM9.8 7h5.8v1.7H9.8V7zm0 3.4h5.8v1.7H9.8v-1.7zm0 3.4h4.2v1.7H9.8v-1.7z"/></svg>
                 </span>
-                <span class="panel-btn-label">Topics</span>
+                <span class="panel-btn-label">Domains</span>
               </span>
               <span class="panel-badge" v-if="panelBadgeValue(panelStatus.topics_with_research)">
                 [[ panelBadgeValue(panelStatus.topics_with_research) ]]
@@ -480,6 +477,13 @@
                                 <span class="thinking-elapsed">
                                     [[ activeConversationElapsedSec > 0 ? activeConversationElapsedSec + 's' : '' ]]
                                 </span>
+                                <div v-if="activeConversationPendingEvents.length" class="reasoning-flow">
+                                    <div v-for="(ev, i) in activeConversationPendingEvents" :key="ev.ts + i"
+                                         class="reasoning-step" :class="{ 'is-current': i === activeConversationPendingEvents.length - 1 }">
+                                        <span class="reasoning-step-dot"></span>
+                                        <span class="reasoning-step-label">[[ _labelForEvent(ev) ]]</span>
+                                    </div>
+                                </div>
                                 <div v-if="pendingLiveSources[activeConversationId] && pendingLiveSources[activeConversationId].length" class="msg-source-row pending-sources">
                                     <span class="msg-source-label">Reading</span>
                                     <div class="msg-source-stack" role="list" aria-label="Live sources being read">
@@ -522,6 +526,13 @@
                                 <span class="thinking-elapsed">
                                     [[ activeConversationElapsedSec > 0 ? activeConversationElapsedSec + 's' : '' ]]
                                 </span>
+                                <div v-if="activeConversationPendingEvents.length" class="reasoning-flow">
+                                    <div v-for="(ev, i) in activeConversationPendingEvents" :key="ev.ts + i"
+                                         class="reasoning-step" :class="{ 'is-current': i === activeConversationPendingEvents.length - 1 }">
+                                        <span class="reasoning-step-dot"></span>
+                                        <span class="reasoning-step-label">[[ _labelForEvent(ev) ]]</span>
+                                    </div>
+                                </div>
                                 <div v-if="pendingLiveSources[activeConversationId] && pendingLiveSources[activeConversationId].length" class="msg-source-row pending-sources">
                                     <span class="msg-source-label">Reading</span>
                                     <div class="msg-source-stack" role="list" aria-label="Live sources being read">
@@ -1070,14 +1081,14 @@
         <section class="modal-form-modal" role="dialog" aria-modal="true" aria-label="Project topic type">
             <header class="modal-form-header">
                 <div>
-                    <h3>Set Topic Type</h3>
+                    <h3>Set Domain</h3>
                     <p>Project: [[ activeProject ]]</p>
                 </div>
                 <button type="button" class="modal-form-close" @click="closeProjectTopicTypeModal">&times;</button>
             </header>
             <section class="modal-form-body modal-form">
                 <label class="modal-form-field modal-form-field-full">
-                    <span class="modal-form-label">Topic type</span>
+                    <span class="modal-form-label">Domain</span>
                     <select ref="projectTopicTypeSelect" v-model="projectTopicTypeForm.topic_type">
                         <option v-for="opt in topicTypeOptions" :key="`project_topic_${opt.value}`" :value="opt.value">[[ opt.label ]]</option>
                     </select>
@@ -1086,7 +1097,7 @@
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeProjectTopicTypeModal">Cancel</button>
                     <button type="button" class="modal-form-btn is-primary" :disabled="projectTopicTypeSubmitting" @click="submitProjectTopicTypeModal">
-                        [[ projectTopicTypeSubmitting ? 'Saving...' : 'Save Topic Type' ]]
+                        [[ projectTopicTypeSubmitting ? 'Saving...' : 'Save Domain' ]]
                     </button>
                 </div>
             </section>
@@ -1096,29 +1107,29 @@
     <!-- Topic Picker Modal -->
     <div class="modal-form-overlay" :aria-hidden="topicPickerOpen ? 'false' : 'true'" v-show="topicPickerOpen">
         <div class="modal-form-backdrop" @click="closeTopicPickerModal"></div>
-        <section class="modal-form-modal topic-picker-modal" role="dialog" aria-modal="true" :aria-label="topicPickerMode === 'create' ? 'Create Project' : 'Set Topic'">
+        <section class="modal-form-modal topic-picker-modal" role="dialog" aria-modal="true" :aria-label="topicPickerMode === 'create' ? 'Create Project' : 'Set Domain'">
             <header class="modal-form-header">
                 <div>
-                    <h3>[[ topicPickerMode === "create" ? "Create Project" : "Set Topic" ]]</h3>
-                    <p>[[ topicPickerMode === "create" ? "Choose a topic for the new conversation." : "Select a named knowledge domain for this conversation." ]]</p>
+                    <h3>[[ topicPickerMode === "create" ? "Create Project" : "Set Domain" ]]</h3>
+                    <p>[[ topicPickerMode === "create" ? "Choose a domain for the new conversation." : "Select a named knowledge domain for this conversation." ]]</p>
                 </div>
                 <button type="button" class="modal-form-close" @click="closeTopicPickerModal">&times;</button>
             </header>
             <section class="modal-form-body modal-form project-picker-body">
                 <label class="modal-form-field modal-form-field-full">
-                    <input v-model="topicPickerSearch" type="text" placeholder="Search topics..." />
+                    <input v-model="topicPickerSearch" type="text" placeholder="Search domains..." />
                 </label>
                 <div class="topic-picker-list" v-if="topicPickerRows.length">
                     <div v-for="topic in filteredTopicPickerRows" :key="topic.id" class="topic-picker-item" :class="{ 'is-active': activeTopicId === topic.id }" @click="confirmTopicSelection(topic)">
                         <span class="topic-type-badge" :class="'is-' + topic.type">[[ topicTypeLabel(topic.type) ]]</span>
                         <span class="topic-picker-name">[[ topic.name ]]</span>
                     </div>
-                    <div v-if="!filteredTopicPickerRows.length" class="modal-empty">No matching topics.</div>
+                    <div v-if="!filteredTopicPickerRows.length" class="modal-empty">No matching domains.</div>
                 </div>
-                <div v-else class="modal-empty">No topics yet.</div>
+                <div v-else class="modal-empty">No domains yet.</div>
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeTopicPickerModal">Cancel</button>
-                    <button type="button" class="modal-form-btn" @click="goToTopicsPanel">Create New Topic &rarr;</button>
+                    <button type="button" class="modal-form-btn" @click="goToTopicsPanel">Create New Domain &rarr;</button>
                 </div>
             </section>
         </section>
@@ -1857,10 +1868,10 @@
                   <div v-else-if="libraryDetailItem" class="panel-empty">Summary not ready yet for this Library item.</div>
                   <div v-else class="panel-empty">Library detail unavailable.</div>
                 </template><template v-else-if="panelKey === 'topics'">
-                  <!-- Create Topic Form -->
+                  <!-- Create Domain Form -->
                   <div class="topic-create-form">
-                    <h4 class="panel-section-title">New Topic</h4>
-                    <input v-model="topicForm.name" class="watch-input" type="text" placeholder="Topic name" />
+                    <h4 class="panel-section-title">New Domain</h4>
+                    <input v-model="topicForm.name" class="watch-input" type="text" placeholder="Domain name" />
                     <select v-model="topicForm.type" class="watch-input">
                       <option value="">-- Select type --</option>
                       <option v-for="opt in topicTypeOptions" :key="'topic_form_' + opt.value" :value="opt.value">[[ opt.label ]]</option>
@@ -1869,9 +1880,9 @@
                     <textarea v-model="topicForm.description" class="watch-input" rows="3" placeholder="Description (min 50 characters)" style="width:100%;resize:vertical;"></textarea>
                     <span class="char-count" :class="{ warn: topicDescriptionCharCount < 50 }">[[ topicDescriptionCharCount ]] / 50 min</span>
                     <textarea v-model="topicForm.seed_question" class="watch-input" rows="2" placeholder="Seed question — what do you want to learn first?" style="width:100%;resize:vertical;"></textarea>
-                    <button class="panel-action-btn" type="button" :disabled="!topicFormValid" @click="createTopic">Create Topic</button>
+                    <button class="panel-action-btn" type="button" :disabled="!topicFormValid" @click="createTopic">Create Domain</button>
                   </div>
-                  <!-- Topic List -->
+                  <!-- Domain List -->
                   <div v-if="panelData && panelData.topics && panelData.topics.length">
                     <div class="topic-card" v-for="topic in panelData.topics" :key="topic.id" :class="{ 'is-active-topic': activeTopicId === topic.id }">
                       <div class="topic-card-head">
@@ -1892,11 +1903,11 @@
                       </div>
                     </div>
                   </div>
-                  <div v-else class="panel-empty">No topics yet. Create one above.</div>
+                  <div v-else class="panel-empty">No domains yet. Create one above.</div>
                 </template>
 
                 <template v-else-if="panelKey === 'topic_detail'">
-                  <button class="panel-action-btn is-small" type="button" style="margin-bottom:12px;" @click="openSystemPanel('topics')">&larr; All Topics</button>
+                  <button class="panel-action-btn is-small" type="button" style="margin-bottom:12px;" @click="openSystemPanel('topics')">&larr; All Domains</button>
                   <div v-if="topicDetailData">
                     <div class="topic-card">
                       <div class="topic-card-head">
@@ -1931,7 +1942,7 @@
                     </div>
                     <div v-else class="panel-empty">No artifacts yet for this topic.</div>
                   </div>
-                  <div v-else class="panel-empty">Topic detail unavailable.</div>
+                  <div v-else class="panel-empty">Domain detail unavailable.</div>
                 </template>
 
                 <template v-else-if="panelKey === 'system'">

@@ -9,13 +9,16 @@ from typing import Any
 
 
 VALID_TOPIC_TYPES: frozenset[str] = frozenset({
-    "sports", "technical", "medical", "finance",
-    "history", "general", "science", "math",
-    "politics", "current_events", "underground",
-    "business", "law", "education", "travel", "animal_care",
-    "food", "gaming", "books", "real_estate",
-    "automotive", "parenting", "tv_shows", "movies",
-    "music", "art",
+    "computer_science_programming",
+    "mathematics",
+    "science",
+    "history",
+    "writing_rhetoric",
+    "business_strategy",
+    "law_policy",
+    "engineering",
+    "creative",
+    "general_research",
 })
 
 

@@ -77,32 +77,16 @@ const PROJECT_PIPELINE_MODES = [
   { value: "make", label: "Make" },
 ];
 const TOPIC_TYPES = [
-  { value: "sports",         label: "Sports" },
-  { value: "technical",      label: "Technical" },
-  { value: "medical",        label: "Medical" },
-  { value: "animal_care",    label: "Animal Care" },
-  { value: "finance",        label: "Finance" },
-  { value: "history",        label: "History" },
-  { value: "general",        label: "General" },
-  { value: "science",        label: "Science" },
-  { value: "math",           label: "Math" },
-  { value: "politics",       label: "Politics" },
-  { value: "current_events", label: "Current Events" },
-  { value: "underground",    label: "Underground (Uncensored)" },
-  { value: "business",       label: "Business" },
-  { value: "law",            label: "Law" },
-  { value: "education",      label: "Education" },
-  { value: "travel",         label: "Travel" },
-  { value: "food",           label: "Food" },
-  { value: "gaming",         label: "Gaming" },
-  { value: "books",          label: "Books" },
-  { value: "real_estate",    label: "Real Estate" },
-  { value: "automotive",     label: "Automotive" },
-  { value: "parenting",      label: "Parenting" },
-  { value: "tv_shows",       label: "TV Shows" },
-  { value: "movies",         label: "Movies" },
-  { value: "music",          label: "Music" },
-  { value: "art",            label: "Art" },
+  { value: "computer_science_programming", label: "Computer Science / Programming" },
+  { value: "mathematics",                  label: "Mathematics" },
+  { value: "science",                      label: "Science" },
+  { value: "history",                      label: "History" },
+  { value: "writing_rhetoric",             label: "Writing / Rhetoric" },
+  { value: "business_strategy",            label: "Business / Strategy" },
+  { value: "law_policy",                   label: "Law / Policy" },
+  { value: "engineering",                  label: "Engineering" },
+  { value: "creative",                     label: "Creative" },
+  { value: "general_research",             label: "General Research" },
 ];
 const LIFE_ADMIN_PROFILE_DETAIL_FIELDS = [
   ["full_name", "Full name"],
@@ -1228,6 +1212,7 @@ const app = window.Vue.createApp({
       sendingByConversation: {},
       queuedByConversation: {},
       sendingJobStage: {},
+      pendingJobEvents: {},
       assistantTypingByMessage: {},
       quickActionBusy: {},
       completedQuickActions: {},
@@ -1715,6 +1700,11 @@ const app = window.Vue.createApp({
     activeConversationSendingLabel() {
       const s = this.sendingJobStage[String(this.activeConversationId || "").trim()];
       return s ? String(s.label || "") : "";
+    },
+    activeConversationPendingEvents() {
+      const events = this.pendingJobEvents[String(this.activeConversationId || "").trim()];
+      if (!Array.isArray(events)) return [];
+      return events.slice(-12);
     },
     activeConversationQueuedTurns() {
       const id = String(this.activeConversationId || "").trim();
@@ -2494,10 +2484,10 @@ const app = window.Vue.createApp({
         return "Outbox";
       }
       if (this.panelKey === "projects") {
-        return "Topics";
+        return "Domains";
       }
       if (this.panelKey === "project_detail") {
-        return `Topic Detail: ${this.activeProject}`;
+        return `Domain Detail: ${this.activeProject}`;
       }
       if (this.panelKey === "content") {
         return `Content: ${this.activeProject}`;
@@ -2512,10 +2502,10 @@ const app = window.Vue.createApp({
         return this.libraryDetailItem ? `Library: ${this.libraryDetailItem.title || this.libraryDetailItem.source_name}` : "Library Detail";
       }
       if (this.panelKey === "topics") {
-        return "Topics";
+        return "Domains";
       }
       if (this.panelKey === "topic_detail") {
-        return this.topicDetailData ? `Topic: ${this.topicDetailData.name}` : "Topic Detail";
+        return this.topicDetailData ? `Domain: ${this.topicDetailData.name}` : "Domain Detail";
       }
       if (this.panelKey === "system") {
         return "Settings";
@@ -2565,10 +2555,10 @@ const app = window.Vue.createApp({
         return "Saved research cards from completed Research runs. Pin to keep.";
       }
       if (this.panelKey === "topics") {
-        return "Research topics — artifact counts, last activity, and mode.";
+        return "Knowledge domains — artifact counts, last activity, and mode.";
       }
       if (this.panelKey === "topic_detail") {
-        return "Topic artifacts, sub-topics, and research history.";
+        return "Domain artifacts, sub-topics, and research history.";
       }
       if (this.panelKey === "system") {
         return "App preferences, global controls, and environment management.";
@@ -7250,6 +7240,11 @@ const app = window.Vue.createApp({
               next[convoId] = job.live_sources;
               this.pendingLiveSources = next;
             }
+            if (Array.isArray(job.events) && job.events.length > 0) {
+              const next = Object.assign({}, this.pendingJobEvents);
+              next[convoId] = job.events;
+              this.pendingJobEvents = next;
+            }
             const nextStage = Object.assign({}, this.sendingJobStage);
             nextStage[convoId] = { stage: job.stage || "", label: this._humanizeJobStage(job) };
             this.sendingJobStage = nextStage;
@@ -7270,6 +7265,11 @@ const app = window.Vue.createApp({
                   const next = Object.assign({}, this.pendingLiveSources);
                   delete next[convoId];
                   this.pendingLiveSources = next;
+                }
+                if (this.pendingJobEvents[convoId]) {
+                  const next = Object.assign({}, this.pendingJobEvents);
+                  delete next[convoId];
+                  this.pendingJobEvents = next;
                 }
                 if (String(this.activeConversationId || "").trim() === convoId) {
                   this.activeConversation = convo;
@@ -7292,6 +7292,51 @@ const app = window.Vue.createApp({
         await this.waitMs(pollMs);
       }
       return false;
+    },
+
+    _labelForEvent(event) {
+      const detail = String(event?.detail || "").trim();
+      if (detail) return detail;
+      const stage = String(event?.stage || "").trim().toLowerCase();
+      const fallbacks = {
+        message_received: "Request received",
+        orchestrator_ready: "Routing",
+        orchestrator_received: "Understanding request",
+        lane_routed: "Lane routed",
+        attachment_analysis: "Reading attachments",
+        attachment_analysis_done: "Attachments ready",
+        talk_mode: "Generating reply",
+        talk_mode_done: "Reply complete",
+        web_research_started: "Starting web crawl",
+        web_source_discovered: "Source discovered",
+        web_stack_ready: "Web context ready",
+        foraging_started: "Research started",
+        foraging_yield_requested: "Yielding for chat",
+        foraging_run: "Deploying the council",
+        foraging_run_done: "Research complete",
+        building_started: "Build started",
+        research_pool_started: "Research pool starting",
+        research_agent_started: "Agent starting",
+        research_agent_completed: "Agent done",
+        research_raw_written: "Notes collected",
+        research_summary_written: "Synthesis written",
+        build_pool_started: "Build pool starting",
+        build_agent_started: "Build agent starting",
+        build_agent_completed: "Build agent done",
+        build_quality_gate_passed: "Quality gate passed",
+        build_quality_gate_failed: "Quality gate failed",
+        skeptic_pass_started: "Critique pass starting",
+        skeptic_pass_completed: "Critique done",
+        synthesizing: "Synthesizing",
+        synthesis: "Synthesizing",
+        gap_fill_started: "Filling gaps",
+        gap_fill_completed: "Gap fill done",
+        cancel_acknowledged: "Stopping",
+        pipeline_error: "Error",
+        completed: "Done",
+        done: "Done",
+      };
+      return fallbacks[stage] || stage.replace(/_/g, " ");
     },
 
     _humanizeJobStage(job) {

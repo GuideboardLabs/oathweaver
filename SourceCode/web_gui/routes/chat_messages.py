@@ -1303,6 +1303,54 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
         def _cancel_requested() -> bool:
             return ctx.job_manager.is_cancel_requested(profile, request_id)
 
+        _AGENT_EVENT_STAGES = frozenset({
+            "research_pool_started", "research_agent_started", "research_agent_completed",
+            "build_pool_started", "build_agent_started", "build_agent_completed",
+            "build_quality_gate_passed", "build_quality_gate_failed",
+        })
+
+        def _agent_detail_str(stage: str, d: dict) -> str:
+            agent = str(d.get("agent", "")).strip()
+            if stage == "build_agent_started":
+                model = str(d.get("model", "")).strip()
+                return f"Agent '{agent}' starting" + (f" ({model})" if model else "")
+            if stage == "build_agent_completed":
+                return f"Agent '{agent}' done"
+            if stage == "build_pool_started":
+                total = d.get("agents_total", "")
+                make_type = str(d.get("make_type", "")).strip()
+                return f"Deploying {total} agents" + (f" — {make_type}" if make_type else "")
+            if stage == "research_agent_started":
+                directive = str(d.get("directive", "")).strip()[:80]
+                return f"Agent '{agent}' on it" + (f" — {directive}" if directive else "")
+            if stage == "research_agent_completed":
+                finding = str(d.get("finding_preview", "")).strip()[:80]
+                return f"Agent '{agent}' done" + (f" — {finding}" if finding else "")
+            if stage == "research_pool_started":
+                total = d.get("agents_total", "")
+                profile = str(d.get("analysis_profile", "")).strip().replace("_", " ")
+                return f"Deploying {total} agents" + (f" — {profile}" if profile else "")
+            if stage == "build_quality_gate_passed":
+                return "Quality gate passed"
+            if stage == "build_quality_gate_failed":
+                return "Quality gate failed — retrying"
+            return str(d.get("note", "")).strip()
+
+        def _pool_progress(stage: str, detail: object = None) -> None:
+            if isinstance(detail, dict):
+                detail_str = _agent_detail_str(stage, detail) if stage in _AGENT_EVENT_STAGES else str(detail.get("note", "") or "")
+                _progress(
+                    stage,
+                    detail_str,
+                    summary_path=str(detail.get("summary_path", "")).strip(),
+                    raw_path=str(detail.get("raw_path", "")).strip(),
+                    web_stack=(detail if stage == "web_stack_ready" else None),
+                    agent_event=(dict(detail, stage=stage) if stage in _AGENT_EVENT_STAGES else None),
+                    live_source=(detail if stage == "web_source_discovered" else None),
+                )
+            else:
+                _progress(stage, str(detail or ""))
+
         def _progress(stage: str, detail: str = "", *, summary_path: str = "", raw_path: str = "", web_stack: dict | None = None, agent_event: dict | None = None, live_source: dict | None = None) -> None:
             ctx.job_manager.update(
                 profile,
@@ -1426,12 +1474,7 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                         project=convo_project,
                         cancel_checker=_cancel_requested,
                         details_sink=talk_details,
-                        progress_callback=lambda stage, detail=None: _progress(
-                            stage,
-                            str(detail if not isinstance(detail, dict) else detail.get("note", "") or ""),
-                            web_stack=(detail if isinstance(detail, dict) and stage == "web_stack_ready" else None),
-                            live_source=(detail if isinstance(detail, dict) and stage == "web_source_discovered" else None),
-                        ),
+                        progress_callback=_pool_progress,
                     )
                     if _cancel_requested():
                         reply_text = _cancel_reply()
@@ -1484,15 +1527,7 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                     force_make=is_make_lane_request,
                     thread_id=conversation_id,
                     details_sink=talk_details,
-                    progress_callback=lambda stage, detail=None: _progress(
-                        stage,
-                        str(detail if not isinstance(detail, dict) else detail.get("note", "") or ""),
-                        summary_path=(str(detail.get("summary_path", "")).strip() if isinstance(detail, dict) else ""),
-                        raw_path=(str(detail.get("raw_path", "")).strip() if isinstance(detail, dict) else ""),
-                        web_stack=(detail if isinstance(detail, dict) and stage == "web_stack_ready" else None),
-                        agent_event=(dict(detail, stage=stage) if isinstance(detail, dict) and stage in {"research_pool_started", "research_agent_started", "research_agent_completed", "build_pool_started", "build_agent_started", "build_agent_completed", "build_quality_gate_passed", "build_quality_gate_failed"} else None),
-                        live_source=(detail if isinstance(detail, dict) and stage == "web_source_discovered" else None),
-                    ),
+                    progress_callback=_pool_progress,
                 )
                 _progress("foraging_run_done", "Foraging orchestrator returned final reply.")
         except Exception as exc:

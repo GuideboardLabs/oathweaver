@@ -361,10 +361,8 @@ body.sidebar-collapsed .sidebar {
 }
 
 .brand-home-btn {
-    border: 0;
-    padding: 0;
-    margin: 0;
     cursor: pointer;
+    display: block;
 }
 
 .brand-mark img {
@@ -11398,6 +11396,51 @@ body.day .home-junction-btn strong { color: var(--neu-primary) !important; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* ── Reasoning flow log ── */
+.reasoning-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 10px;
+    max-height: 200px;
+    overflow-y: auto;
+    padding-right: 2px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--neu-shadow-dark) transparent;
+}
+.reasoning-step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: var(--neu-text-muted);
+    opacity: 0.45;
+    line-height: 1.4;
+    transition: opacity 0.25s;
+}
+.reasoning-step.is-current {
+    opacity: 1;
+    color: var(--neu-text);
+}
+.reasoning-step-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--neu-text-muted);
+    flex-shrink: 0;
+    transition: background 0.25s, box-shadow 0.25s;
+}
+.reasoning-step.is-current .reasoning-step-dot {
+    background: var(--neu-primary, #6ea8fe);
+    box-shadow: 0 0 5px var(--neu-primary, #6ea8fe);
+}
+.reasoning-step-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 340px;
 }
 
 /* ── Stop button: always active, consistent with neu style ── */
