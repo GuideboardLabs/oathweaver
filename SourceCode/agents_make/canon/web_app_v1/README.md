@@ -1,6 +1,6 @@
 # Generated Web App
 
-This project uses the Foxforge Canon v1 stack:
+This project uses the Oathweaver Canon v1 stack:
 - Flask 3.x backend
 - Vue 3.5 (CDN, no build step) frontend
 - SQLite (`sqlite3`) persistence

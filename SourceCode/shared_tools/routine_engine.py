@@ -149,7 +149,7 @@ class RoutineEngine:
         content = (
             f"# Agenda — {today}\n\n"
             "Personal assistant lane is not available in this build.\n"
-            "Use chat, project, research, and second-brain workflows instead.\n"
+            "Use chat, project, research, and library workflows instead.\n"
         )
         out_path = self.routines_dir / f"{routine_id}_agenda.md"
         out_path.write_text(content, encoding="utf-8")

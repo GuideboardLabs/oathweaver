@@ -12,7 +12,7 @@ from bots.bot_config import load_bot_config, save_bot_config
 
 class BotConfigStoreTests(unittest.TestCase):
     def test_load_defaults_and_round_trip(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="foxforge_bot_cfg_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="oathweaver_bot_cfg_") as tmpdir:
             repo_root = Path(tmpdir)
             ensure_runtime(repo_root)
             defaults = load_bot_config(repo_root)
@@ -34,8 +34,8 @@ class BotConfigStoreTests(unittest.TestCase):
 class BotConfigRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        os.environ.setdefault("FOXFORGE_OWNER_PASSWORD", "test-password")
-        os.environ.setdefault("FOXFORGE_AUTH_ENABLED", "0")
+        os.environ.setdefault("OATHWEAVER_OWNER_PASSWORD", "test-password")
+        os.environ.setdefault("OATHWEAVER_AUTH_ENABLED", "0")
         from web_gui import app as appmod
 
         cls.appmod = appmod

@@ -23,7 +23,7 @@ SOURCE = ROOT / "SourceCode"
 if str(SOURCE) not in sys.path:
     sys.path.insert(0, str(SOURCE))
 
-from orchestrator.main import FoxforgeOrchestrator
+from orchestrator.main import OathweaverOrchestrator
 from shared_tools.content_guardrails import check_content
 from shared_tools.conversation_store import ConversationStore
 from shared_tools.family_auth import FamilyAuthStore
@@ -59,7 +59,6 @@ from web_gui.routes import (
     create_family_blueprint,
     create_jobs_blueprint,
     create_library_blueprint,
-    create_personal_memory_blueprint,
     create_projects_blueprint,
     create_system_blueprint,
     create_watchtower_blueprint,
@@ -137,33 +136,33 @@ def create_app() -> Flask:
         static_folder=str(Path(__file__).parent / "static"),
     )
 
-    auth_enabled = str(os.environ.get("FOXFORGE_AUTH_ENABLED", "1")).strip().lower() not in {"0", "false", "no"}
+    auth_enabled = str(os.environ.get("OATHWEAVER_AUTH_ENABLED", "1")).strip().lower() not in {"0", "false", "no"}
     auth_store = FamilyAuthStore(ROOT)
     owner_password = (
-        str(os.environ.get("FOXFORGE_OWNER_PASSWORD", "")).strip()
-        or str(os.environ.get("FOXFORGE_WEB_PASSWORD", "")).strip()
+        str(os.environ.get("OATHWEAVER_OWNER_PASSWORD", "")).strip()
+        or str(os.environ.get("OATHWEAVER_WEB_PASSWORD", "")).strip()
     )
-    owner_username = str(os.environ.get("FOXFORGE_OWNER_USERNAME", "owner")).strip() or "owner"
+    owner_username = str(os.environ.get("OATHWEAVER_OWNER_USERNAME", "owner")).strip() or "owner"
     try:
         owner_profile = auth_store.ensure_owner(owner_password=owner_password, owner_username=owner_username)
     except ValueError as exc:
         raise RuntimeError(
-            "Foxforge owner setup is incomplete. Set FOXFORGE_OWNER_PASSWORD for first boot."
+            "Oathweaver owner setup is incomplete. Set OATHWEAVER_OWNER_PASSWORD for first boot."
         ) from exc
     owner_id = str(owner_profile.get("id", "")).strip()
 
-    session_secret = str(os.environ.get("FOXFORGE_WEB_SECRET", "")).strip()
+    session_secret = str(os.environ.get("OATHWEAVER_WEB_SECRET", "")).strip()
     if not session_secret:
         session_secret = _load_or_create_secret(ROOT / "Runtime" / "web" / "session_secret.txt")
     app.secret_key = session_secret
     app.config["SESSION_COOKIE_HTTPONLY"] = True
     app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
     app.config["SESSION_COOKIE_SECURE"] = False
-    _session_hours = max(1, int(os.environ.get("FOXFORGE_SESSION_HOURS", "24")))
+    _session_hours = max(1, int(os.environ.get("OATHWEAVER_SESSION_HOURS", "24")))
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_session_hours)
 
     @app.before_request
-    def _foxforge_start_background_services() -> None:
+    def _oathweaver_start_background_services() -> None:
         _ensure_background_services_started(app)
 
     panel_cache: dict[str, dict[str, Any]] = {}
@@ -225,8 +224,6 @@ def create_app() -> Flask:
 
     app.register_blueprint(create_family_blueprint(ctx))
 
-    app.register_blueprint(create_personal_memory_blueprint(ctx))
-
     return app
 
 
@@ -238,9 +235,9 @@ if __name__ == "__main__":
     # so bots connect immediately on startup rather than waiting for the first web request.
     _ensure_background_services_started(app)
 
-    host = os.environ.get("FOXFORGE_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0"
+    host = os.environ.get("OATHWEAVER_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0"
     try:
-        port = int(os.environ.get("FOXFORGE_WEB_PORT", "5050").strip())
+        port = int(os.environ.get("OATHWEAVER_WEB_PORT", "5050").strip())
     except ValueError:
         port = 5050
     app.run(host=host, port=port, debug=False, threaded=True)

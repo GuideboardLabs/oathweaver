@@ -10,7 +10,7 @@ from orchestrator.services.make_type_classifier import classify, train
 
 class MakeTypeClassifierTests(unittest.TestCase):
     def test_keyword_training_and_classification(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="foxforge_make_cls_") as tmpdir:
+        with tempfile.TemporaryDirectory(prefix="oathweaver_make_cls_") as tmpdir:
             root = Path(tmpdir)
             out_dir = root / "Runtime" / "models" / "make_type_setfit"
             rows = [

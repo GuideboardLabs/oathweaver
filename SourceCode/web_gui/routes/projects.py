@@ -19,10 +19,10 @@ from web_gui.utils.request_utils import parse_optional_int
 
 if TYPE_CHECKING:
     from web_gui.app_context import AppContext
-    from orchestrator.main import FoxforgeOrchestrator
+    from orchestrator.main import OathweaverOrchestrator
 
 
-def _project_panel_rows(ctx: AppContext, orch: FoxforgeOrchestrator, limit: int = 40) -> list[dict]:
+def _project_panel_rows(ctx: AppContext, orch: OathweaverOrchestrator, limit: int = 40) -> list[dict]:
     projects_root = orch.repo_root / "Projects"
     project_map: dict[str, dict] = {}
     pipeline_rows = ProjectPipelineStore(orch.repo_root).list_all()
@@ -142,7 +142,7 @@ def _project_panel_rows(ctx: AppContext, orch: FoxforgeOrchestrator, limit: int 
     return rows_list[: max(1, min(limit, 200))]
 
 
-def _project_details(ctx: AppContext, orch: FoxforgeOrchestrator, slug: str, event_limit: int = 60, artifact_limit: int = 40) -> dict:
+def _project_details(ctx: AppContext, orch: OathweaverOrchestrator, slug: str, event_limit: int = 60, artifact_limit: int = 40) -> dict:
     project = _normalize_project_slug(slug)
     pipeline_store = ProjectPipelineStore(orch.repo_root)
     rows = _project_panel_rows(ctx, orch, limit=500)
@@ -219,7 +219,7 @@ def _clean_output_title(raw_stem: str) -> str:
 
 def _collect_project_make_outputs(
     *,
-    orch: FoxforgeOrchestrator,
+    orch: OathweaverOrchestrator,
     project: str,
     limit: int,
 ) -> list[dict[str, Any]]:

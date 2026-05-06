@@ -29,8 +29,8 @@ def _prepare_temp_root(temp_root: Path) -> None:
 
 
 def main() -> int:
-    os.environ.setdefault("FOXFORGE_OWNER_PASSWORD", "smoke-test-password")
-    os.environ.setdefault("FOXFORGE_AUTH_ENABLED", "0")
+    os.environ.setdefault("OATHWEAVER_OWNER_PASSWORD", "smoke-test-password")
+    os.environ.setdefault("OATHWEAVER_AUTH_ENABLED", "0")
 
     from web_gui import app as appmod
 

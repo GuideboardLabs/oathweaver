@@ -27,5 +27,5 @@ def ensure_runtime(repo_root: Path) -> None:
     _ensure_json(repo_root / 'Runtime' / 'web' / 'settings.json', {'mode': 'off', 'provider': 'auto'})
     (repo_root / 'Runtime' / 'briefings').mkdir(parents=True, exist_ok=True)
     (repo_root / 'Runtime' / 'conversations').mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault('FOXFORGE_OWNER_PASSWORD', 'test-password')
-    os.environ.setdefault('FOXFORGE_AUTH_ENABLED', '0')
+    os.environ.setdefault('OATHWEAVER_OWNER_PASSWORD', 'test-password')
+    os.environ.setdefault('OATHWEAVER_AUTH_ENABLED', '0')

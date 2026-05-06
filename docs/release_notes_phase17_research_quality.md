@@ -1,4 +1,4 @@
-# Foxforge Release: Research Quality Pass (Phases 15-17)
+# Oathweaver Release: Research Quality Pass (Phases 15-17)
 
 This release adds three high-ROI research quality upgrades aimed at moving sports/news/event summaries from "good" to "sharper and more trustworthy":
 

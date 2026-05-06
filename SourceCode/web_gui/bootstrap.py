@@ -90,12 +90,12 @@ def _register_watchtower_push_listener(repo_root: Path) -> None:
         def _on_watch_completed(data: dict) -> None:
             try:
                 watch_id = str(data.get("watch_id", "")).strip()
-                briefing_id = str(data.get("briefing_id", "")).strip()
+                card_id = str(data.get("card_id", data.get("briefing_id", ""))).strip()
                 wt = get_watchtower(repo_root)
-                briefing = wt.get_briefing(briefing_id) if briefing_id else None
-                topic = str((briefing or {}).get("topic", "Foxforge Watch")).strip() or "Foxforge Watch"
-                preview = str((briefing or {}).get("preview", "")).strip()
-                body = (preview[:200] + "…") if len(preview) > 200 else preview or "New briefing ready."
+                card = wt.get_research_card(card_id) if card_id else None
+                topic = str((card or {}).get("topic", "Oathweaver Watch")).strip() or "Oathweaver Watch"
+                preview = str((card or {}).get("preview", "")).strip()
+                body = (preview[:200] + "…") if len(preview) > 200 else preview or "New research card ready."
 
                 from shared_tools.web_push import send_notification
                 # Send to all known users (typically just the owner for a home setup)
@@ -110,8 +110,8 @@ def _register_watchtower_push_listener(repo_root: Path) -> None:
                         send_notification(
                             repo_root,
                             uid,
-                            {"title": f"Briefing: {topic}", "body": body, "icon": "/static/icons/icon-192.png"},
-                            event_key=f"watch_{briefing_id or watch_id}",
+                            {"title": f"Research Card: {topic}", "body": body, "icon": "/static/icons/icon-192.png"},
+                            event_key=f"watch_{card_id or watch_id}",
                         )
                     except Exception:
                         LOGGER.exception("Watchtower web push delivery failed for user %s.", uid)
@@ -189,7 +189,7 @@ class DailyDigestScheduler(threading.Thread):
         self._send_digest(cfg)
 
     def _load_config(self) -> dict:
-        cfg_path = self.repo_root / "Runtime" / "config" / "foxforge_settings.json"
+        cfg_path = self.repo_root / "Runtime" / "config" / "oathweaver_settings.json"
         if not cfg_path.exists():
             return {}
         try:
@@ -237,8 +237,8 @@ def _fix_runtime_permissions(repo_root: Path) -> None:
         runtime / "web" / "session_secret.txt",
         runtime / "cloud" / "settings.json",
         runtime / "config" / "bot_config.json",
-        runtime / "state" / "foxforge.db",
-        runtime / "foxforge.db",
+        runtime / "state" / "oathweaver.db",
+        runtime / "oathweaver.db",
     ]
     for p in sensitive_files:
         if p.exists():
@@ -287,13 +287,13 @@ def ensure_background_services_started(repo_root: Path, app: Flask | None = None
     logger = getattr(app, "logger", LOGGER)
     if app is not None:
         with app.app_context():
-            state = app.extensions.setdefault("foxforge_background_services", {"started": False})
+            state = app.extensions.setdefault("oathweaver_background_services", {"started": False})
             if state.get("started"):
                 return
             try:
                 get_watchtower(repo_root).start_background_thread()
             except Exception:
-                logger.exception("Failed to initialize Foxforge background services.")
+                logger.exception("Failed to initialize Oathweaver background services.")
                 raise
             state["started"] = True
             threading.Thread(
@@ -318,7 +318,7 @@ def ensure_background_services_started(repo_root: Path, app: Flask | None = None
                 target=_start_bots_safe,
                 args=(repo_root,),
                 daemon=True,
-                name="foxforge-bots",
+                name="oathweaver-bots",
             ).start()
             return
 
@@ -345,7 +345,7 @@ def ensure_background_services_started(repo_root: Path, app: Flask | None = None
         target=_start_bots_safe,
         args=(repo_root,),
         daemon=True,
-        name="foxforge-bots",
+        name="oathweaver-bots",
     ).start()
 
 

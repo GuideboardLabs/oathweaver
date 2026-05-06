@@ -11,7 +11,7 @@ Set-StrictMode -Version Latest
 $RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
 
 if (-not $OutputZip) {
-    $OutputZip = Join-Path $RepoRoot ("Foxforge_clean_{0:yyyyMMdd_HHmmss}.zip" -f (Get-Date))
+    $OutputZip = Join-Path $RepoRoot ("Oathweaver_clean_{0:yyyyMMdd_HHmmss}.zip" -f (Get-Date))
 }
 
 $OutputZip = [System.IO.Path]::GetFullPath($OutputZip)
@@ -20,7 +20,7 @@ if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 }
 
-$stageRoot = Join-Path $env:TEMP ("foxforge_clean_stage_{0}" -f ([Guid]::NewGuid().ToString("N")))
+$stageRoot = Join-Path $env:TEMP ("oathweaver_clean_stage_{0}" -f ([Guid]::NewGuid().ToString("N")))
 New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
 
 function Copy-RelativePath {
@@ -43,10 +43,10 @@ function Copy-RelativePath {
 }
 
 try {
-    Write-Host "Creating clean Foxforge ZIP..." -ForegroundColor Cyan
+    Write-Host "Creating clean Oathweaver ZIP..." -ForegroundColor Cyan
     Write-Host "Stage: $stageRoot"
 
-    $installerExeRelative = "FoxforgeInstaller.exe"
+    $installerExeRelative = "OathweaverInstaller.exe"
     $installerExePath = Join-Path $RepoRoot $installerExeRelative
     if ($BuildInstallerExe) {
         $buildScript = Join-Path $RepoRoot "build_installer_exe.ps1"
@@ -80,10 +80,10 @@ try {
         "THIRD_PARTY_NOTICES.md",
         "CONTRIBUTING.md",
         "requirements.txt",
-        "start_foxforge.ps1",
-        "start_foxforge_web.ps1",
+        "start_oathweaver.ps1",
+        "start_oathweaver_web.ps1",
         "start_web_foraging_stack.ps1",
-        "install_foxforge.ps1",
+        "install_oathweaver.ps1",
         "build_installer_exe.ps1",
         "create_clean_zip.ps1",
         "run_integration_tests.py",

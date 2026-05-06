@@ -1,4 +1,4 @@
-"""Status aggregation — builds the Foxforge status dashboard text."""
+"""Status aggregation — builds the Oathweaver status dashboard text."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def build_status_text(
     ready_for_ingest = len([x for x in monitored if str(x.get("status", "")) == "ready_for_ingest"])
     last_event = rows[-1].get("event") if rows else "none"
     return "\n".join([
-        "Foxforge status:",
+        "Oathweaver status:",
         f"- active_project: {project_slug}",
         f"- total_events: {len(rows)}",
         f"- pending_approvals: {len(pending)}",

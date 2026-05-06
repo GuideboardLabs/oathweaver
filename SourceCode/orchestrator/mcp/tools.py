@@ -55,9 +55,9 @@ def recall(
 
 
 def make_artifact(repo_root: Path, type_id: str, spec: str) -> dict[str, Any]:
-    from orchestrator.main import FoxforgeOrchestrator
+    from orchestrator.main import OathweaverOrchestrator
 
-    orch = FoxforgeOrchestrator(Path(repo_root))
+    orch = OathweaverOrchestrator(Path(repo_root))
     mode = {
         "mode": "make",
         "target": str(type_id or "auto").strip().lower() or "auto",

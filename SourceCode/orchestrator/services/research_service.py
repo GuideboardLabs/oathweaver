@@ -389,6 +389,14 @@ class ResearchService:
         yield_checker=None,
         progress_callback=None,
     ) -> dict[str, Any]:
+        kernel_row: dict[str, Any] = {}
+        if hasattr(host, "project_kernel_store"):
+            try:
+                kernel_row = host.project_kernel_store.snapshot(host.project_slug)
+            except Exception:
+                kernel_row = {}
+        execution = kernel_row.get("execution_spine", {}) if isinstance(kernel_row.get("execution_spine", {}), dict) else {}
+        knowledge = kernel_row.get("knowledge_spine", {}) if isinstance(kernel_row.get("knowledge_spine", {}), dict) else {}
         if hasattr(host, "_run_registered_agent") and hasattr(host, "_make_agent_task"):
             return host._run_registered_agent(
                 "research",
@@ -399,6 +407,10 @@ class ResearchService:
                     context={
                         "web_context": web_context,
                         "topic_type": topic_type,
+                        "domain": str(knowledge.get("domain", "")).strip(),
+                        "research_focus": str(execution.get("research_focus", "")).strip(),
+                        "make_type": str(execution.get("make_type", "")).strip(),
+                        "make_intent": str(execution.get("make_intent", "")).strip(),
                     },
                     cancel_checker=cancel_checker,
                     pause_checker=pause_checker,
@@ -419,6 +431,10 @@ class ResearchService:
                 yield_checker=yield_checker,
                 progress_callback=progress_callback,
                 topic_type=topic_type,
+                domain=str(knowledge.get("domain", "")).strip(),
+                research_focus=str(execution.get("research_focus", "")).strip(),
+                make_type=str(execution.get("make_type", "")).strip(),
+                make_intent=str(execution.get("make_intent", "")).strip(),
             )
         raise RuntimeError("No research pool executor is available.")
 

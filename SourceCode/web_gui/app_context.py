@@ -16,7 +16,7 @@ from shared_tools.web_push import (
     get_user_settings as get_web_push_user_settings,
     send_notification as send_web_push_notification,
 )
-from orchestrator.main import FoxforgeOrchestrator
+from orchestrator.main import OathweaverOrchestrator
 from web_gui.bootstrap import get_watchtower, get_topic_engine
 from web_gui.services import JobManager, ForagingManager
 from web_gui.services.building_manager import BuildingManager
@@ -123,8 +123,8 @@ class AppContext:
         uid = str(profile.get("id", "")).strip()
         return ConversationStore(self.root, user_id=uid)
 
-    def new_orch(self, profile: dict[str, Any]) -> FoxforgeOrchestrator:
-        return FoxforgeOrchestrator(self.repo_root_for_profile(profile))
+    def new_orch(self, profile: dict[str, Any]) -> OathweaverOrchestrator:
+        return OathweaverOrchestrator(self.repo_root_for_profile(profile))
 
     def pipeline_for(self, profile: dict[str, Any]) -> ProjectPipelineStore:
         return ProjectPipelineStore(self.repo_root_for_profile(profile))
@@ -164,8 +164,8 @@ class AppContext:
 
     def display_name(self, profile: dict[str, Any] | None) -> str:
         if not isinstance(profile, dict):
-            return "Foxforge"
-        return str(profile.get("display_name") or profile.get("username") or "Foxforge").strip() or "Foxforge"
+            return "Oathweaver"
+        return str(profile.get("display_name") or profile.get("username") or "Oathweaver").strip() or "Oathweaver"
 
     def dispatch_web_push(self, user_id: str, payload: dict[str, Any], *, event_key: str = "", test_send: bool = False) -> None:
         uid = str(user_id or "").strip()
@@ -180,7 +180,7 @@ class AppContext:
             except Exception:
                 LOGGER.exception("Web push delivery failed for user %s.", uid)
 
-        threading.Thread(target=_run, daemon=True, name=f"foxforge-web-push-{uid[:8]}").start()
+        threading.Thread(target=_run, daemon=True, name=f"oathweaver-web-push-{uid[:8]}").start()
 
     def web_push_settings_payload(self, profile: dict[str, Any]) -> dict[str, Any]:
         user_id = str(profile.get("id", "")).strip()
@@ -398,7 +398,7 @@ class AppContext:
         failures: list[str] = []
         prompt_focus = user_text.strip() or "Describe important details, text, and context in this image."
         system_prompt = (
-            "You are a visual analyst for Foxforge. "
+            "You are a visual analyst for Oathweaver. "
             "Describe what is visible, extract any readable text, and infer relevant context. "
             "Be concrete and concise."
         )
@@ -451,7 +451,7 @@ class AppContext:
     ) -> tuple[dict[str, Any], str]:
         conversation_id = str(conversation.get("id", "")).strip()
         title_text = str(conversation.get("title", "")).strip() or "Conversation"
-        raw_content = str(message.get("content", "")).strip() or "Foxforge posted a new reply."
+        raw_content = str(message.get("content", "")).strip() or "Oathweaver posted a new reply."
         compact = " ".join(raw_content.split())
         preview = compact[:157] + "..." if len(compact) > 160 else compact
         is_foraging = bool(message.get("foraging", False))
@@ -462,7 +462,7 @@ class AppContext:
             title = f"Build finished in {title_text}"
         else:
             title = f"New message in {title_text}"
-        body = preview or f"{self.display_name(profile)} has a new Foxforge reply."
+        body = preview or f"{self.display_name(profile)} has a new Oathweaver reply."
         cid = str(conversation_id or "").strip()
         url = f"/#{cid}" if cid else "/"
         payload = {
@@ -491,17 +491,17 @@ class AppContext:
             return 0
 
     # ------------------------------------------------------------------
-    # Foxforge settings helpers
+    # Oathweaver settings helpers
     # ------------------------------------------------------------------
 
-    def _foxforge_settings_path(self) -> Path:
-        p = self.root / "Runtime" / "config" / "foxforge_settings.json"
+    def _oathweaver_settings_path(self) -> Path:
+        p = self.root / "Runtime" / "config" / "oathweaver_settings.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
 
-    def load_foxforge_settings(self) -> dict[str, Any]:
+    def load_oathweaver_settings(self) -> dict[str, Any]:
         import json
-        p = self._foxforge_settings_path()
+        p = self._oathweaver_settings_path()
         if not p.exists():
             return {}
         try:
@@ -510,9 +510,9 @@ class AppContext:
         except Exception:
             return {}
 
-    def save_foxforge_settings(self, data: dict[str, Any]) -> None:
+    def save_oathweaver_settings(self, data: dict[str, Any]) -> None:
         import json
-        p = self._foxforge_settings_path()
+        p = self._oathweaver_settings_path()
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(data, indent=2, ensure_ascii=True), encoding="utf-8")
         tmp.replace(p)

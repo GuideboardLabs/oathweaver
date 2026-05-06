@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 from flask import Blueprint, abort, render_template, send_from_directory
 
 from shared_tools.optional_features import optional_feature_status
+from shared_tools.phase0 import enrich_phase0_aliases
 from web_gui.routes.system_support import _STATIC_DIR, asset_versions, guess_mime_from_ext
 
 if TYPE_CHECKING:
@@ -84,11 +85,11 @@ def register_health_routes(bp: Blueprint, ctx: AppContext) -> None:
             building = ctx.building_manager.snapshot(profile_id=str(profile.get("id", "")))
             try:
                 wt_local = ctx.get_watchtower()
-                briefings_unread = wt_local.unread_count()
+                cards_unread = wt_local.unread_count()
                 watchtower_active = len([w for w in (wt_local.list_watches() if hasattr(wt_local, "list_watches") else []) if w.get("enabled", True)])
                 action_proposals_pending = len(orch.approval_gate.list_action_proposals(limit=500))
             except Exception:
-                briefings_unread = 0
+                cards_unread = 0
                 watchtower_active = 0
                 action_proposals_pending = 0
             try:
@@ -142,7 +143,7 @@ def register_health_routes(bp: Blueprint, ctx: AppContext) -> None:
                 "building_completion_unread": bool(building.get("completion_unread", False)),
                 "building_last_completed_at": str(building.get("last_completed_at", "")).strip(),
                 "building_updated_at": str(building.get("updated_at", "")).strip(),
-                "briefings_unread": briefings_unread,
+                "cards_unread": cards_unread,
                 "action_proposals_pending": action_proposals_pending,
                 "watchtower_active": watchtower_active,
                 "topics_with_research": topics_with_research,
@@ -152,13 +153,20 @@ def register_health_routes(bp: Blueprint, ctx: AppContext) -> None:
             }
 
         payload = ctx.cache_get(cache_scope, "panel_status", ttl_sec=1.5, build_fn=_build)
+        payload = enrich_phase0_aliases(payload)
         return payload, 200
 
     @bp.route("/api/foraging/state", methods=["GET"])
     def foraging_state_api() -> tuple[dict, int]:
         profile = ctx.require_profile()
         snapshot = ctx.foraging_manager.snapshot(profile_id=str(profile.get("id", "")))
-        return {"ok": True, **snapshot}, 200
+        return enrich_phase0_aliases({"ok": True, **snapshot}), 200
+
+    @bp.route("/api/research/state", methods=["GET"])
+    def research_state_api() -> tuple[dict, int]:
+        profile = ctx.require_profile()
+        snapshot = ctx.foraging_manager.snapshot(profile_id=str(profile.get("id", "")))
+        return enrich_phase0_aliases({"ok": True, **snapshot}), 200
 
     @bp.route("/api/home/companion-images", methods=["GET"])
     def home_companion_images_list() -> tuple[dict, int]:

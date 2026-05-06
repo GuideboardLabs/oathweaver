@@ -29,7 +29,7 @@ def _write_routing(repo_root: Path, payload: dict) -> None:
 
 class SeverityFiveEscalationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="foxforge_severity5_")
+        self.tmpdir = tempfile.TemporaryDirectory(prefix="oathweaver_severity5_")
         self.repo_root = Path(self.tmpdir.name)
         ensure_runtime(self.repo_root)
         _write_routing(

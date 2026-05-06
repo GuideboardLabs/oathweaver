@@ -155,7 +155,7 @@ def _webpush_library_error() -> str:
 
 
 def get_vapid_config(repo_root: Path) -> dict[str, Any]:
-    subject = "mailto:foxforge@example.invalid"
+    subject = "mailto:oathweaver@example.invalid"
     path = _vapid_path(repo_root)
     with _VAPID_LOCK:
         try:
@@ -322,7 +322,7 @@ def send_notification(
     from pywebpush import WebPushException, webpush
 
     serialized = json.dumps(payload, ensure_ascii=True)
-    claims = {"sub": str(vapid.get("subject", "")).strip() or "mailto:foxforge@example.invalid"}
+    claims = {"sub": str(vapid.get("subject", "")).strip() or "mailto:oathweaver@example.invalid"}
     stale_endpoints: set[str] = set()
     errors: list[str] = []
     sent = 0

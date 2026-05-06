@@ -27,7 +27,7 @@ def _normalize_project_slug(raw: str | None) -> str:
 def _normalize_mode(raw: str | None) -> str:
     value = str(raw or "").strip().lower()
     aliases = {
-        "research": "discovery", "extend": "discovery", "extend_foxforge": "discovery",
+        "research": "discovery", "extend": "discovery", "extend_oathweaver": "discovery",
         "foraging": "discovery", "plan": "discovery", "build": "make",
         "build_make": "make", "build/make": "make",
     }

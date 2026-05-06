@@ -64,17 +64,6 @@ def analyze_query_context(query: str) -> dict[str, Any]:
     recommendation_query = any(token in low for token in ("should i", "what should", "help me choose", "recommend"))
     direct_answer_query = any(token in low for token in ("write", "draft", "rewrite", "summarize", "translate"))
 
-    allow_personal = bool(
-        explicit_memory_query
-        or family_query
-        or pet_query
-        or profile_query
-        or preference_query
-        or routine_query
-        or (recommendation_query and (family_query or pet_query or preference_query))
-    )
-    personal_priority = "high" if explicit_memory_query or family_query or pet_query else ("medium" if allow_personal else "low")
-
     return {
         "query": text,
         "terms": sorted(terms),
@@ -86,8 +75,6 @@ def analyze_query_context(query: str) -> dict[str, Any]:
         "routine_query": routine_query,
         "recommendation_query": recommendation_query,
         "direct_answer_query": direct_answer_query,
-        "allow_personal": allow_personal,
-        "personal_priority": personal_priority,
     }
 
 
@@ -108,10 +95,8 @@ def build_context_usage_guidance(
         lines.append("- The user explicitly asked about memory/context. It is fine to explain what you know and where it came from.")
     else:
         lines.append("- Do not say you remembered something or mention memory systems unless the user asks.")
-    if personal_available and bool(analysis.get("allow_personal", False)):
-        lines.append("- Personal context is relevant here. Use only the smallest detail that changes the advice or answer.")
-    elif personal_available:
-        lines.append("- Personal context is probably not relevant. Do not force personalization.")
+    if personal_available:
+        lines.append("- Keep contextual references minimal and only when they materially change the answer.")
     if bool(analysis.get("recommendation_query", False)):
         lines.append("- If context changes the recommendation, apply it directly instead of narrating it.")
     if bool(analysis.get("direct_answer_query", False)):
@@ -123,8 +108,8 @@ def evaluate_context_use(
     user_text: str,
     assistant_text: str,
     *,
-    personal_context_available: bool = False,
-    personal_context_injected: bool = False,
+    personal_context_available: bool = False,  # retained for compatibility; ignored
+    personal_context_injected: bool = False,  # retained for compatibility; ignored
 ) -> dict[str, Any]:
     analysis = analyze_query_context(user_text)
     reply = _clean_text(assistant_text).lower()
@@ -135,16 +120,6 @@ def evaluate_context_use(
     if intrusive_hits and not bool(analysis.get("explicit_memory_query", False)):
         score -= min(0.34, 0.14 * intrusive_hits)
         notes.append(f"intrusive_context_mention={intrusive_hits}")
-
-    if personal_context_injected and not bool(analysis.get("allow_personal", False)):
-        score -= 0.18
-        notes.append("personal_context_injected_without_clear_need")
-    elif personal_context_injected:
-        score += 0.06
-        notes.append("personal_context_injected_with_clear_need")
-    elif personal_context_available and bool(analysis.get("allow_personal", False)) and str(analysis.get("personal_priority", "low")) == "high":
-        score -= 0.12
-        notes.append("missed_high_value_personal_context")
 
     if bool(analysis.get("explicit_memory_query", False)):
         if any(token in reply for token in ("memory", "remember", "context", "know that")):

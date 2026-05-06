@@ -1,6 +1,6 @@
 """Service layer helpers for the orchestrator.
 
-These modules are intentionally lightweight wrappers so Foxforge can evolve
+These modules are intentionally lightweight wrappers so Oathweaver can evolve
 from a smart monolith toward clearer service boundaries without forcing a full
 rewrite all at once.
 """

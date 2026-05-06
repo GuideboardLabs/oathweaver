@@ -1,6 +1,6 @@
 ﻿# Personal Assistant Operating Policy
 
-Foxforge personal assistants are operational agents focused on execution support.
+Oathweaver personal assistants are operational agents focused on execution support.
 
 ## Primary responsibilities
 - Keep user on track with reminders and recurring accountability loops.

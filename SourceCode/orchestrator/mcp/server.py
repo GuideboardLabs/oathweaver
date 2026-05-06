@@ -19,7 +19,7 @@ def create_server(repo_root: Path) -> Any:
         raise RuntimeError("MCP SDK is not installed. Install `mcp==1.27.*` to enable server mode.")
 
     root = Path(repo_root).resolve()
-    server = FastMCP("foxforge")
+    server = FastMCP("oathweaver")
 
     @server.tool()
     def forage(query: str, depth: str = "quick") -> dict[str, Any]:
@@ -65,5 +65,5 @@ def run_http(repo_root: Path, *, host: str = "127.0.0.1", port: int = 9876) -> N
     token = token_path.read_text(encoding="utf-8").strip() if token_path.exists() else ""
     if not token:
         raise RuntimeError("HTTP MCP transport requires Runtime/state/mcp_token bearer token file.")
-    os.environ.setdefault("FOXFORGE_MCP_BEARER_TOKEN", token)
+    os.environ.setdefault("OATHWEAVER_MCP_BEARER_TOKEN", token)
     server.run(transport="streamable-http", host=host, port=int(port))

@@ -71,13 +71,13 @@ def main() -> int:
     source_repo = Path(__file__).resolve().parent
     failures = 0
 
-    with tempfile.TemporaryDirectory(prefix="foxforge_smoke_") as tmpdir:
-        tmp_repo = Path(tmpdir) / "Foxforge"
+    with tempfile.TemporaryDirectory(prefix="oathweaver_smoke_") as tmpdir:
+        tmp_repo = Path(tmpdir) / "Oathweaver"
         shutil.copytree(source_repo, tmp_repo, ignore=_ignore_filter)
         _prepare_runtime(tmp_repo)
 
-        os.environ.setdefault("FOXFORGE_OWNER_PASSWORD", "smoke-test-password")
-        os.environ.setdefault("FOXFORGE_AUTH_ENABLED", "0")
+        os.environ.setdefault("OATHWEAVER_OWNER_PASSWORD", "smoke-test-password")
+        os.environ.setdefault("OATHWEAVER_AUTH_ENABLED", "0")
 
         sys.path.insert(0, str(tmp_repo / "SourceCode"))
         sys.path.insert(0, str(tmp_repo))
@@ -163,7 +163,7 @@ def main() -> int:
 
         try:
             mainmod = importlib.import_module("orchestrator.main")
-            host_cls = getattr(mainmod, "FoxforgeOrchestrator")
+            host_cls = getattr(mainmod, "OathweaverOrchestrator")
             host = host_cls.__new__(host_cls)
             host.repo_root = tmp_repo
             artifacts = host._format_research_artifacts_block(

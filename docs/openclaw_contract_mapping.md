@@ -22,7 +22,7 @@ Required OpenClaw ack fields to normalize:
 - `status` (`acknowledged` or `working`)
 - `message` (optional human-readable confirmation)
 
-Normalization target in Foxforge:
+Normalization target in Oathweaver:
 
 - store `external_ref` on the request row
 - transition status to `acknowledged` (or `working`)

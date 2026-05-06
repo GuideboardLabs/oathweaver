@@ -1,8 +1,8 @@
-![Foxforge Banner](docs/images/banner.png)
+![Oathweaver Banner](docs/images/banner.png)
 
-# Foxforge
+# Oathweaver
 
-[![CI](https://github.com/GuideboardLabs/Foxforge/actions/workflows/ci.yml/badge.svg)](https://github.com/GuideboardLabs/Foxforge/actions/workflows/ci.yml)
+[![CI](https://github.com/GuideboardLabs/Oathweaver/actions/workflows/ci.yml/badge.svg)](https://github.com/GuideboardLabs/Oathweaver/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.10+-blue)
 ![Runtime](https://img.shields.io/badge/runtime-local--only-darkgreen)
 ![LLM](https://img.shields.io/badge/LLM-Ollama%20%7C%20llama.cpp-black)
@@ -11,14 +11,13 @@
 
 **Self-hosted AI workspace. No API keys. No cloud. No subscriptions. No frontier model calls. Ever.**
 
-Foxforge is a local-only AI workspace for research, writing, and software generation.
-It routes requests through specialized multi-agent pipelines — each lane a coordinated team of models working in defined stages toward a quality-controlled output. Everything runs on your own hardware, on models you control, with data that never leaves your machine.
+Oathweaver is a local-only AI workspace for research, writing, and software generation. Every request flows through a typed pipeline engine, executed by a roster of specialist agents over a scoped context-augmented memory layer. Everything runs on your own hardware, on models you control, with data that never leaves your machine.
 
 There is no external API integration and there never will be. The architecture is deliberately closed to frontier providers.
 
-## Why Foxforge
+## Why Oathweaver
 
-| | Foxforge | Cloud AI assistants |
+| | Oathweaver | Cloud AI assistants |
 |---|---|---|
 | **Runs on** | Your own hardware | Provider's servers |
 | **AI models** | Any Ollama-compatible or llama.cpp model | Locked to provider |
@@ -35,32 +34,32 @@ There is no external API integration and there never will be. The architecture i
 ### Fresh clone
 
 ```bash
-git clone https://github.com/GuideboardLabs/Foxforge.git
-cd Foxforge
+git clone https://github.com/GuideboardLabs/Oathweaver.git
+cd Oathweaver
 ```
 
 ### Linux (Ubuntu 24.04 / 22.04 LTS)
 
 ```bash
-chmod +x install_foxforge_linux.sh
-./install_foxforge_linux.sh
+chmod +x install_oathweaver_linux.sh
+./install_oathweaver_linux.sh
 ```
 
 Then start the app:
 
 ```bash
-sudo systemctl start foxforge
+sudo systemctl start oathweaver
 # or
-./start_foxforge.sh
+./start_oathweaver.sh
 ```
 
 ### Windows
 
 ```powershell
-git clone https://github.com/GuideboardLabs/Foxforge.git
-cd Foxforge
-powershell -ExecutionPolicy Bypass -File .\install_foxforge.ps1
-powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1
+git clone https://github.com/GuideboardLabs/Oathweaver.git
+cd Oathweaver
+powershell -ExecutionPolicy Bypass -File .\install_oathweaver.ps1
+powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1
 ```
 
 Open: `http://127.0.0.1:5050`
@@ -69,307 +68,178 @@ For recipient-friendly install steps, see [INSTALL_GUIDE.md](INSTALL_GUIDE.md).
 
 ---
 
-## The Lanes
+## Phase 0 Stripdown
 
-Foxforge routes every request through one of three top-level lanes. Each lane is a pipeline of specialized agents running local models in sequence — not a single prompt, not a single model.
+Oathweaver is in a CAG-native rebuild phase. Legacy surfaces have now been removed:
+
+- **Personal/life memory capture** has been removed.
+- **Image / video generation lanes** have been removed from the repository.
+- **Serious mode** defaults on (`OATHWEAVERX_SERIOUS_MODE=1`) — research, build, and writing pipelines run with evidence discipline and no playful framing.
+
+See [SourceCode/legacy/README.md](SourceCode/legacy/README.md) for migration notes.
 
 ---
 
-### Research Lane
+## Architecture
 
-Web and local evidence gathering, synthesis, and analysis. Powers the Fieldbook (web research) workflow.
+Oathweaver is built around five cooperating layers.
 
-**Tree planner** — a planner model (deepseek-r1:8b, `think=True`) decomposes the root question into a breadth/depth research tree. Leaves are assigned to the persona with the strongest affinity for that angle, so the four personas no longer fan out on identical questions.
+### 1. Pipeline Engine
 
-**Four personas** execute leaves (2 concurrent by default):
+Every non-trivial request is mapped onto a typed `PipelineSpec` with a fixed input contract, ordered stages, and a final stage. Three canonical pipelines are defined in [SourceCode/core/pipeline_engine/specs.py](SourceCode/core/pipeline_engine/specs.py):
 
-| Agent | Role | Model |
+| Pipeline | Stages |
+|---|---|
+| `research_pipeline` | intake → domain_framing → source_discovery → evidence_analysis → nuance_pass → synthesis → cag_promotion_gate |
+| `build_pipeline` | requirements → architecture → implementation_plan → patch_artifact_generation → verification |
+| `code_fix_pipeline` | planner → code_localizer → patch_writer → reviewer → test_fixer → finalizer |
+
+Each stage emits an output that is checked against an **OutputContract** ([SourceCode/core/output_contracts/](SourceCode/core/output_contracts/)) before downstream stages run. Contract failures surface as findings — they do not silently propagate as fabrication or truncation.
+
+### 2. Specialist Roster
+
+Stages are executed by a fixed roster of specialist agents in [SourceCode/specialists/](SourceCode/specialists/). Each specialist ships as a `SpecialistSkillPack` (role prompt, output schema, CAG query profile, retrieval template, few-shot library, tool permissions, verifier rubric).
+
+| Specialist | Typical stages |
+|---|---|
+| `planner` | intake, requirements, architecture, implementation_plan, patch_writer |
+| `researcher` | domain_framing, source_discovery, code_localizer |
+| `auditor` | evidence_analysis |
+| `skeptic` | nuance_pass, reviewer |
+| `synthesizer` | synthesis, finalizer |
+| `verifier` | verification, test_fixer |
+| `memory_critic` | cag_promotion_gate |
+
+Specialist selection is derived from `(stage, domain, make_type, research_focus)` — for runtime-systems work in computer science, for example, the planner becomes a `runtime_architect`, the auditor becomes a `benchmark_designer`, and the skeptic becomes a `systems_skeptic`.
+
+### 3. CAG Memory Layer
+
+Context-Augmented Generation memory ([SourceCode/cag/](SourceCode/cag/)) is the long-lived knowledge substrate. Memory rows are tagged with a `ScopeRow` across five levels:
+
+```
+domain → topic → thread → project → run
+```
+
+The CAG layer provides:
+
+- **`CAGMemoryStore`** — typed, scoped memory with lifecycle states.
+- **`ScopedSelector`** — retrieval scored by scope match, recency, and reputation.
+- **`PromotionGate`** — gates memory promotions across scope levels (run → project → thread → topic → domain).
+- **`ContradictionDetector`** — flags conflicting claims before promotion.
+- **`DecisionLedger`** — append-only record of decisions with provenance.
+
+### 4. Auditor + Trace Ledger
+
+Every stage write goes through a trace ledger. The auditor layer ([SourceCode/auditor/](SourceCode/auditor/)) provides:
+
+- **`TraceAnalyzer`** — finding-typed analysis over emitted traces.
+- **`AuditorEngine`** (implication engine) — derives downstream implications from new evidence.
+- **`BenchmarkImport`** — pulls external benchmark results into the project kernel.
+- **`RegressionReporter`** — diffs current runs against a baseline corpus.
+
+Combined with [SourceCode/core/replay/](SourceCode/core/replay/) and [SourceCode/core/state_store/](SourceCode/core/state_store/), any run is replayable from any node, and semantic drift across replays is reportable.
+
+### 5. Scheduler + Resource Budget
+
+The scheduler ([SourceCode/scheduler/](SourceCode/scheduler/)) decides what runs and when:
+
+- **`SpecialistRegistry`** — manifest-based registry of available specialists per role.
+- **`ResourceBudgetManager`** — per-hardware-profile budget for context, concurrency, and active models.
+- **`OnDeckRuntime`** — keeps a small pool of warm specialists ready for the next stage.
+- **`BenchManager`** — coordinates benchmark execution against the budget.
+
+A **Watchtower** layer ([SourceCode/watchtower/](SourceCode/watchtower/)) — knowledge gap detector, project readiness assessor, research card store, and scout — runs alongside the kernel to surface what is missing before the user has to ask.
+
+---
+
+## Build Surfaces (Make Pools)
+
+Build-pipeline runs are fronted by purpose-built pools that fill in stage outputs for a specific class of artifact. All pools are local-only, multi-agent, and emit through the same output-contract / trace pipeline.
+
+| Pool | Path | Purpose |
 |---|---|---|
-| Market Analyst | Market dynamics, alternatives, competitive positioning | qwen3:8b |
-| Technical Researcher | Feasibility, bottlenecks, implementation constraints | deepseek-r1:8b (`think=True`) |
-| Risk Researcher | Failure modes, mitigations, systemic constraints | deepseek-r1:8b (`think=True`) |
-| Execution Planner | Practical sequencing, milestones, resources needed | qwen3:8b |
+| Tool | [agents_tool/tool_pool.py](SourceCode/agents_tool/tool_pool.py) | Single-file Python 3.12+ CLIs / scripts with a self-fix loop |
+| Web app | [agents_make/app_pool.py](SourceCode/agents_make/app_pool.py) | Flask 3.x + Vue 3.5 (CDN) + SQLite, built on the fixed Canon v1 scaffold via slot-fills |
+| Desktop app | [agents_make/desktop_pool.py](SourceCode/agents_make/desktop_pool.py) | .NET 8 + Avalonia 11 + ReactiveUI MVVM scaffold, Windows-first with Linux portability |
+| UI | [agents_ui/ui_pool.py](SourceCode/agents_ui/ui_pool.py) | Flask backend + vanilla-JS frontend with a UX reviewer pass |
+| Essay | [agents_make/essay_pool.py](SourceCode/agents_make/essay_pool.py) | Short-to-medium essays / briefs / blogs with topic-aware templates |
+| Longform | [agents_make/longform_pool.py](SourceCode/agents_make/longform_pool.py) | Guides, tutorials, video scripts, newsletters, press releases with word-count enforcement |
+| Content | [agents_make/content_pool.py](SourceCode/agents_make/content_pool.py) | Blog posts, social posts, emails — feedback-learning informed |
+| Specialist | [agents_make/specialist_pool.py](SourceCode/agents_make/specialist_pool.py) | Domain-validated outputs (medical / finance / sports / history / game design) |
+| Creative | [agents_make/creative_pool.py](SourceCode/agents_make/creative_pool.py) | Novel / memoir / book / screenplay with continuity-aware scene writers |
 
-Personas can **hand off** leaves to each other when a question sits outside their competence — loop prevention and a per-leaf handoff cap keep routing bounded.
-
-Each agent applies **evidence discipline**: findings are labeled `[E]` (evidence-backed), `[I]` (inferred), or `[S]` (speculative). A self-check rates quality (1–5) before output. A gap assessment identifies what's missing. A final skeptic pass (deepseek-r1:8b) validates the full picture before synthesis.
-
-**Synthesizer** — unifies all persona streams into a coherent narrative with cross-persona consistency validation.
-
-**Citation linker** — post-processes synthesized text to anchor each sentence to the retrieved chunk that supports it; cosine-misaligned citations are dropped rather than passed through as fabrication.
-
-**Skeptic sidecar** — the skeptic pass revises the publishable synthesis directly and writes its rationale to a separate `*.critique.md` sidecar file (linked in the artifact block when present).
-
-**Web research cache** — repeat queries are served from a content-addressed SQLite cache with volatility-tiered TTL (24h general, 2h recency-sensitive, 10m live events).
-
-**Web foraging stack** (optional, Docker): SearXNG + Crawl4AI for live web research.
-
-**Stack-decision guard** — outside a `technical` topic, research requests that are purely stack-choice comparisons (for example SQLite vs Postgres, Flask vs FastAPI, Vue vs React) are short-circuited with guidance to re-run in a Technical topic.
+The Web app pool uses a **Canon v1** fixed scaffold ([agents_make/canon/web_app_v1/](SourceCode/agents_make/canon/web_app_v1/)) with named slot regions. The pool only fills slots; plumbing is asserted intact by the canon lints. **Extend Mode** copies a prior canon build and updates only the slots required by new features; legacy pre-canon builds are migrated into canon slots on first extend.
 
 ---
 
-### Make Lane
+## Taxonomy
 
-Artifact generation. The Make lane covers seven distinct pools, each a purpose-built multi-agent pipeline for a specific class of deliverable.
+A typed taxonomy ([SourceCode/taxonomy/](SourceCode/taxonomy/)) drives specialist selection, prompt assembly, and pool routing.
 
-All pools run entirely locally. No request touches a remote API.
+- **Domains** — `computer_science_programming`, `mathematics`, `science`, `history`, `writing_rhetoric`, `business_strategy`, `law_policy`, `engineering`, `creative`, `general_research`.
+- **Make types** — ~30 typed artifact targets across five families: programming, writing (serious), writing (creative), strategy / planning, research artifacts.
+- **Research focus** — implementation-focused, evidence-focused, comparative, exploratory.
 
----
-
-#### Essay Pool
-
-Short-to-medium documents: essays, reports, briefs.
-
-**Pipeline — 6 stages:**
-
-```
-Outliner → Writers (≤3 parallel) → Critic → Revisor → Compositor → Proofreader
-```
-
-| Stage | Agent | Model | Role |
-|---|---|---|---|
-| 1 | Outliner | qwen2.5:7b | Thesis and per-section structure |
-| 2 | Writers | qwen3:8b | ~400-word sections, parallel |
-| 3 | Critic | deepseek-r1:8b | Flags gaps, repetition, drift |
-| 4 | Revisor | qwen3:8b | Applies critic notes to flagged sections only |
-| 5 | Compositor | qwen2.5:7b | Title, transitions, conclusion |
-| 6 | Proofreader | deepseek-r1:8b | Fact contradictions, truncation, tense drift |
-
-**Topic-aware templates** adjust section structure automatically:
-
-- `history` — Background → Key events → Historiographical debate
-- `science` — Evidence review (RCT > observational > anecdotal) → Implications
-- `finance` — Market context → Risk factors → Thesis & recommendation *(not financial advice)*
-- `medical` — Clinical summary → Evidence tiers → Safety profile → Disclaimers *(not medical advice)*
-- `animal_care` — Vet-reviewed evidence → Safety profile → Owner considerations
-- `politics` — Policy context → Stakeholder analysis → Counter-arguments
-- `sports` — Statistical analysis → Risk & uncertainty → Analysis & outlook
-- `underground` — No restrictions; all agents route to unrestricted model
-- `technical`, `math`, `parenting`, `general` — Domain-specific variants
-
-**Output targets:** `essay` (full treatment), `brief` (skips critic/revision/proofreader), `blog`, `social_post`
-
-Underground topics route every agent to `huihui_ai/qwen3-abliterated:8b-Q4_K_M`.
+The combination `(domain, make_type, research_focus)` selects the pipeline, the specialist alias for each stage, and the CAG query profile.
 
 ---
 
-#### Longform Pool
+## Research Surface
 
-Extended structured outputs: long-form essays, guides, tutorials, video scripts, newsletters, press releases.
+Research-pipeline runs are executed by [SourceCode/agents_research/](SourceCode/agents_research/) under the `researcher` / `auditor` / `skeptic` / `synthesizer` specialist roles. Behavior:
 
-**Pipeline — 6 stages:**
+- **Tree-planned breadth/depth research** — the planner decomposes the root question into a leaf tree before any leaf is executed.
+- **Evidence discipline** — every finding is labeled `[E]` (evidence-backed), `[I]` (inferred), or `[S]` (speculative). The auditor stage rejects unsupported claims.
+- **Citation linker** — synthesized text is post-processed sentence-by-sentence against retrieved chunks; cosine-misaligned citations are dropped rather than passed through as fabrication.
+- **Skeptic sidecar** — the skeptic pass writes its rationale to a separate `*.critique.md` file linked from the artifact block.
+- **Web research cache** — content-addressed SQLite cache with volatility-tiered TTL (24h general, 2h recency-sensitive, 10m live events).
+- **Stack-decision guard** — outside a `technical` topic, requests that are purely stack-choice comparisons (SQLite vs Postgres, Flask vs FastAPI) are short-circuited with a re-routing nudge.
 
-```
-Planner → Writers (parallel) → Critic (think=True) → Revisor → Compositor → Quality Gate
-```
-
-**Type-specific targets with word count enforcement:**
-
-| Type | Word Range | Structure |
-|---|---|---|
-| `essay_long` | 1,800–3,500 | Hook → Argument pillars (3–5) → Steelman counterpoint → Synthesis |
-| `essay_short` | 400–900 | Hook → Argument → Counterpoint → Close |
-| `guide` | 1,000–2,500 | Prerequisites → Steps → Verification → Next steps |
-| `tutorial` | 1,200–3,000 | Goal → Setup → Core logic → Integration → Troubleshooting |
-| `video_script` | 1,500–4,000 | Hook (0–15s) → Premise → Beats → Turn/Reveal → CTA |
-| `newsletter` | 600–1,200 | This Week → Worth Your Time → One Idea → Dessert |
-| `press_release` | 400–700 | Headline → Dateline → Lede → Body → Boilerplate → Contact |
-
-Video scripts include `[SEGMENT: name]` and `[B-ROLL: description]` markers for production use.
-
-Public-content guardrail: planner/compositor stages avoid personal specifics from profile hints (family, pets, health, workplace) unless the user explicitly asks for them.
-
-**Models:** `qwen3:8b` (planner/writer/compositor), `deepseek-r1:8b` (critic, `think=True`). Upgrades to `qwen2.5:32b` + `deepseek-r1:14b` automatically when available.
+The optional **Web research stack** (SearXNG + Crawl4AI, Docker) provides live web foraging.
 
 ---
 
-#### Content Pool
+## Conversation Surface (Reynard Layer)
 
-Short-form, high-velocity content: blog posts, social posts, emails.
+User-facing messaging is mediated by the **Reynard layer** (`dolphin3:8b`, configured under `reynard_layer` in `model_routing.json`). Reynard is *not* the orchestrator — it sits above the kernel and dispatches into pipelines.
 
-**Pipeline — 6 stages:**
+**Two-stage routing gate.** Every incoming request is first scored by a semantic-router layer (embedding lookup against known web vs. no-web exemplars, ~20ms) and only falls through to the `gemma3:4b` intent confirmer for genuinely ambiguous messages. A second `qwen3:4b` context gate validates the routing decision against full conversation history before a research pipeline fires.
 
-```
-Planner → Writers (≤3 parallel) → Critic (think=True) → Revisor → Compositor → Quality Gate
-```
+**Fixed-stack capability injection.** For coding make_types, stack/framework/database choice is treated as system-fixed by default:
 
-| Type | Word Range | Notes |
-|---|---|---|
-| `blog` | 600–800 | Hook & headline → Context → Core (subheadings, examples) → CTA |
-| `social_post` | 80–220 | Stop-scrolling hook → Body (2–3 lines) → CTA. Platform-aware voice. |
-| `email` | 200–400 | Subject (<60 chars) → Front-loaded ask → Short body → Sign-off |
-
-Drafter and Polish agents use `huihui_ai/qwen3-abliterated:8b-Q4_K_M` for creative latitude. Critic uses `deepseek-r1:8b`. Integrates learned feedback from the FeedbackLearningEngine across prior Make runs.
-
-Public-content guardrail: planner/compositor stages avoid personal specifics from profile hints (family, pets, health, workplace) unless the user explicitly asks for them.
-
----
-
-#### Specialist Pool
-
-Domain-expert deliverables requiring specialized validation with enforced quality gates.
-
-**Pipeline — 7 stages:**
-
-```
-Outliner → Writers → Domain Critic (think=True) → Revisor → Compositor → Quality Gate
-```
-
-**Supported domains:**
-
-| Domain | Enforced Requirements |
-|---|---|
-| `medical` | Evidence tiers (RCT → observational → case study → opinion); safety profile; "not medical advice" |
-| `finance` | Risk disclosures; assumption clarity; "not financial advice" |
-| `sports` | Statistical claims with dates; injury/roster freshness notes |
-| `history` | Source quality notes; historiographical balance; date/actor specificity |
-| `game_design_doc` | Core loop clarity → Systems interlock → Scope feasibility → MVP vs. full vision |
-
-Quality Gate enforces minimum 1,500 character outputs for medical/finance/history, required disclaimer presence, and truncation rejection.
-
----
-
-#### Creative Pool
-
-Long-form creative writing: novels, memoirs, books, screenplays.
-
-**Pipeline — 5 stages:**
-
-```
-Story Planner → Scene Writers (sequential, continuity-aware) → Voice Critic → Revision → Compositor
-```
-
-Each scene writer receives the last 1,500 characters of the prior scene to maintain continuity. The Voice Critic checks tense, POV, pacing, and dialogue quality.
-
-**Kind-specific formatting enforced:**
-
-| Kind | Format Rules |
-|---|---|
-| `novel` | Scene headers, dialogue, interior monologue (italics), sensory anchoring, hooks |
-| `memoir` | First-person intimate voice, time/place anchoring, reflective passages |
-| `book` | Authority tone, thesis-driven, smooth evidence integration, reader address, subheadings |
-| `screenplay` | INT./EXT. headings, action (present tense, ≤3 lines), character cues, sparse parentheticals, transitions (CUT TO / DISSOLVE TO) |
-
----
-
-#### Web App Pool
-
-Full-stack web applications: Flask backend + Vue 3 frontend + SQLite database, built on a fixed Canon v1 scaffold.
-
-**Pipeline — 10 sequential stages:**
-
-```
-Spec Generator → Scaffold Copy → DB Architect (slot-fill) → API Implementer (slot-fill)
-→ Vue Architect → Vue Implementer (slot-fill) → Integration Check → Integration Fixer (slot-fill)
-→ CSS Writer (slot-fill) → README Writer (slot-fill)
-```
-
-| Stage | Output |
-|---|---|
-| Spec Generator | Emits validated `AppSpec` JSON (entities, routes, views) for deterministic slot-fills |
-| Scaffold Copy | Copies `agents_make/canon/web_app_v1/` (working app shell before feature slots are filled) |
-| DB Architect | Fills `schema.sql` slots (`tables`, `seeds`) from spec + life-admin seed |
-| API Implementer | Fills `app.py` feature slots only (routes/imports) with envelope helpers + `py_compile` import-smoke checks |
-| Vue Architect | Component/store plan derived from Flask routes |
-| Vue Implementer | Fills `index.html` + `app.js` feature slots (Vue 3.5 prod CDN, Composition API, fetch-based, no axios) |
-| Integration Check | Flags route/fetch mismatches, CORS issues, JSON field name divergence |
-| Integration Fixer | Re-fills only the impacted slots (no full-file rewrites) |
-| CSS Writer | Fills `styles.css` feature slot using Canon neuromorphic tokens (`var(--neu-*)`) |
-| README Writer | Fills `README.md` feature slots (`feature-list`, `run-notes`) |
-
-**Automated guardrails in-pipeline:** `py_compile` + import smoke + runtime smoke (`/api/health` + spec-derived GET probe), Vue binding audit (`setup()` return vs template refs), feature-coverage check (backend + frontend presence for user-named features), policy lints (route naming, envelope conformance, CSS token usage, strict comment/docstring checks), and plumbing integrity verification against Canon v1 outside slot regions.
-
-**Extend Mode** — detects existing builds automatically.
-- Canon build (`.canon-version` present): copies prior app and updates only named slots.
-- Legacy pre-canon build: one-shot migration into Canon slots, then pins `.canon-version` for all future extends.
-
-**Output structure:**
-```
-Projects/{slug}/implementation/{timestamp}_app/
-├── schema.sql
-├── db.py
-├── app.py
-├── templates/index.html
-├── static/app.js
-├── static/styles.css
-├── README.md
-├── BUILD_SUMMARY.md
-└── INTEGRATION_NOTES.md   (if integration issues were found and fixed)
-```
-
-**Model:** `qwen2.5-coder:7b` (or `qwen2.5-coder:14b` when available, all generation stages)
-
----
-
-#### Desktop App Pool
-
-Desktop applications: .NET 8 + Avalonia UI, MVVM, Windows-first with Linux portability.
-
-**Stack:** Avalonia 11.x UI framework + ReactiveUI ViewModels + SQLite data layer
-
-**Pipeline — 7 sequential stages:**
-
-```
-Specifier → Architect → ViewModel Impl → View Impl → Services Impl → Build Check → README Writer
-```
-
-| Stage | Output |
-|---|---|
-| Specifier | App name, features, state model, data layer, UI layout, external dependencies |
-| Architect | Full project scaffold: `.sln`, `.csproj`, `Program.cs`, `App.axaml` |
-| ViewModel Impl | ReactiveUI ViewModels with `[Reactive]` properties and `ReactiveCommand`s |
-| View Impl | AXAML Views (data-bound, no code-behind logic) + minimal code-behind files |
-| Services Impl | `IService` interfaces + implementations (repositories, file I/O, etc.) |
-| Build Check | Project structure validation, dotnet syntax check |
-| README Writer | Windows build steps, Linux port notes, MVVM architecture overview |
-
-**Output structure:**
-```
-Projects/{slug}/desktop_apps/{AppName}/
-├── README.md
-├── .gitignore
-├── {AppName}.sln
-└── src/{AppName}/
-    ├── {AppName}.csproj
-    ├── App.axaml / App.axaml.cs
-    ├── Program.cs
-    ├── ViewModels/
-    ├── Views/
-    ├── Models/
-    └── Services/
-```
-
-**Models:** `qwen2.5-coder:14b` (architect/implementation stages), `qwen3:8b` (spec/readme)
-
----
-
-### Talk Lane
-
-Conversational orchestration. Requests that aren't research or build tasks route here — the Reynard layer handles multi-turn dialogue, memory retrieval, and personal context via `dolphin3:8b`.
-
-**Fixed-stack capability injection.** Chat prompt assembly includes a static capabilities block for Make coding types:
-- `tool` → Python 3.12+ single-file/CLI stack
+- `cli_tool` / `developer_tool` → Python 3.12+ single-file/CLI stack
 - `web_app` → Flask 3.x + Vue 3.5 (CDN) + SQLite (`sqlite3`)
 - `desktop_app` → .NET 8 LTS + Avalonia 11 + ReactiveUI
 
-For these types, stack/framework/database choice is treated as system-fixed by default; re-evaluation is routed through a Technical topic.
-
-**Two-stage routing gate.** Every incoming request is first scored by a semantic-router layer (embedding lookup against known web vs. no-web exemplars, ~20ms) and only falls through to the `gemma3:4b` intent confirmer for genuinely ambiguous messages. A second `qwen3:4b` context gate validates the routing decision against full conversation history before any web-research pipeline fires, eliminating false-positive crawls on long technical messages.
+Re-evaluation of stack is routed through a Technical-domain research pipeline.
 
 ---
 
 ## Turn Orchestration (LangGraph)
 
-Every turn runs through a LangGraph `StateGraph` defined in [SourceCode/orchestrator/pipelines/turn_graph.py](SourceCode/orchestrator/pipelines/turn_graph.py):
+Every chat turn runs through a LangGraph `StateGraph` defined in [SourceCode/orchestrator/pipelines/turn_graph.py](SourceCode/orchestrator/pipelines/turn_graph.py):
 
 ```
 ingest → prompt_digest → intent_confirm → lane_route → context_gate
        → lane_execute → compose → persist
 ```
 
-State is checkpointed at every node boundary into `Runtime/state/turn_checkpoints.sqlite` via `SqliteSaver`. Any past turn can be replayed end-to-end or resumed from a specific node via [turn_replay.py](SourceCode/orchestrator/pipelines/turn_replay.py); a regression harness ([regression.py](SourceCode/orchestrator/pipelines/regression.py)) re-runs a curated set of past turns against current code and flags semantic drift via embedding cosine comparison.
+State is checkpointed at every node boundary into `Runtime/state/turn_checkpoints.sqlite` via `SqliteSaver`. Past turns can be replayed end-to-end or resumed from a specific node via [turn_replay.py](SourceCode/orchestrator/pipelines/turn_replay.py); the regression harness ([regression.py](SourceCode/orchestrator/pipelines/regression.py)) re-runs a curated set of past turns against current code and flags semantic drift via embedding cosine.
 
-This replaces the legacy monolithic dispatch and makes turn failures debuggable: a crashed node leaves preceding checkpoints intact for inspection and resumable replay.
+---
+
+## Interfaces
+
+Oathweaver ships four interface frontends on top of the same kernel ([SourceCode/interfaces/](SourceCode/interfaces/)):
+
+| Interface | Path | Notes |
+|---|---|---|
+| Web GUI | [SourceCode/web_gui/](SourceCode/web_gui/) | Flask app — primary UI, served on port 5050 |
+| OpenAI-compatible API | [interfaces/api/server.py](SourceCode/interfaces/api/server.py) | Local `/v1/*` endpoints over the kernel |
+| CLI | [interfaces/cli/](SourceCode/interfaces/cli/) | Single-shot kernel commands |
+| TUI | [interfaces/tui/](SourceCode/interfaces/tui/) | Textual-based terminal UI (plain-mode REPL fallback) |
+
+Optional bot adapters in [SourceCode/bots/](SourceCode/bots/) wrap the kernel for Discord, Slack, and Telegram.
 
 ---
 
@@ -377,122 +247,101 @@ This replaces the legacy monolithic dispatch and makes turn failures debuggable:
 
 | Task | Model | Context |
 |---|---|---|
-| Orchestration / reasoning | deepseek-r1:8b | 12,288 |
+| Reynard layer (user-facing) | dolphin3:8b | 8,192 |
+| Orchestration / reasoning | deepseek-r1:8b (`think=true`) | 12,288 |
 | Research & synthesis | qwen3:8b | 12,288 |
-| Conversation (Reynard) | dolphin3:8b | 8,192 |
 | Creative writing | qwen3:8b | 12,288 |
-| Content (unrestricted topics) | huihui_ai/qwen3-abliterated:8b-Q4_K_M | 8,192 |
-| Specialist / longform | qwen2.5:32b / deepseek-r1:14b (if available) | 24,576 |
+| Unrestricted-topic content | huihui_ai/qwen3-abliterated:8b-Q4_K_M | 8,192 |
+| Premium / longform (when available) | qwen2.5:32b, deepseek-r1:14b, qwen2.5-coder:14b | 16k–24k |
 | Code (web apps) | qwen2.5-coder:7b / :14b | 12,288 |
 | Desktop app scaffold | qwen2.5-coder:14b | 16,384 |
 | Intent gate | gemma3:4b | 4,096 |
 | Routing context gate | qwen3:4b | 4,096 |
 | Embeddings / RAG / semantic routing | qwen3-embedding:4b | — |
-| Make-type classifier (LT) | SetFit over sentence-transformers | CPU |
+| Make-type classifier | SetFit over sentence-transformers | CPU |
 
-All models run locally via Ollama or llama.cpp. Model assignments are configurable in `SourceCode/configs/model_routing.json`.
+All models run locally via Ollama or llama.cpp. Assignments are configurable in [SourceCode/configs/model_routing.json](SourceCode/configs/model_routing.json).
 
 ---
 
 ## Inference Backends
 
-Foxforge supports two local inference backends:
+Oathweaver supports two local inference backends:
 
-- **Ollama** — default backend; handles most models via the Ollama API
-- **llama.cpp** (OpenAI-compatible endpoint) — for TurboQuant and custom quantized models; configured per-model in `model_routing.json` under `llama_cpp_servers`
+- **Ollama** — default backend; handles most models via the Ollama API.
+- **llama.cpp** (OpenAI-compatible endpoint) — for TurboQuant and custom quantized models; configured per-model under `llama_cpp_servers` in `model_routing.json`.
 
-The inference router automatically falls back to Ollama if a configured llama.cpp server is unreachable. Server backoff is 180s after failure.
-
----
-
-## Architecture
-
-```
-                     ┌─────────────────────────────────┐
-                     │         Flask Web GUI            │
-                     │   auth · REST API · job queue    │
-                     └──────────────┬──────────────────┘
-                                    │
-                     ┌──────────────▼──────────────────┐
-                     │      Two-Stage Routing Gate      │
-                     │  semantic-router (~20ms)         │
-                     │   → intent confirmer (gemma3:4b) │
-                     │   → context gate (qwen3:4b)      │
-                     └──────────────┬──────────────────┘
-                                    │
-                     ┌──────────────▼──────────────────┐
-                     │   Turn Graph (LangGraph)         │
-                     │  8-node StateGraph · SqliteSaver │
-                     │  checkpointing · replay          │
-                     └───┬─────────┬──────────┬────────┘
-                         │         │          │
-          ┌──────────────▼┐  ┌─────▼──────┐  ┌▼──────────────┐
-          │  Research Lane │  │  Make Lane │  │   Talk Lane   │
-          │                │  │            │  │               │
-          │ Tree planner   │  │ essay      │  │ Reynard layer │
-          │ 4 personas +   │  │ longform   │  │ dolphin3:8b   │
-          │ handoffs       │  │ content    │  │               │
-          │                │  │ specialist │  │               │
-          │ Synthesizer    │  │ creative   │  │               │
-          │ Citation linker│  │ web app    │  └───────────────┘
-          └────────────────┘  │ desktop    │
-                              └─────┬──────┘
-                                    │
-                     ┌──────────────▼──────────────────┐
-                     │          Memory Systems          │
-                     │  Typed: episodic · semantic ·    │
-                     │  procedural. Paged working set + │
-                     │  archival. Web-research cache.   │
-                     └──────────────┬──────────────────┘
-                                    │
-                     ┌──────────────▼──────────────────┐
-                     │       Local Inference            │
-                     │    Ollama · llama.cpp            │
-                     │    health-check + adaptive       │
-                     │    model fallback                │
-                     └──────────────┬──────────────────┘
-                                    │
-                     ┌──────────────▼──────────────────┐
-                     │      Optional External Services  │
-                     │  SearXNG · Crawl4AI · ComfyUI   │
-                     │  MCP server / client (stdio)     │
-                     └─────────────────────────────────┘
-```
+The inference router auto-falls back to Ollama if a configured llama.cpp server is unreachable. Server backoff is 180s after failure.
 
 ---
 
-## Feature Status
+## Architecture Diagram
 
-| Feature | Status | Notes |
-|---|---|---|
-| Research lane (deep researcher + synthesizer) | Available | 4-persona parallel research with evidence discipline |
-| Essay pool | Available | 6-stage pipeline, 10+ topic templates |
-| Longform pool | Available | 7 output types with word-count enforcement |
-| Content pool | Available | Blog, social, email with feedback learning |
-| Specialist pool | Available | Medical, finance, history, sports, game design |
-| Creative pool | Available | Novel, memoir, book, screenplay with continuity |
-| Web app pool | Available | Flask 3.x + Vue 3.5 (prod CDN) + SQLite (`sqlite3`), Canon v1 scaffold + slot-fill Extend Mode |
-| Desktop app pool | Available | .NET 8 + Avalonia, MVVM scaffold |
-| Topic system + Second Brain memory | Available | Persistent context across sessions |
-| Typed memory (episodic / semantic / procedural) | Available | Conflict resolution via source reputation + recency |
-| Memory pager (working set + archival) | Available | Token-budgeted context; `[RECALL:]` directive for self-paging |
-| Intent confirmer | Available | Fast gate prevents accidental pool activation |
-| Semantic routing gate | Available | Embedding-based ~20ms front-of-gate; LLM tiebreaker on low score |
-| Chat routing context gate | Available | qwen3:4b validates keyword triggers against full conversation |
-| Turn state graph (LangGraph) | Available | 8-node `StateGraph` with SqliteSaver checkpointing |
-| Turn replay + regression harness | Available | Resume any past turn from any node; drift scoring via embedding cosine |
-| Web research cache | Available | Content-addressed SQLite, volatility-tiered TTL |
-| Ollama health-check + adaptive fallback | Available | Model degradation demotes primary; auto-recovers after decay |
-| Research tree planner | Available | Planner → executor; per-persona leaf affinity |
-| Research persona handoffs | Available | LLM self-reflection with loop prevention + cap |
-| Per-sentence citation linker | Available | Cosine-aligned source anchoring; weak citations dropped |
-| SetFit Make-type classifier | Available | CPU inference replaces LLM `suggested_type` pick; active learning loop |
-| MCP tool surface (server + client) | Available | Exposes `forage` / `recall` / `make` over stdio; consumes external MCP servers |
-| Feedback learning engine | Available | Learns from successful Make outputs |
-| Watchtower / briefing flows | Experimental | Active and evolving |
-| Bot integrations (Discord / Slack / Telegram) | Experimental | Optional, environment-dependent |
-| Local image generation (ComfyUI) | Experimental | Optional external service, model-dependent |
-| Image-to-video (Wan2.2 / SVD XT) | Experimental | Optional, VRAM-dependent |
+```
+                  ┌─────────────────────────────────────────┐
+                  │       Interfaces                         │
+                  │   Web GUI · OpenAI API · CLI · TUI       │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Reynard Layer (dolphin3:8b)            │
+                  │   semantic-router → intent (gemma3:4b)   │
+                  │   → context gate (qwen3:4b)              │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Turn Graph (LangGraph)                 │
+                  │   8-node StateGraph · SqliteSaver        │
+                  │   checkpointing · replay                 │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Pipeline Engine                        │
+                  │   research_pipeline · build_pipeline ·   │
+                  │   code_fix_pipeline                      │
+                  │   stage outputs gated by OutputContracts │
+                  └──────┬──────────────────────────┬───────┘
+                         │                          │
+            ┌────────────▼──────────┐    ┌──────────▼─────────┐
+            │   Specialists         │    │   Build Pools      │
+            │   planner · researcher│    │   tool · web_app   │
+            │   auditor · skeptic   │    │   desktop · ui     │
+            │   synthesizer ·       │    │   essay · longform │
+            │   verifier ·          │    │   content ·        │
+            │   memory_critic       │    │   specialist ·     │
+            └────────────┬──────────┘    │   creative         │
+                         │               └──────────┬─────────┘
+                         │                          │
+                  ┌──────▼──────────────────────────▼───────┐
+                  │   CAG Memory Layer                       │
+                  │   scoped store (domain→run) · selector · │
+                  │   promotion gate · contradiction detect ·│
+                  │   decision ledger                        │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Auditor + Trace Ledger                 │
+                  │   trace analysis · implication engine ·  │
+                  │   benchmark import · regression reports  │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Scheduler + Watchtower                 │
+                  │   specialist registry · resource budget ·│
+                  │   on-deck runtime · gap detector · scout │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Local Inference                        │
+                  │   Ollama · llama.cpp                     │
+                  │   health-check + adaptive fallback       │
+                  └──────────────┬──────────────────────────┘
+                                 │
+                  ┌──────────────▼──────────────────────────┐
+                  │   Optional External Services            │
+                  │   SearXNG · Crawl4AI · MCP (stdio)       │
+                  └─────────────────────────────────────────┘
+```
 
 ---
 
@@ -512,8 +361,7 @@ The inference router automatically falls back to Ollama if a configured llama.cp
 
 - **Python 3.10+**
 - **Ollama** running locally (required)
-- **Docker** (optional — for web-foraging stack: SearXNG + Crawl4AI)
-- **ComfyUI** (optional — for local image generation and image-to-video)
+- **Docker** (optional — for web research stack: SearXNG + Crawl4AI)
 - **Core Python deps** (via `requirements.lock`): LangGraph + SqliteSaver for turn orchestration, semantic-router for fast routing, SetFit + sentence-transformers for Make-type classification, MCP SDK for tool surface
 - **Optional extras**
   - `requirements-optional-docs.txt` — PDF / DOCX / OCR helpers
@@ -524,9 +372,9 @@ The inference router automatically falls back to Ollama if a configured llama.cp
 
 ---
 
-## Optional Web-Foraging Stack
+## Optional Web Research Stack
 
-Powers the Research lane's live web foraging. Requires Docker.
+Powers the Research pipeline's live web research. Requires Docker.
 
 Linux:
 
@@ -551,7 +399,7 @@ Default service ports:
 
 ## MCP (Model Context Protocol)
 
-Foxforge exposes its research and memory surface as an MCP server — external tools (editors, assistants, other local agents) can call `forage`, `recall`, and `make_artifact` over stdio without touching the web GUI.
+Oathweaver exposes its research and memory surface as an MCP server — external tools (editors, assistants, other local agents) can call `forage`, `recall`, and `make_artifact` over stdio without touching the web GUI.
 
 ```bash
 python -m orchestrator.mcp
@@ -559,32 +407,24 @@ python -m orchestrator.mcp
 
 Stdio is the default transport. HTTP is gated behind an explicit config flag and is localhost-only by default; enable with care if you're exposing over Tailscale.
 
-Foxforge also consumes external MCP servers (filesystem, fetch) via [SourceCode/shared_tools/mcp_client.py](SourceCode/shared_tools/mcp_client.py) — configured in `SourceCode/configs/mcp_servers.json`.
+Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCode/shared_tools/mcp_client.py](SourceCode/shared_tools/mcp_client.py) — configured in `SourceCode/configs/mcp_servers.json`.
 
 ---
 
-## Local Image and Video Generation
+## Policies
 
-Foxforge connects to [ComfyUI](https://github.com/comfyanonymous/ComfyUI) for image generation, enhancement, and image-to-video. This is optional and can run on a separate machine.
-
-Supported configurations:
-
-- Pony XL style presets (~8 GB VRAM)
-- Classic SD presets (lower VRAM)
-- Wan2.2 image-to-video (8+ GB VRAM, recommended 16+ GB)
-- SVD XT fallback (4–6 GB VRAM)
-
-For full setup details — required custom nodes, model files, workflow export, Wan2.2 activation, and fallback paths — see [ComfyUI image + video setup](docs/comfyui_image_video_setup.md).
+- **Action policy** ([SourceCode/policies/action_policy.json](SourceCode/policies/action_policy.json)) — content filtering off; explicit approval required for sending messages, calendar booking, purchases, data deletion, and external submissions. Default mode is `draft_then_confirm`.
+- **Personal safety policy** ([SourceCode/policies/personal_safety_policy.md](SourceCode/policies/personal_safety_policy.md)) — Oathweaver's personal-assistant role is operational (reminders, accountability, next actions). It is explicitly **not** a therapy or medical-diagnosis role. Personal memory is stored under `Runtime/memory/personal` and gated by Phase 0 quarantine.
 
 ---
 
 ## Security Notes
 
-- Foxforge is local-only. No data is ever transmitted to an external AI provider.
+- Oathweaver is local-only. No data is ever transmitted to an external AI provider.
 - Startup scripts can bind to all interfaces (`0.0.0.0`) for LAN/Tailscale access.
 - Use loopback (`127.0.0.1`) to restrict to local access only.
-- Configure host/port via `FOXFORGE_WEB_HOST` and `FOXFORGE_WEB_PORT`.
-- Set `FOXFORGE_WEB_PASSWORD` when exposing beyond localhost.
+- Configure host/port via `OATHWEAVER_WEB_HOST` and `OATHWEAVER_WEB_PORT`.
+- Set `OATHWEAVER_WEB_PASSWORD` when exposing beyond localhost.
 
 ---
 
@@ -592,14 +432,27 @@ For full setup details — required custom nodes, model files, workflow export, 
 
 | Path | Purpose |
 |---|---|
-| `SourceCode/orchestrator/` | Orchestrator, intent routing, turn planner, Make catalog |
+| `SourceCode/core/` | Pipeline engine, output contracts, capability registry, model runtime, project kernel, state store, trace ledger, replay, context compiler, context pack, kernel commands |
+| `SourceCode/cag/` | Context-Augmented Generation memory: scope, lifecycle, memory store, scoped selector, promotion gate, contradiction detector, decision ledger |
+| `SourceCode/specialists/` | Specialist skill packs (planner, researcher, auditor, skeptic, synthesizer, verifier, memory_critic) |
+| `SourceCode/auditor/` | Trace analysis, implication engine, benchmark import, regression reporter |
+| `SourceCode/scheduler/` | Specialist registry, resource budget, on-deck runtime, bench manager |
+| `SourceCode/watchtower/` | Knowledge gap detector, project readiness, research card store, scout |
+| `SourceCode/taxonomy/` | Domain, make-type, and research-focus taxonomies |
+| `SourceCode/orchestrator/` | Top-level orchestrator, intent routing, turn graph, MCP bridge, identity / manifesto |
 | `SourceCode/orchestrator/pipelines/` | LangGraph turn state machine, replay, regression harness |
-| `SourceCode/orchestrator/services/` | Intent confirmer, semantic gate, chat routing gate, Make-type classifier, MCP bridge |
-| `SourceCode/agents_make/` | All Make lane pools (essay, longform, content, specialist, creative, web app, desktop) |
-| `SourceCode/agents_research/` | Tree planner, deep researcher, synthesizer, citation linker |
-| `SourceCode/web_gui/` | Flask app, API routes, frontend templates and static assets |
-| `SourceCode/shared_tools/` | Inference router, memory systems, research tools, activity bus |
-| `SourceCode/bots/` | Discord, Slack, and Telegram bot adapters |
+| `SourceCode/orchestrator/services/` | Intent confirmer, semantic gate, chat routing gate, Make-type classifier, agent contracts/registry |
+| `SourceCode/agents_research/` | Research pool: tree planner, deep researcher, synthesizer, citation linker, topic policy |
+| `SourceCode/agents_make/` | Build pools (essay, longform, content, specialist, creative, web app, desktop) + Canon v1 web scaffold |
+| `SourceCode/agents_tool/` | Tool pool (single-file Python with self-fix loop) |
+| `SourceCode/agents_ui/` | UI pool (Flask + vanilla JS) and UX reviewer |
+| `SourceCode/interfaces/` | Web GUI, OpenAI-compatible API, CLI, TUI frontends |
+| `SourceCode/web_gui/` | Flask web GUI (primary interface) |
+| `SourceCode/infra/` | Persistence, background workers, infra tooling |
+| `SourceCode/shared_tools/` | Inference router, memory systems, research tools, activity bus, Phase 0 flags |
+| `SourceCode/policies/` | Action policy and personal safety policy |
+| `SourceCode/legacy/` | Phase 0 quarantine notes |
+| `SourceCode/bots/` | Discord, Slack, Telegram bot adapters |
 | `SourceCode/configs/model_routing.json` | Model assignments, inference servers, fallback config |
 | `tests/` | Test suite |
 | `docs/` | Architecture notes, changelogs, planning artifacts |
@@ -613,12 +466,16 @@ For full setup details — required custom nodes, model files, workflow export, 
 
 Primary model and routing config:
 
-- `SourceCode/configs/model_routing.json` — model assignments per lane, llama.cpp server entries, context sizes
+- `SourceCode/configs/model_routing.json` — model assignments per layer (reynard, orchestrator reasoning, research pool, etc.), llama.cpp server entries, premium-model list, context sizes.
+
+Phase 0 environment flags:
+
+- `OATHWEAVERX_SERIOUS_MODE` — default `1`. Set to `0` to allow playful framing in writing pipelines.
 
 Useful startup scripts:
 
-- `start_foxforge_web.sh` (Linux, host/port flags)
-- `start_foxforge_web.ps1` (Windows)
+- `start_oathweaver_web.sh` (Linux, host/port flags)
+- `start_oathweaver_web.ps1` (Windows)
 
 ---
 
@@ -693,11 +550,11 @@ Windows:
 ollama serve
 ```
 
-### Foxforge not starting
+### Oathweaver not starting
 
 Linux:
 ```bash
-sudo journalctl -u foxforge -n 50
+sudo journalctl -u oathweaver -n 50
 ```
 
 Windows: re-run the start script and check terminal output.
@@ -723,14 +580,14 @@ nvidia-smi
 
 Linux:
 ```bash
-sudo systemctl edit foxforge
-# Add: Environment="FOXFORGE_WEB_PORT=5051"
-sudo systemctl restart foxforge
+sudo systemctl edit oathweaver
+# Add: Environment="OATHWEAVER_WEB_PORT=5051"
+sudo systemctl restart oathweaver
 ```
 
 Windows:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1 -WebPort 5051
+powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1 -WebPort 5051
 ```
 
 ---
@@ -750,7 +607,6 @@ powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1 -WebPort 5051
 
 - [INSTALL_GUIDE.md](INSTALL_GUIDE.md) — recipient-focused install guide
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow and standards
-- [ComfyUI image + video setup](docs/comfyui_image_video_setup.md) — model, workflow, and VRAM guidance
 - [Workspace tools](docs/workspace_tools.md) — utility scripts and tooling notes
 - [Phase changelogs](docs/changelogs/) — milestone-level updates
 
@@ -758,7 +614,7 @@ powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1 -WebPort 5051
 
 ## Project Status
 
-Foxforge is functional and actively used. It is in an **experimental** phase — APIs and config formats may change between releases.
+Oathweaver is functional and actively used. It is in an **experimental** phase — the CAG-native rebuild is in progress, and APIs and config formats may change between releases.
 
 - CI runs on Python 3.10 and 3.12 on every push/PR
 - Tested on Ubuntu 24.04 LTS (primary), Ubuntu 22.04 LTS, and Windows 11
@@ -774,7 +630,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-Foxforge is released under the [Guideboard Service-Only License 1.0](LICENSE).
+Oathweaver is released under the [Guideboard Service-Only License 1.0](LICENSE).
 
 - Commercial services around the software are allowed (consulting, integration, support).
 - Selling the software product itself is not allowed.

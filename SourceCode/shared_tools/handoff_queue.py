@@ -14,7 +14,7 @@ def _now_iso() -> str:
 
 class HandoffQueue:
     AUTHORIZED_ACTOR = "orchestrator"
-    INCOMPLETE_TOKEN = "__FOXFORGE_OUTBOX_INCOMPLETE__"
+    INCOMPLETE_TOKEN = "__OATHWEAVER_OUTBOX_INCOMPLETE__"
 
     def __init__(self, repo_root: Path) -> None:
         self.root = repo_root / "Runtime" / "handoff"
@@ -86,7 +86,7 @@ class HandoffQueue:
         project = str(row.get("project", "")).strip()
         request_text = str(row.get("request_text", "")).strip()
         return (
-            "FOXFORGE OUTBOX PLACEHOLDER\n"
+            "OATHWEAVER OUTBOX PLACEHOLDER\n"
             "STATUS: INCOMPLETE\n"
             f"THREAD_ID: {request_id}\n"
             f"TARGET: {target}\n"

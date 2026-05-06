@@ -381,7 +381,7 @@ def _migration_016_bot_user_mappings(conn: sqlite3.Connection) -> None:
             platform TEXT NOT NULL,
             platform_user_id TEXT NOT NULL,
             platform_username TEXT NOT NULL,
-            foxforge_user_id TEXT NOT NULL,
+            oathweaver_user_id TEXT NOT NULL,
             conversation_id TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,

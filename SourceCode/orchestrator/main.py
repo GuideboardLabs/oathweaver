@@ -33,6 +33,25 @@ from shared_tools.document_ingestion import is_document_ext
 from shared_tools.fact_cards import render_fact_card_markdown
 from shared_tools.fact_policy import classify_fact_volatility, detect_topic_type
 from shared_tools.perf_trace import PerfTrace
+from shared_tools.phase0 import lane_to_pipeline, serious_mode_enabled
+from cag.contradiction_detector import ContradictionDetector
+from cag.decision_ledger import DecisionLedger
+from cag.memory_store import CAGMemoryStore
+from cag.promotion_gate import PromotionGate
+from cag.selector import ScopedSelector
+from auditor import AuditorEngine, BenchmarkImport, RegressionReporter
+from core.context_compiler import ContextCompiler
+from core.context_pack import ContextPackStore
+from core.capability_registry import CapabilityRegistry
+from core.model_runtime import build_model_runtime
+from core.output_contracts import OutputContractAuditor, contract_for_stage
+from core.pipeline_engine import PipelineEngine, pipeline_spec_for_name
+from core.replay import ReplayStore
+from core.state_store import StateStore
+from core.trace_ledger import TraceLedger
+from core.project_kernel import ProjectKernelStore
+from benchmarks.paths import default_cag_bench_results_root
+from scheduler import BenchManager, OnDeckRuntime, ResourceBudgetManager, SpecialistRegistry
 from orchestrator.pipelines import (
     get_turn_trace,
     invoke_chat_turn_graph,
@@ -53,20 +72,20 @@ from orchestrator.text_processing.text_analysis import (
 )
 from orchestrator.text_processing.request_filters import is_reminder_only_request, is_event_only_request
 from orchestrator.text_processing.delivery_classifier import infer_delivery_target
-from orchestrator.foxforge.identity import (
-    FOXFORGE_ALIASES,
-    FOXFORGE_ADDRESS_NEXT_WORDS,
-    FOXFORGE_IDENTITY_CUES,
-    mentions_foxforge_alias,
-    strip_foxforge_vocative_prefix as _strip_vocative_prefix,
-    is_foxforge_self_query as _is_gb_self_query,
+from orchestrator.oathweaver.identity import (
+    OATHWEAVER_ALIASES,
+    OATHWEAVER_ADDRESS_NEXT_WORDS,
+    OATHWEAVER_IDENTITY_CUES,
+    mentions_oathweaver_alias,
+    strip_oathweaver_vocative_prefix as _strip_vocative_prefix,
+    is_oathweaver_self_query as _is_gb_self_query,
 )
-from orchestrator.foxforge.manifesto import (
+from orchestrator.oathweaver.manifesto import (
     load_manifesto_text as _load_manifesto,
     manifesto_principles_block as _manifesto_principles,
     reynard_persona_block as _reynard_persona_block,
-    foxforge_persona_block as _gb_persona_block,
-    foxforge_identity_reply as _gb_identity_reply,
+    oathweaver_persona_block as _gb_persona_block,
+    oathweaver_identity_reply as _gb_identity_reply,
 )
 from orchestrator.learning import lesson_manager as _lesson_mgr
 from orchestrator.actions import handoff_manager as _handoff_mgr
@@ -153,7 +172,7 @@ def _make_lane_for_target(target: str) -> str:
     return lane_for_type(target)
 
 
-class FoxforgeOrchestrator:
+class OathweaverOrchestrator:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root
         self.turn_planner = TurnPlanner(repo_root)
@@ -167,12 +186,42 @@ class FoxforgeOrchestrator:
         self.agent_registry = build_default_agent_registry()
         self.improvement_engine = ContinuousImprovementEngine(repo_root)
         self.project_slug = "general"
+        self.project_kernel_store = ProjectKernelStore(repo_root)
+        self.project_kernel_store.get_or_create(self.project_slug)
+        self.state_store = StateStore(repo_root)
+        self.output_contract_auditor = OutputContractAuditor()
+        self.pipeline_engine = PipelineEngine(
+            state_store=self.state_store,
+            auditor=self.output_contract_auditor,
+        )
+        self.model_runtime = build_model_runtime(repo_root)
+        self.context_pack_store = ContextPackStore(repo_root)
+        self.context_compiler = ContextCompiler(context_pack_store=self.context_pack_store)
+        self.resource_budget_manager = ResourceBudgetManager()
+        self.specialist_registry = SpecialistRegistry()
+        self.bench_manager = BenchManager(repo_root)
+        self.on_deck_runtime = OnDeckRuntime(
+            specialist_registry=self.specialist_registry,
+            budget_manager=self.resource_budget_manager,
+            bench_manager=self.bench_manager,
+        )
+        self.trace_ledger = TraceLedger(repo_root)
+        self.replay_store = ReplayStore(repo_root)
+        self.capability_registry = CapabilityRegistry(repo_root)
+        self.benchmark_import = BenchmarkImport(default_cag_bench_results_root(self.repo_root))
+        self.auditor_engine = AuditorEngine(benchmark_import=self.benchmark_import)
+        self.regression_reporter = RegressionReporter(repo_root)
+        self.cag_memory_store = CAGMemoryStore(repo_root)
+        self.cag_selector = ScopedSelector()
+        self.cag_promotion_gate = PromotionGate()
+        self.cag_contradiction_detector = ContradictionDetector()
+        self.cag_decision_ledger = DecisionLedger(repo_root)
         self.model_routing = load_model_routing(repo_root)
         # Build the tool registry lazily. Eager construction pulls in several
         # DB-backed stores for every lightweight panel/status request and can
         # contend on SQLite locks under load.
         self._tool_registry = None
-        self.manifesto_path = self.repo_root / "Runtime" / "config" / "foxforge_manifesto.md"
+        self.manifesto_path = self.repo_root / "Runtime" / "config" / "oathweaver_manifesto.md"
         self._manifesto_cache_mtime: float = -1.0
         self._manifesto_cache_text: str = ""
         self._project_research_brief_cache: dict[tuple[str, float, int], dict[str, Any]] = {}
@@ -210,10 +259,6 @@ class FoxforgeOrchestrator:
     @property
     def reflection_engine(self):
         return self._infra.reflection_engine
-
-    @property
-    def personal_memory(self):
-        return self._infra.personal_memory
 
     @property
     def workspace_tools(self):
@@ -269,13 +314,757 @@ class FoxforgeOrchestrator:
             return dict(result.payload)
         return result.as_dict()
 
+    def _select_pipeline_for_lane(self, lane: str, query_mode: str = "") -> str:
+        lane_key = str(lane or "").strip().lower()
+        if lane_key in {"research", "project"}:
+            return "research_pipeline"
+        if lane_key in {"make_app", "make_doc", "make_tool", "make_creative", "make_content", "make_specialist", "make_longform", "make_desktop_app", "ui"}:
+            if str(query_mode or "").strip().lower() == "workspace_code":
+                return "code_fix_pipeline"
+            return "build_pipeline"
+        return ""
+
+    def _execute_pipeline_turn(
+        self,
+        *,
+        lane: str,
+        text: str,
+        history: list[dict[str, str]] | None,
+        topic_type: str,
+        query_mode: str,
+        query_complexity: str,
+        inferred_target: str,
+        mode: str,
+        turn_plan: Any,
+        force_research: bool,
+        cancel_checker=None,
+        pause_checker=None,
+        yield_checker=None,
+        progress_callback=None,
+        reminder_note: str = "",
+        event_note: str = "",
+        details_sink: dict[str, Any] | None = None,
+        household_context: str = "",
+    ) -> str | None:
+        lane_key = str(lane or "").strip().lower()
+        if lane_key in {"conversation", "personal"}:
+            return None
+
+        pipeline_name = self._select_pipeline_for_lane(lane_key, query_mode=query_mode)
+        if not pipeline_name:
+            return None
+        spec = pipeline_spec_for_name(pipeline_name)
+        if spec is None:
+            return None
+
+        pipeline_context: dict[str, Any] = {
+            "text": text,
+            "project_slug": self.project_slug,
+            "domain": str(getattr(turn_plan, "domain", "") or "general_research"),
+            "pipeline": pipeline_name,
+            "topic_type": topic_type,
+            "lane": lane_key,
+            "target": inferred_target,
+            "query_mode": query_mode,
+            "query_complexity": query_complexity,
+            "mode": mode,
+            "history": list(history or []),
+            "hardware_token_budget": int(self.resource_budget_manager.stage_context_budget()),
+            "hardware_profile": self.resource_budget_manager.profile.as_dict(),
+        }
+        scratch: dict[str, Any] = {
+            "web_note": "",
+            "web_context": "",
+            "web_details": {},
+            "worker_result": {},
+            "reply": "",
+        }
+
+        def _stage_runner(stage: str, stage_state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+            if pipeline_name == "research_pipeline":
+                if stage == "intake":
+                    return {
+                        "question": payload["text"],
+                        "project": payload["project_slug"],
+                        "topic_type": payload["topic_type"],
+                        "lane": payload["lane"],
+                    }
+                if stage == "domain_framing":
+                    kernel = self.project_kernel_store.snapshot(self.project_slug)
+                    knowledge = kernel.get("knowledge_spine", {}) if isinstance(kernel.get("knowledge_spine", {}), dict) else {}
+                    return {
+                        "domain": str(knowledge.get("domain", "general_research")).strip(),
+                        "topic": str(knowledge.get("topic", payload.get("topic_type", "general"))).strip(),
+                        "thread": str(knowledge.get("thread", f"thread_{self.project_slug}")).strip(),
+                    }
+                if stage == "source_discovery":
+                    web_note, web_context, web_details = self._prepare_web_context(
+                        text=payload["text"],
+                        lane="research" if payload["lane"] == "research" else "project",
+                        topic_type=payload["topic_type"],
+                        force=True,
+                        progress_callback=progress_callback,
+                    )
+                    scratch["web_note"] = web_note
+                    scratch["web_context"] = web_context
+                    scratch["web_details"] = dict(web_details or {})
+                    return {
+                        "web_context": web_context,
+                        "web_note": web_note,
+                        "source_count": int((web_details or {}).get("source_count", 0) or 0),
+                    }
+                if stage == "evidence_analysis":
+                    web_details = scratch.get("web_details", {}) if isinstance(scratch.get("web_details", {}), dict) else {}
+                    source_count = int(web_details.get("source_count", 0) or 0)
+                    stack = web_details.get("web_stack", {}) if isinstance(web_details.get("web_stack", {}), dict) else {}
+                    return {
+                        "evidence_summary": (
+                            f"Captured {source_count} source(s) using web mode "
+                            f"{str(stack.get('mode', 'auto')).strip() or 'auto'}."
+                        ),
+                    }
+                if stage == "nuance_pass":
+                    source_count = int((stage_state.get("source_discovery", {}) or {}).get("source_count", 0) or 0)
+                    open_risks = []
+                    if source_count <= 0:
+                        open_risks.append("No live sources were captured.")
+                    if str(payload.get("query_complexity", "")).strip().lower() == "deep":
+                        open_risks.append("Deep query path may need follow-up validation passes.")
+                    return {"open_risks": open_risks}
+                if stage == "synthesis":
+                    if payload["lane"] == "research":
+                        reply = self.research_service.execute_research_lane(
+                            self,
+                            text=payload["text"],
+                            history=payload["history"],
+                            topic_type=payload["topic_type"],
+                            turn_plan=turn_plan,
+                            force_research=force_research,
+                            cancel_checker=cancel_checker,
+                            pause_checker=pause_checker,
+                            yield_checker=yield_checker,
+                            progress_callback=progress_callback,
+                            perf=None,
+                            reminder_note=reminder_note,
+                            event_note=event_note,
+                            lane="research",
+                            details_sink=details_sink,
+                        )
+                    else:
+                        reply = self.research_service.execute_project_lane(
+                            self,
+                            text=payload["text"],
+                            history=payload["history"],
+                            topic_type=payload["topic_type"],
+                            cancel_checker=cancel_checker,
+                            pause_checker=pause_checker,
+                            yield_checker=yield_checker,
+                            progress_callback=progress_callback,
+                            reminder_note=reminder_note,
+                            event_note=event_note,
+                            details_sink=details_sink,
+                        )
+                    scratch["reply"] = str(reply or "")
+                    return {"reply": str(reply or "")}
+                if stage == "cag_promotion_gate":
+                    kernel = self.project_kernel_store.snapshot(self.project_slug)
+                    scope_row = kernel.get("current_scope", {}) if isinstance(kernel.get("current_scope", {}), dict) else {}
+                    candidate = self._build_cag_candidate(
+                        text=str(scratch.get("reply", "")),
+                        payload=payload,
+                        scope_row=scope_row,
+                        web_details=scratch.get("web_details", {}),
+                    )
+                    if not candidate:
+                        return {
+                            "promotion_candidates": [],
+                            "accepted_memory_ids": [],
+                            "rejected_reasons": ["empty_candidate"],
+                            "contradictions": [],
+                            "contradiction_budget": {"non_error_budget": 0, "non_error_count": 0, "exceeded": False},
+                            "selector_scores": [],
+                            "decision_ledger_entries": [],
+                        }
+
+                    existing_rows = self.cag_memory_store.list_rows(project=self.project_slug, limit=500, include_expired=True, include_superseded=True)
+                    existing_rows = self._sort_memory_rows_oldest_first(existing_rows)
+                    scoped_rows, selector_scores = self.cag_selector.retrieve_scoped(
+                        task={
+                            "title": str(payload.get("text", "")),
+                            "prompt": str(payload.get("text", "")),
+                            "tags": list(candidate.get("tags", [])),
+                            "continuity_terms": list(candidate.get("promoted_terms", [])),
+                        },
+                        rows=existing_rows,
+                        k=40,
+                        return_scores=True,
+                    )
+                    contradictions = self.cag_contradiction_detector.detect(candidate=candidate, existing_rows=scoped_rows)
+                    contradiction_budget = self.cag_contradiction_detector.contradiction_budget(
+                        contradictions=contradictions,
+                        non_error_budget=int(os.getenv("OATHWEAVERX_CONTRADICTION_BUDGET", "6")),
+                    )
+                    gate = self.cag_promotion_gate.evaluate(
+                        candidate={**candidate, "contradictions": contradictions},
+                        existing_rows=scoped_rows,
+                        contradictions=contradictions,
+                        contradiction_budget=contradiction_budget,
+                    )
+                    decision = gate.as_dict()
+                    normalized = decision.get("normalized_candidate", {})
+                    promotion_candidates = []
+                    accepted_memory_ids: list[str] = []
+                    rejected_reasons = list(decision.get("reasons", []))
+                    ledger_entries: list[dict[str, Any]] = []
+
+                    if normalized:
+                        promotion_candidates.append(
+                            {
+                                "type": str(normalized.get("type", "")),
+                                "scope": str(normalized.get("scope", "")),
+                                "human_status": str(normalized.get("human_status", "unreviewed")),
+                                "status": str(normalized.get("status", "candidate")),
+                                "confidence": float(normalized.get("confidence", 0.0) or 0.0),
+                            }
+                        )
+                    if decision.get("accepted", False):
+                        persisted = self.cag_memory_store.add_row(normalized)
+                        accepted_memory_ids.append(str(persisted.get("memory_id", "")).strip())
+                        supersedes = list(persisted.get("supersedes", []))
+                        for memory_id in supersedes:
+                            if str(memory_id).strip():
+                                self.cag_memory_store.mark_supersession(
+                                    old_memory_id=str(memory_id),
+                                    new_memory_id=str(persisted.get("memory_id", "")),
+                                )
+                        ledger = self.cag_decision_ledger.add_entry(
+                            memory_row=persisted,
+                            rationale="Promoted through cag_promotion_gate.",
+                            status="accepted",
+                        )
+                        if isinstance(ledger, dict):
+                            ledger_entries.append(dict(ledger))
+
+                    return {
+                        "promotion_candidates": promotion_candidates,
+                        "accepted_memory_ids": accepted_memory_ids,
+                        "rejected_reasons": rejected_reasons,
+                        "contradictions": contradictions,
+                        "contradiction_budget": contradiction_budget,
+                        "selector_scores": selector_scores,
+                        "decision_ledger_entries": ledger_entries,
+                    }
+
+            if pipeline_name == "build_pipeline":
+                if stage == "requirements":
+                    return {
+                        "requirements": {
+                            "request": payload["text"],
+                            "target": payload["target"],
+                            "lane": payload["lane"],
+                        }
+                    }
+                if stage == "architecture":
+                    kernel = self.project_kernel_store.snapshot(self.project_slug)
+                    execution = kernel.get("execution_spine", {}) if isinstance(kernel.get("execution_spine", {}), dict) else {}
+                    return {
+                        "architecture_outline": {
+                            "pipeline": str(execution.get("pipeline", "build_pipeline")).strip(),
+                            "make_type": str(execution.get("make_type", "research_brief")).strip(),
+                            "research_focus": str(execution.get("research_focus", "implementation_focused")).strip(),
+                        }
+                    }
+                if stage == "implementation_plan":
+                    return {
+                        "implementation_plan": {
+                            "route_lane": payload["lane"],
+                            "target": payload["target"],
+                            "mode": payload["mode"],
+                        }
+                    }
+                if stage == "patch_artifact_generation":
+                    self._last_project_mode = self.pipeline_store.get(self.project_slug)
+                    self._last_progress_callback = progress_callback
+                    self._last_cancel_checker = cancel_checker
+                    out = self._run_make_delivery(
+                        text=payload["text"],
+                        history=payload["history"],
+                        target=payload["target"],
+                        mode=payload["mode"],
+                        seed_artifact_text="",
+                    )
+                    scratch["worker_result"] = dict(out)
+                    return {"worker_result": dict(out)}
+                if stage == "verification":
+                    out = scratch.get("worker_result", {}) if isinstance(scratch.get("worker_result", {}), dict) else {}
+                    fallback = f"{out.get('message', 'Build pipeline completed.')} Output: {out.get('path', '')}"
+                    reply = self._make_summary_reply(lane=payload["lane"], out=out, fallback=fallback)
+                    reply = self._append_daymarker_note(reply, event_note)
+                    reply = self._append_daymarker_note(reply, reminder_note)
+                    final_reply = self._complete_turn(
+                        user_text=payload["text"],
+                        lane=("project" if payload["lane"] == "make_doc" else payload["lane"]),
+                        reply_text=reply,
+                        worker_result=out,
+                        context_feedback=self._context_feedback(
+                            user_text=payload["text"],
+                            reply_text=reply,
+                            household_context=household_context,
+                        ),
+                    )
+                    scratch["reply"] = final_reply
+                    return {"reply": final_reply}
+
+            if pipeline_name == "code_fix_pipeline":
+                if stage == "planner":
+                    return {"plan": f"Apply deterministic fix flow for: {payload['text'][:220]}"}
+                if stage == "code_localizer":
+                    return {"candidate_files": []}
+                if stage == "patch_writer":
+                    return {"patch_text": "Delegated to build pipeline implementation path."}
+                if stage == "reviewer":
+                    return {"review_findings": []}
+                if stage == "test_fixer":
+                    return {"test_summary": "No dedicated test-fixer stage configured yet."}
+                if stage == "finalizer":
+                    # Reuse build pipeline generation path for now; deterministic stage order still enforced.
+                    self._last_project_mode = self.pipeline_store.get(self.project_slug)
+                    out = self._run_make_delivery(
+                        text=payload["text"],
+                        history=payload["history"],
+                        target=payload["target"],
+                        mode=payload["mode"],
+                        seed_artifact_text="",
+                    )
+                    fallback = f"{out.get('message', 'Code-fix pipeline completed.')} Output: {out.get('path', '')}"
+                    reply = self._make_summary_reply(lane=payload["lane"], out=out, fallback=fallback)
+                    final_reply = self._complete_turn(
+                        user_text=payload["text"],
+                        lane=payload["lane"],
+                        reply_text=reply,
+                        worker_result=out,
+                        context_feedback=self._context_feedback(
+                            user_text=payload["text"],
+                            reply_text=reply,
+                            household_context=household_context,
+                        ),
+                    )
+                    scratch["reply"] = final_reply
+                    return {"reply": final_reply}
+
+            return {}
+
+        def _context_pack_builder(
+            stage: str,
+            stage_state: dict[str, Any],
+            payload: dict[str, Any],
+            run_id: str,
+            pipeline: str,
+        ) -> dict[str, Any]:
+            kernel = self.project_kernel_store.snapshot(self.project_slug)
+            memory_rows = self.cag_memory_store.list_rows(
+                project=self.project_slug,
+                include_expired=False,
+                include_superseded=False,
+                limit=400,
+            )
+            knowledge = kernel.get("knowledge_spine", {}) if isinstance(kernel.get("knowledge_spine", {}), dict) else {}
+            thread = str(knowledge.get("thread", "")).strip()
+            decision_rows = self.cag_decision_ledger.list_entries(
+                project=self.project_slug,
+                thread=thread,
+                limit=180,
+            )
+            benchmark_lessons = []
+            for row in memory_rows:
+                row_type = str(row.get("type", row.get("memory_type", ""))).strip().lower()
+                if row_type == "benchmark_implication":
+                    text = str(row.get("text", "")).strip()
+                    if text:
+                        benchmark_lessons.append(text)
+
+            hardware_token_budget = payload.get("hardware_token_budget")
+            if hardware_token_budget is None:
+                context_pack = payload.get("context_pack", {})
+                if isinstance(context_pack, dict):
+                    hardware_token_budget = context_pack.get("token_budget")
+            try:
+                parsed_budget = int(hardware_token_budget) if hardware_token_budget is not None else None
+            except Exception:
+                parsed_budget = None
+
+            return self.context_compiler.compile(
+                run_id=run_id,
+                pipeline=pipeline,
+                stage=stage,
+                input_payload=dict(payload),
+                stage_state=dict(stage_state),
+                project_kernel=kernel,
+                memory_rows=memory_rows,
+                decision_rows=decision_rows,
+                benchmark_lessons=benchmark_lessons,
+                output_contract=contract_for_stage(stage).stage,
+                hardware_token_budget=parsed_budget,
+            )
+
+        def _on_deck_planner(
+            stage: str,
+            stage_state: dict[str, Any],
+            payload: dict[str, Any],
+            run_id: str,
+            pipeline: str,
+            planner_context: dict[str, Any],
+        ) -> dict[str, Any]:
+            spec_stages = planner_context.get("spec_stages", [])
+            if not isinstance(spec_stages, list):
+                spec_stages = []
+            current_context_pack = planner_context.get("current_context_pack", {})
+            if not isinstance(current_context_pack, dict):
+                current_context_pack = {}
+            memory_state = payload.get("model_memory_state", {})
+            if not isinstance(memory_state, dict):
+                memory_state = {}
+            return self.on_deck_runtime.plan_for_stage(
+                stage=stage,
+                stage_state=stage_state,
+                payload=payload,
+                run_id=run_id,
+                pipeline=pipeline,
+                spec_stages=[str(x).strip() for x in spec_stages if str(x).strip()],
+                current_context_pack=current_context_pack,
+                context_pack_builder=_context_pack_builder,
+                memory_state=memory_state,
+            )
+
+        result = self.pipeline_engine.execute(
+            spec=spec,
+            input_payload=pipeline_context,
+            stage_runner=_stage_runner,
+            context_pack_builder=_context_pack_builder,
+            on_deck_planner=_on_deck_planner,
+            model_runtime=self.model_runtime,
+        )
+        try:
+            stage_outputs = result.get("stage_outputs", {}) if isinstance(result.get("stage_outputs", {}), dict) else {}
+            context_packs = result.get("context_packs", {}) if isinstance(result.get("context_packs", {}), dict) else {}
+            stage_audits = result.get("stage_audits", {}) if isinstance(result.get("stage_audits", {}), dict) else {}
+            stage_timings_ms = result.get("stage_timings_ms", {}) if isinstance(result.get("stage_timings_ms", {}), dict) else {}
+            started_at = str(result.get("started_at", "")).strip()
+            finished_at = str(result.get("finished_at", "")).strip()
+            run_id = str(result.get("run_id", "")).strip()
+            stage_rows = self.trace_ledger.build_stage_rows(
+                stage_outputs=stage_outputs,
+                context_packs=context_packs,
+                stage_timings_ms=stage_timings_ms,
+                stage_audits=stage_audits,
+            )
+            scores = [float(x.get("output_score", 0.0) or 0.0) for x in stage_rows]
+            final_score = (sum(scores) / len(scores)) if scores else (1.0 if result.get("ok", False) else 0.0)
+            promoted_memory_ids: list[str] = []
+            gate_row = stage_outputs.get("cag_promotion_gate", {}) if isinstance(stage_outputs.get("cag_promotion_gate", {}), dict) else {}
+            for value in gate_row.get("accepted_memory_ids", []) if isinstance(gate_row.get("accepted_memory_ids", []), list) else []:
+                token = str(value).strip()
+                if token:
+                    promoted_memory_ids.append(token)
+            contract_findings: list[str] = []
+            for stage_name, audit_row in stage_audits.items():
+                if not isinstance(audit_row, dict):
+                    continue
+                if not bool(audit_row.get("ok", False)):
+                    missing = ",".join([str(x) for x in audit_row.get("missing_fields", []) if str(x).strip()])
+                    forbidden = ",".join([str(x) for x in audit_row.get("forbidden_fields", []) if str(x).strip()])
+                    finding = f"{stage_name}:contract_violation"
+                    if missing:
+                        finding += f":missing={missing}"
+                    if forbidden:
+                        finding += f":forbidden={forbidden}"
+                    contract_findings.append(finding)
+
+            lane_cfg = lane_model_config(self.repo_root, str(pipeline_context.get("lane", "")).strip())
+            if not lane_cfg:
+                lane_cfg = lane_model_config(self.repo_root, "orchestrator")
+            model_name = str(lane_cfg.get("model", "unknown")).strip() or "unknown"
+            trace_row = {
+                "run_id": run_id,
+                "project": self.project_slug,
+                "pipeline": str(result.get("pipeline", pipeline_name)),
+                "model": model_name,
+                "stages": stage_rows,
+                "final_score": float(final_score),
+                "auditor_findings": list(contract_findings),
+                "promoted_memories": list(promoted_memory_ids),
+                "started_at": started_at,
+                "finished_at": finished_at,
+            }
+
+            replay_row = {
+                "run_id": run_id,
+                "project": self.project_slug,
+                "pipeline": str(result.get("pipeline", pipeline_name)),
+                "model_settings": dict(lane_cfg or {}),
+                "input_payload": dict(pipeline_context),
+                "context_packs": dict(context_packs),
+                "stage_outputs": dict(stage_outputs),
+                "stage_audits": dict(stage_audits),
+                "stage_timings_ms": dict(stage_timings_ms),
+                "hardware_profile": self.resource_budget_manager.profile.as_dict(),
+                "promoted_memory_ids": list(promoted_memory_ids),
+                "started_at": started_at,
+                "finished_at": finished_at,
+            }
+
+            kernel = self.project_kernel_store.snapshot(self.project_slug)
+            auditor_report = self.auditor_engine.audit_run(
+                trace_row=trace_row,
+                replay_row=replay_row,
+                project_kernel=kernel,
+            )
+            typed_findings = [
+                str(x.get("type", "")).strip()
+                for x in auditor_report.get("typed_findings", [])
+                if isinstance(x, dict) and str(x.get("type", "")).strip()
+            ]
+            merged_findings = list(contract_findings)
+            for finding in typed_findings:
+                if finding not in merged_findings:
+                    merged_findings.append(finding)
+
+            # rewrite trace with typed findings as the primary auditor signal
+            trace_row = self.trace_ledger.record_run(
+                run_id=run_id,
+                project=self.project_slug,
+                pipeline=str(result.get("pipeline", pipeline_name)),
+                model=model_name,
+                stages=stage_rows,
+                final_score=float(final_score),
+                auditor_findings=merged_findings,
+                promoted_memories=promoted_memory_ids,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+
+            promoted_by_auditor: list[str] = []
+            promote_enabled = str(os.getenv("OATHWEAVERX_AUDITOR_PROMOTE_BENCHMARK_LESSONS", "1")).strip().lower() not in {"0", "false", "off", "no"}
+            if promote_enabled:
+                scope_row = kernel.get("current_scope", {}) if isinstance(kernel.get("current_scope", {}), dict) else {}
+                existing_benchmark_rows = self.cag_memory_store.list_rows(
+                    project=self.project_slug,
+                    memory_types=["benchmark_implication"],
+                    include_expired=True,
+                    include_superseded=True,
+                    limit=500,
+                )
+                existing_texts = {
+                    str(row.get("text", "")).strip().lower()
+                    for row in existing_benchmark_rows
+                    if isinstance(row, dict) and str(row.get("text", "")).strip()
+                }
+                for candidate in auditor_report.get("promotion_candidates", []) if isinstance(auditor_report.get("promotion_candidates", []), list) else []:
+                    if not isinstance(candidate, dict):
+                        continue
+                    text = str(candidate.get("text", "")).strip()
+                    if not text or text.lower() in existing_texts:
+                        continue
+                    persisted = self.cag_memory_store.add_row(
+                        {
+                            **dict(candidate),
+                            "scope": str(scope_row.get("scope", "")).strip(),
+                            "scope_level": str(scope_row.get("scope_level", "project")).strip() or "project",
+                            "domain": str(scope_row.get("domain", "")).strip(),
+                            "topic": str(scope_row.get("topic", "")).strip(),
+                            "thread": str(scope_row.get("thread", "")).strip(),
+                            "project": str(scope_row.get("project", self.project_slug)).strip() or self.project_slug,
+                            "run": str(scope_row.get("run", "")).strip(),
+                        }
+                    )
+                    memory_id = str(persisted.get("memory_id", "")).strip()
+                    if memory_id:
+                        promoted_by_auditor.append(memory_id)
+                        promoted_memory_ids.append(memory_id)
+                        existing_texts.add(text.lower())
+
+            auditor_report["promoted_memory_ids"] = list(promoted_by_auditor)
+            auditor_report = self.regression_reporter.write_report(auditor_report)
+            watchtower_scan: dict[str, Any] = {}
+            watchtower_scan_enabled = str(os.getenv("OATHWEAVERX_WATCHTOWER_SCAN_ENABLED", "1")).strip().lower() not in {"0", "false", "off", "no"}
+            if watchtower_scan_enabled:
+                try:
+                    watchtower_scan = self.watchtower.scan_project_gaps(
+                        project=self.project_slug,
+                        project_kernel=kernel,
+                        auditor_report=auditor_report,
+                    )
+                except Exception as scan_exc:
+                    watchtower_scan = {"error": str(scan_exc)}
+
+            replay_row = self.replay_store.save_bundle(
+                run_id=run_id,
+                project=self.project_slug,
+                pipeline=str(result.get("pipeline", pipeline_name)),
+                model_settings=dict(lane_cfg or {}),
+                input_payload=dict(pipeline_context),
+                context_packs=context_packs,
+                stage_outputs=stage_outputs,
+                stage_audits=stage_audits,
+                stage_timings_ms=stage_timings_ms,
+                hardware_profile=self.resource_budget_manager.profile.as_dict(),
+                promoted_memory_ids=promoted_memory_ids,
+                started_at=started_at,
+                finished_at=finished_at,
+            )
+
+            self.capability_registry.record_run_observation(
+                claim_text="8B + CAG + pipeline can approach 70B quality on long-running architecture work",
+                run_id=run_id,
+                pipeline=str(result.get("pipeline", pipeline_name)),
+                final_score=float(final_score),
+                benchmark_id="cag_long_project_v3",
+                status="hypothesis",
+            )
+            if isinstance(details_sink, dict):
+                details_sink["trace_ledger"] = dict(trace_row)
+                details_sink["replay_bundle"] = {
+                    "run_id": str(replay_row.get("run_id", "")),
+                    "pipeline": str(replay_row.get("pipeline", "")),
+                    "created_at": str(replay_row.get("created_at", "")),
+                }
+                details_sink["auditor_report"] = {
+                    "run_id": str(auditor_report.get("run_id", "")),
+                    "typed_findings": [str(x.get("type", "")) for x in auditor_report.get("typed_findings", []) if isinstance(x, dict)],
+                    "proposed_system_changes": list(auditor_report.get("proposed_system_changes", [])),
+                    "promoted_memory_ids": list(auditor_report.get("promoted_memory_ids", [])),
+                }
+                details_sink["watchtower_scan"] = dict(watchtower_scan)
+        except Exception as exc:
+            if isinstance(details_sink, dict):
+                details_sink["trace_ledger_error"] = str(exc)
+        if isinstance(details_sink, dict):
+            details_sink["pipeline_run"] = dict(result)
+        final_output = result.get("final_output", {}) if isinstance(result.get("final_output", {}), dict) else {}
+        reply = str(final_output.get("reply", "")).strip() or str(scratch.get("reply", "")).strip()
+        if reply:
+            return reply
+        if result.get("ok", False):
+            return None
+        return f"Pipeline execution failed: {result.get('error', 'unknown error')}."
+
+    @staticmethod
+    def _sort_memory_rows_oldest_first(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        def _key(row: dict[str, Any]) -> str:
+            return str(row.get("created_at", "")).strip() or str(row.get("updated_at", "")).strip()
+
+        return sorted([dict(x) for x in rows if isinstance(x, dict)], key=_key)
+
+    def _build_cag_candidate(
+        self,
+        *,
+        text: str,
+        payload: dict[str, Any],
+        scope_row: dict[str, Any],
+        web_details: Any,
+    ) -> dict[str, Any]:
+        summary = str(text or "").strip()
+        if not summary:
+            return {}
+        source_count = 0
+        if isinstance(web_details, dict):
+            source_count = int(web_details.get("source_count", 0) or 0)
+        row_type = self._infer_memory_type(summary, payload)
+        tags = self._candidate_tags(payload, scope_row)
+        promoted_terms = self._promoted_terms(summary, limit=12)
+        confidence = 0.55
+        if source_count > 0:
+            confidence += 0.15
+        if str(payload.get("query_complexity", "")).strip().lower() == "deep":
+            confidence += 0.05
+        confidence = max(0.0, min(1.0, confidence))
+        evidence = [
+            {"kind": "pipeline_stage", "value": "synthesis"},
+            {"kind": "lane", "value": str(payload.get("lane", ""))},
+            {"kind": "source_count", "value": source_count},
+        ]
+        validation = {
+            "task_metadata": True,
+            "has_citation": source_count > 0,
+            "auditor_approved": source_count > 0,
+            "user_accepted": False,
+            "tests_passed": False,
+            "benchmark_backed": row_type == "benchmark_implication",
+        }
+        return {
+            "text": summary,
+            "scope": str(scope_row.get("scope", "")).strip(),
+            "scope_level": str(scope_row.get("scope_level", "project")).strip() or "project",
+            "domain": str(scope_row.get("domain", "")).strip(),
+            "topic": str(scope_row.get("topic", "")).strip(),
+            "thread": str(scope_row.get("thread", "")).strip(),
+            "project": str(scope_row.get("project", self.project_slug)).strip() or self.project_slug,
+            "run": str(scope_row.get("run", "")).strip(),
+            "type": row_type,
+            "status": "candidate",
+            "human_status": "unreviewed",
+            "evidence": evidence,
+            "supersedes": [],
+            "superseded_by": [],
+            "confidence": confidence,
+            "tags": tags,
+            "promoted_terms": promoted_terms,
+            "source": "cag_promotion_gate",
+            "validation": validation,
+            "expires_at": "",
+        }
+
+    @staticmethod
+    def _candidate_tags(payload: dict[str, Any], scope_row: dict[str, Any]) -> list[str]:
+        raw = [
+            str(payload.get("lane", "")).strip(),
+            str(payload.get("topic_type", "")).strip(),
+            str(payload.get("query_mode", "")).strip(),
+            str(payload.get("query_complexity", "")).strip(),
+            str(scope_row.get("domain", "")).strip(),
+            str(scope_row.get("topic", "")).strip(),
+        ]
+        out: list[str] = []
+        for item in raw:
+            token = item.lower().replace(" ", "_")
+            if token and token not in out:
+                out.append(token)
+        return out
+
+    @staticmethod
+    def _promoted_terms(text: str, *, limit: int = 12) -> list[str]:
+        terms: list[str] = []
+        for token in re.findall(r"[a-z0-9_\\-]{4,}", str(text or "").lower()):
+            if token in terms:
+                continue
+            terms.append(token)
+            if len(terms) >= max(1, int(limit)):
+                break
+        return terms
+
+    @staticmethod
+    def _infer_memory_type(summary: str, payload: dict[str, Any]) -> str:
+        low = str(summary or "").lower()
+        lane = str(payload.get("lane", "")).strip().lower()
+        if "benchmark" in low or lane == "project":
+            return "benchmark_implication"
+        if any(word in low for word in ("must", "required", "constraint", "cannot", "never")):
+            return "constraint"
+        if any(word in low for word in ("we decided", "decision", "choose", "selected")):
+            return "decision"
+        if any(word in low for word in ("learned", "lesson", "retrospective")):
+            return "lesson"
+        return "fact"
+
     def plan_message(self, text: str) -> dict[str, Any]:
-        return self.turn_planner.plan(
+        plan = self.turn_planner.plan(
             text,
             project=self.project_slug,
             client=self.ollama,
             model_cfg=lane_model_config(self.repo_root, "orchestrator_reasoning"),
         ).as_dict()
+        plan["project_kernel"] = self.project_kernel_store.snapshot(self.project_slug)
+        return plan
 
     def reload_models(self) -> str:
         self.model_routing = load_model_routing(self.repo_root)
@@ -317,6 +1106,7 @@ class FoxforgeOrchestrator:
     def set_project(self, slug: str) -> str:
         self.project_slug = slug.strip().replace(" ", "_")
         mode_info = self.pipeline_store.get(self.project_slug)
+        kernel = self.project_kernel_store.get_or_create(self.project_slug)
         self.bus.emit(
             "orchestrator",
             "project_switched",
@@ -325,12 +1115,18 @@ class FoxforgeOrchestrator:
                 "project_mode": mode_info.get("mode", "discovery"),
                 "project_topic_type": mode_info.get("topic_type", "general"),
                 "project_target": mode_info.get("target", "auto"),
+                "domain": kernel.knowledge_spine.domain,
+                "thread": kernel.knowledge_spine.thread,
+                "pipeline": kernel.execution_spine.pipeline,
             },
         )
         return f"Active project set to '{self.project_slug}'."
 
     def project_mode_snapshot(self, project: str | None = None) -> dict[str, Any]:
-        return self.pipeline_store.get(project or self.project_slug)
+        active_project = project or self.project_slug
+        row = self.pipeline_store.get(active_project)
+        row["project_kernel"] = self.project_kernel_store.snapshot(active_project)
+        return row
 
     def set_project_mode(
         self,
@@ -341,6 +1137,18 @@ class FoxforgeOrchestrator:
         topic_type: str | None = None,
     ) -> dict[str, Any]:
         row = self.pipeline_store.set(project or self.project_slug, mode=mode, target=target, topic_type=topic_type)
+        active_project = str(row.get("project", self.project_slug)).strip() or self.project_slug
+        lane_hint = "make_app" if str(row.get("mode", "discovery")) == "make" else "research"
+        self.project_kernel_store.update_for_turn(
+            project_id=active_project,
+            lane=lane_hint,
+            topic_type=str(row.get("topic_type", "general")),
+            query_text="",
+            query_mode="general_research",
+            make_type=str(row.get("target", "auto")),
+            make_intent=str(row.get("mode", "discovery")),
+            specialist_stages=[],
+        )
         self.bus.emit(
             "orchestrator",
             "project_mode_changed",
@@ -488,10 +1296,10 @@ class FoxforgeOrchestrator:
     def artifacts_text(self, limit: int = 20) -> str:
         return self.activity_store.artifacts_text(limit=limit)
 
-    # Foxforge alias/identity constants — canonical source is foxforge/identity.py
-    _FOXFORGE_ALIASES: tuple[str, ...] = FOXFORGE_ALIASES
-    _FOXFORGE_ADDRESS_NEXT_WORDS: frozenset[str] = FOXFORGE_ADDRESS_NEXT_WORDS
-    _FOXFORGE_IDENTITY_CUES: tuple[str, ...] = FOXFORGE_IDENTITY_CUES
+    # Oathweaver alias/identity constants — canonical source is oathweaver/identity.py
+    _OATHWEAVER_ALIASES: tuple[str, ...] = OATHWEAVER_ALIASES
+    _OATHWEAVER_ADDRESS_NEXT_WORDS: frozenset[str] = OATHWEAVER_ADDRESS_NEXT_WORDS
+    _OATHWEAVER_IDENTITY_CUES: tuple[str, ...] = OATHWEAVER_IDENTITY_CUES
     # Recency detection constant — canonical source is text_processing/text_analysis.py
     _RECENCY_TERMS: frozenset[str] = RECENCY_TERMS
 
@@ -510,13 +1318,13 @@ class FoxforgeOrchestrator:
     def _manifesto_principles_block(self) -> str:
         return _manifesto_principles(self._load_manifesto_text(max_chars=14000))
 
-    def _foxforge_persona_block(self) -> str:
+    def _oathweaver_persona_block(self) -> str:
         return _gb_persona_block(self._load_manifesto_text(max_chars=14000))
 
     def _reynard_persona_block(self) -> str:
         return _reynard_persona_block(self._load_manifesto_text(max_chars=14000))
 
-    def _foxforge_identity_reply(self) -> str:
+    def _oathweaver_identity_reply(self) -> str:
         return _gb_identity_reply(self._load_manifesto_text(max_chars=14000))
 
     def _reynard_layer_config(self) -> dict[str, Any]:
@@ -619,8 +1427,8 @@ class FoxforgeOrchestrator:
         except Exception:
             return heuristic
 
-    def _mentions_foxforge_alias(self, text: str) -> bool:
-        return mentions_foxforge_alias(text)
+    def _mentions_oathweaver_alias(self, text: str) -> bool:
+        return mentions_oathweaver_alias(text)
 
     @staticmethod
     def _is_lightweight_social(text: str) -> bool:
@@ -961,7 +1769,7 @@ class FoxforgeOrchestrator:
         clean = " ".join(str(text or "").strip().lower().split())
         if not clean:
             return False
-        if FoxforgeOrchestrator._is_lightweight_social(clean):
+        if OathweaverOrchestrator._is_lightweight_social(clean):
             return True
         if any(phrase in clean for phrase in _CASUAL_CONVERSATION_PHRASES):
             return True
@@ -969,10 +1777,10 @@ class FoxforgeOrchestrator:
             return True
         return False
 
-    def _strip_foxforge_vocative_prefix(self, text: str) -> str:
+    def _strip_oathweaver_vocative_prefix(self, text: str) -> str:
         return _strip_vocative_prefix(text)
 
-    def _is_foxforge_self_query(self, text: str) -> bool:
+    def _is_oathweaver_self_query(self, text: str) -> bool:
         return _is_gb_self_query(text)
 
     def conversation_reply(
@@ -992,14 +1800,11 @@ class FoxforgeOrchestrator:
         if not model:
             return "No reynard_layer model configured."
         incoming_text = str(text or "").strip()
-        normalized_text = self._strip_foxforge_vocative_prefix(incoming_text)
+        normalized_text = self._strip_oathweaver_vocative_prefix(incoming_text)
         text = normalized_text or incoming_text
         project_slug = (project or self.project_slug or "").strip() or "general"
-        if self._is_foxforge_self_query(incoming_text):
-            return self._foxforge_identity_reply()
-        memory_command_reply = self._handle_memory_command(text)
-        if memory_command_reply:
-            return memory_command_reply
+        if self._is_oathweaver_self_query(incoming_text):
+            return self._oathweaver_identity_reply()
         if callable(cancel_checker):
             try:
                 if bool(cancel_checker()):
@@ -1143,10 +1948,9 @@ class FoxforgeOrchestrator:
                     return "Request cancelled before conversation model execution started."
             except Exception:
                 pass
-        _context_analysis, household_context, personal_context, context_guidance = self._context_bundle_for_query(
+        _context_analysis, household_context, context_guidance = self._context_bundle_for_query(
             text,
             household_chars=1100,
-            personal_chars=1000,
         )
         # ── user_prompt: inject web context with mode-appropriate framing ──
         user_prompt = text
@@ -1317,8 +2121,7 @@ class FoxforgeOrchestrator:
             pass
         # ── Tiered system prompt: core always, extended only for substantive turns ──
         _has_injected_context = bool(
-            household_context.strip() or personal_context.strip()
-            or web_context.strip() or _recency_rule or _library_ctx.strip()
+            household_context.strip() or web_context.strip() or _recency_rule or _library_ctx.strip()
             or _project_research_ctx.strip() or _project_research_raw_ctx.strip() or _project_make_ctx.strip()
         )
         _is_short_query = len(text.split()) < 10
@@ -1338,8 +2141,6 @@ class FoxforgeOrchestrator:
                 _talk_core
                 + "When relevant household context is provided, use it to quietly protect commitments, "
                 "family logistics, and timing constraints when that improves the answer. "
-                "When relevant personal context is provided, use it sparingly and naturally. "
-                "Do not force personalization, and do not announce that you remembered something unless the user asks. "
                 "When live web context is provided, use it to answer recency-sensitive questions. "
                 "For news/current-events queries: extract and report actual news STORIES, EVENTS, and HEADLINES "
                 "found in the snippets — do NOT describe website features, video library navigation, "
@@ -1378,7 +2179,7 @@ class FoxforgeOrchestrator:
             )
         # Build system prompt top-to-bottom: instructions first, time-sensitive context last.
         # This gives primacy attention to the persona/task definition and recency attention
-        # to the watchtower briefing (which contains the most time-sensitive facts).
+        # to the watchtower research card context (which contains the most time-sensitive facts).
         _talk_guidance = ""
         try:
             _talk_guidance = self.learning_engine.guidance_for_lane("project", limit=5)
@@ -1396,8 +2197,6 @@ class FoxforgeOrchestrator:
             _sys_parts.append(_stack_caps)
         if context_guidance:
             _sys_parts.append(context_guidance)
-        if personal_context:
-            _sys_parts.append(personal_context)
         if household_context:
             _sys_parts.append(household_context)
         if _topic_ctx:
@@ -1451,7 +2250,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 )
                 self._run_continuous_improvement(
                     user_text=text,
@@ -1485,7 +2283,7 @@ class FoxforgeOrchestrator:
             fallback_models = ["huihui_ai/qwen3-abliterated:8b-Q4_K_M"]
 
         system_prompt = (
-            "You are the internal Foxforge orchestrator. "
+            "You are the internal Oathweaver orchestrator. "
             "You receive worker outputs and return a faithful execution summary for an upper messenger layer. "
             "No persona, no charm, no motivational language. "
             "Always include: what completed, where outputs were written, and next best action. "
@@ -1701,7 +2499,7 @@ class FoxforgeOrchestrator:
         system_prompt = (
             self._reynard_persona_block()
             + "\n\n"
-            + "You are relaying internal Foxforge work back to the user. "
+            + "You are relaying internal Oathweaver work back to the user. "
             "Translate the internal summary into natural language in Reynard's voice. "
             "Stay faithful to the internal summary and worker result. Do not invent outcomes, paths, or evidence. "
             "Do not claim you personally executed tools or worker jobs. "
@@ -1863,7 +2661,7 @@ class FoxforgeOrchestrator:
                 if trace:
                     trace.start("light_synthesis")
                 _lr_sys = (
-                    "You are Foxforge. Produce a fast, accurate, source-grounded answer. "
+                    "You are Oathweaver. Produce a fast, accurate, source-grounded answer. "
                     "Do not mention how sources were obtained or who supplied them. "
                     "Label every claim with its evidence type:\n"
                     "  [E] = empirical — cite the source domain or URL.\n"
@@ -2213,7 +3011,7 @@ class FoxforgeOrchestrator:
         threading.Thread(
             target=_worker,
             daemon=True,
-            name=f"foxforge-library-artifact-{uuid.uuid4().hex[:8]}",
+            name=f"oathweaver-library-artifact-{uuid.uuid4().hex[:8]}",
         ).start()
 
     def _enqueue_library_ingest_from_worker_result(self, worker_result: dict[str, Any] | None) -> None:
@@ -2510,136 +3308,12 @@ class FoxforgeOrchestrator:
     def _household_source_for_context(self) -> None:
         return None
 
-    def _memory_target_records(self, raw: str) -> list[dict[str, Any]]:
-        query = str(raw or "").strip().lower()
-        rows = self.personal_memory.list_records(include_forgotten=False)
-        if not query or query in {"that", "this", "it"}:
-            rows.sort(
-                key=lambda row: (
-                    str(row.get("last_used_at", "")).strip(),
-                    str(row.get("updated_at", "")).strip(),
-                ),
-                reverse=True,
-            )
-            return rows[:1]
-        matches: list[dict[str, Any]] = []
-        for row in rows:
-            haystack = " ".join(
-                [
-                    str(row.get("subject", "")).lower(),
-                    str(row.get("field", "")).replace("_", " ").lower(),
-                    str(row.get("value", "")).lower(),
-                    str(row.get("category", "")).lower(),
-                ]
-            )
-            if query in haystack:
-                matches.append(row)
-        matches.sort(
-            key=lambda row: (
-                str(row.get("status", "")).strip(),
-                float(row.get("confidence", 0.0) or 0.0),
-                str(row.get("updated_at", "")).strip(),
-            ),
-            reverse=True,
-        )
-        return matches[:5]
-
-    def _format_memory_explanation(self, row: dict[str, Any]) -> str:
-        subject = str(row.get("subject", "")).strip() or "memory"
-        field = str(row.get("field", "")).strip().replace("_", " ")
-        value = str(row.get("value", "")).strip()
-        source_label = str(row.get("source_label", "")).strip() or str(row.get("source_type", "unknown")).strip()
-        status = str(row.get("status", "")).strip() or "captured"
-        confidence = float(row.get("confidence", 0.0) or 0.0)
-        updated_at = str(row.get("updated_at", "")).strip()
-        evidence = str(row.get("evidence", "")).strip()
-        parts = [f"I know `{subject} -> {field}` because it was stored from {source_label}."]
-        if value:
-            parts.append(f"Value: {value}.")
-        parts.append(f"Status: {status}. Confidence: {confidence:.2f}.")
-        if updated_at:
-            parts.append(f"Last updated: {updated_at}.")
-        if evidence:
-            parts.append(f"Evidence: {evidence}.")
-        return " ".join(parts)
-
-    def _handle_memory_command(self, text: str) -> str | None:
-        raw = str(text or "").strip()
-        if not raw:
-            return None
-        low = raw.lower()
-
-        remember_match = re.match(r"^(?:please\s+)?remember\s+this\s*:?\s+(.+)$", raw, flags=re.IGNORECASE)
-        if remember_match:
-            payload = str(remember_match.group(1) or "").strip()
-            if not payload:
-                return "Tell me what to remember after `remember this:`."
-            captured = self.personal_memory.capture_from_text(payload, source="chat_command")
-            if int(captured.get("captured", 0) or 0) <= 0:
-                self.personal_memory.upsert_record(
-                    category="note",
-                    subject="manual",
-                    field=f"note_{uuid.uuid4().hex[:8]}",
-                    value=payload,
-                    status="confirmed",
-                    confidence=1.0,
-                    source_type="manual",
-                    source_label="chat_command",
-                    evidence="User explicitly asked to remember this.",
-                    tags=["manual", "explicit"],
-                )
-            return "I'll keep that in memory."
-
-        if low.startswith("what do you remember about"):
-            topic = raw[len("what do you remember about"):].strip(" ?")
-            if not topic:
-                summary = self.personal_memory.format_for_prompt().strip()
-                return summary or "I do not have any saved personal memory yet."
-            relevant = self.personal_memory.relevant_context_for_query(topic, max_chars=1800).strip()
-            return relevant or f"I do not have anything solid saved about {topic} yet."
-
-        if low in {"why do you know that?", "why do you know that", "why do you know this?", "why do you know this"}:
-            targets = self._memory_target_records("that")
-            if not targets:
-                return "I do not have a recent memory reference to explain right now."
-            return self._format_memory_explanation(targets[0])
-
-        forget_match = re.match(r"^(?:please\s+)?forget\s+(.+)$", raw, flags=re.IGNORECASE)
-        if forget_match:
-            target = str(forget_match.group(1) or "").strip()
-            rows = self._memory_target_records(target)
-            if not rows:
-                return "I could not find a matching memory to forget."
-            for row in rows:
-                rid = str(row.get("id", "")).strip()
-                if rid:
-                    self.personal_memory.forget_record(rid)
-            if target.lower() in {"that", "this", "it"}:
-                return "I marked that memory as forgotten."
-            return f"I marked {len(rows)} matching memory item(s) about `{target}` as forgotten."
-
-        pin_match = re.match(r"^(?:please\s+)?pin\s+(.+)$", raw, flags=re.IGNORECASE)
-        if pin_match:
-            target = str(pin_match.group(1) or "").strip()
-            rows = self._memory_target_records(target)
-            if not rows:
-                return "I could not find a matching memory to pin."
-            for row in rows:
-                rid = str(row.get("id", "")).strip()
-                if rid:
-                    self.personal_memory.pin_record(rid)
-            if target.lower() in {"that", "this", "it"}:
-                return "I pinned that memory so it stays prioritized."
-            return f"I pinned {len(rows)} matching memory item(s) about `{target}`."
-
-        return None
-
     def _household_context_for_query(self, text: str, max_chars: int = 1200) -> str:
         return ""
 
     def _watchtower_context_for_query(self, max_chars: int = 600) -> str:
         try:
-            return self.watchtower.recent_briefing_context(limit=2, max_chars=max_chars)
+            return self.watchtower.recent_research_card_context(limit=2, max_chars=max_chars)
         except Exception:
             return ""
 
@@ -2648,21 +3322,14 @@ class FoxforgeOrchestrator:
         text: str,
         *,
         household_chars: int = 1200,
-        personal_chars: int = 1200,
-    ) -> tuple[dict[str, Any], str, str, str]:
+    ) -> tuple[dict[str, Any], str, str]:
         analysis = analyze_query_context(text)
         household_context = ""
-        personal_context = ""
-        if bool(analysis.get("allow_personal", False)):
-            try:
-                personal_context = self.personal_memory.relevant_context_for_query(text, max_chars=personal_chars)
-            except Exception:
-                personal_context = ""
         guidance = build_context_usage_guidance(
             analysis,
-            personal_available=bool(personal_context.strip()),
+            personal_available=False,
         )
-        return analysis, household_context, personal_context, guidance
+        return analysis, household_context, guidance
 
     def _context_feedback(
         self,
@@ -2670,13 +3337,12 @@ class FoxforgeOrchestrator:
         user_text: str,
         reply_text: str,
         household_context: str = "",
-        personal_context: str = "",
     ) -> dict[str, Any]:
         return evaluate_context_use(
             user_text,
             reply_text,
-            personal_context_available=bool(personal_context.strip()),
-            personal_context_injected=bool(personal_context.strip()),
+            personal_context_available=False,
+            personal_context_injected=False,
         )
 
     def _capture_daymarker_reminder(self, text: str) -> str:
@@ -3081,7 +3747,7 @@ class FoxforgeOrchestrator:
             }
 
         system_prompt = (
-            "You are Foxforge MAKE lane. "
+            "You are Oathweaver MAKE lane. "
             "Your job is execution: turn existing project research/context into a concrete deliverable. "
             "Do not ask follow-up questions. Make the best defensible draft now."
         )
@@ -3233,7 +3899,7 @@ class FoxforgeOrchestrator:
     ) -> str:
         self.bus.emit("orchestrator", "message_received", {"project": self.project_slug})
         incoming_text = str(text or "").strip()
-        normalized_text = self._strip_foxforge_vocative_prefix(incoming_text)
+        normalized_text = self._strip_oathweaver_vocative_prefix(incoming_text)
         text = normalized_text or incoming_text
 
         def _is_cancelled() -> bool:
@@ -3259,46 +3925,26 @@ class FoxforgeOrchestrator:
         perf = PerfTrace(self.repo_root, category="orchestrator_turn")
         perf.set_meta(project=self.project_slug, user_text=text[:180])
         perf.start("route_and_context")
-        if self._is_foxforge_self_query(incoming_text):
-            return self._foxforge_identity_reply()
-        memory_command_reply = self._handle_memory_command(text)
-        if memory_command_reply:
-            return memory_command_reply
+        if self._is_oathweaver_self_query(incoming_text):
+            return self._oathweaver_identity_reply()
         # NOTE: conversation_summary is injected into project_context below (after it is built),
         # not prepended to user text — so the router and lane handlers see clean user input.
-        if isinstance(history, list):
-            scan_rows = history[-40:]
-            for row in scan_rows:
-                if not isinstance(row, dict):
-                    continue
-                role = str(row.get("role", "")).strip().lower()
-                if role != "user":
-                    continue
-                content = str(row.get("content", "")).strip()
-                if not content:
-                    continue
-                try:
-                    self.personal_memory.capture_from_text(content, source="history")
-                except Exception:
-                    pass
-        try:
-            self.personal_memory.capture_from_text(text, source="turn")
-        except Exception:
-            pass
-        facts_before = self.project_memory.get_facts(self.project_slug)
-        if isinstance(history, list):
-            scan_rows = history if not facts_before else history[-30:]
-            for row in scan_rows:
-                if not isinstance(row, dict):
-                    continue
-                role = str(row.get("role", "")).strip().lower()
-                if role != "user":
-                    continue
-                content = str(row.get("content", "")).strip()
-                if not content:
-                    continue
-                self.project_memory.ingest_text(self.project_slug, content)
-        self.project_memory.ingest_text(self.project_slug, text)
+        legacy_memory_writes = str(os.environ.get("OATHWEAVERX_ENABLE_LEGACY_MEMORY_WRITES", "0")).strip().lower() in {"1", "true", "yes", "on"}
+        if legacy_memory_writes:
+            facts_before = self.project_memory.get_facts(self.project_slug)
+            if isinstance(history, list):
+                scan_rows = history if not facts_before else history[-30:]
+                for row in scan_rows:
+                    if not isinstance(row, dict):
+                        continue
+                    role = str(row.get("role", "")).strip().lower()
+                    if role != "user":
+                        continue
+                    content = str(row.get("content", "")).strip()
+                    if not content:
+                        continue
+                    self.project_memory.ingest_text(self.project_slug, content)
+            self.project_memory.ingest_text(self.project_slug, text)
         if force_research:
             reminder_note = ""
             event_note = ""
@@ -3336,15 +3982,12 @@ class FoxforgeOrchestrator:
                 )
         self._maybe_auto_refresh_project_facts(history)
         project_context = self.project_memory.summary_text(self.project_slug, limit_chars=2600)
-        _context_analysis, household_context, personal_context, context_guidance = self._context_bundle_for_query(
+        _context_analysis, household_context, context_guidance = self._context_bundle_for_query(
             text,
             household_chars=1300,
-            personal_chars=1200,
         )
         if household_context:
             project_context = (household_context + "\n\n" + project_context).strip()
-        if personal_context:
-            project_context = (personal_context + "\n\n" + project_context).strip()
         if context_guidance:
             project_context = (context_guidance + "\n\n" + project_context).strip()
         retrieved_context = self.embedding_memory.context_text(self.project_slug, text, limit=2)
@@ -3357,7 +4000,7 @@ class FoxforgeOrchestrator:
         except Exception:
             pass
         # Watchtower appended at the END of context so it receives recency attention
-        # from the model (time-sensitive briefings should be read close to the user message).
+        # from the model (time-sensitive research cards should be read close to the user message).
         _briefing_context = self._watchtower_context_for_query()
         if _briefing_context:
             project_context = (project_context + "\n\n" + _briefing_context).strip()
@@ -3427,9 +4070,21 @@ class FoxforgeOrchestrator:
             lane = turn_plan.lane_override
         query_mode = turn_plan.query_mode
         query_complexity = turn_plan.complexity
+        kernel = self.project_kernel_store.update_for_turn(
+            project_id=self.project_slug,
+            lane=lane,
+            topic_type=topic_type,
+            query_text=text,
+            query_mode=query_mode,
+            make_type=turn_plan.make_type or inferred_target,
+            make_intent=turn_plan.make_intent or query_mode,
+            specialist_stages=[],
+        )
+        if isinstance(details_sink, dict):
+            details_sink["project_kernel"] = kernel.as_dict()
         perf.end("route_and_context")
         perf.set_meta(lane=lane, query_mode=query_mode, query_complexity=query_complexity)
-        _progress("lane_routed", f"Lane: {lane} | mode={query_mode} | complexity={query_complexity}")
+        _progress("lane_routed", f"Pipeline: {lane_to_pipeline(lane)} | mode={query_mode} | complexity={query_complexity}")
         self.bus.emit("orchestrator", "routed", {"lane": lane, "project": self.project_slug})
 
         if reminder_note and self._is_reminder_only_request(text):
@@ -3449,7 +4104,44 @@ class FoxforgeOrchestrator:
             reply = self._append_daymarker_note(reply, event_note)
             return self._append_daymarker_note(reply, reminder_note)
 
+        pipeline_reply = self._execute_pipeline_turn(
+            lane=lane,
+            text=text,
+            history=history,
+            topic_type=topic_type,
+            query_mode=query_mode,
+            query_complexity=query_complexity,
+            inferred_target=inferred_target,
+            mode=mode,
+            turn_plan=turn_plan,
+            force_research=force_research,
+            cancel_checker=cancel_checker,
+            pause_checker=pause_checker,
+            yield_checker=yield_checker,
+            progress_callback=progress_callback,
+            reminder_note=reminder_note,
+            event_note=event_note,
+            details_sink=details_sink,
+            household_context=household_context,
+        )
+        if pipeline_reply is not None:
+            return pipeline_reply
+
         if lane == "conversation":
+            if serious_mode_enabled():
+                return self.research_service.execute_project_lane(
+                    self,
+                    text=text,
+                    history=history,
+                    topic_type=topic_type,
+                    cancel_checker=cancel_checker,
+                    pause_checker=pause_checker,
+                    yield_checker=yield_checker,
+                    progress_callback=progress_callback,
+                    reminder_note=reminder_note,
+                    event_note=event_note,
+                    details_sink=details_sink,
+                )
             if self._chat_via_graph_enabled():
                 try:
                     graph_result = invoke_chat_turn_graph(
@@ -3542,7 +4234,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3572,7 +4263,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3612,7 +4302,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3642,7 +4331,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3672,7 +4360,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3742,7 +4429,6 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
@@ -3781,12 +4467,11 @@ class FoxforgeOrchestrator:
                     user_text=text,
                     reply_text=reply,
                     household_context=household_context,
-                    personal_context=personal_context,
                 ),
             )
 
         if lane == "personal":
-            return "Personal assistant lane is not available in this Foxforge build."
+            return "Personal assistant lane is not available in this Oathweaver build."
 
         return self.research_service.execute_project_lane(
             self,
@@ -3878,7 +4563,7 @@ class FoxforgeOrchestrator:
         base_msg = f"Decision recorded for {request_id}: {'approved' if approved else 'rejected'}."
         if not approved or stored is None:
             return base_msg
-        return f"{base_msg}\n\nPersonal assistant lane is not available in this Foxforge build."
+        return f"{base_msg}\n\nPersonal assistant lane is not available in this Oathweaver build."
 
     def create_handoff(self, target: str, request_text: str) -> str:
         return _handoff_mgr.create_handoff(self.handoff_queue, self.bus, self.project_slug, target, request_text)
@@ -4412,9 +5097,9 @@ def parse_optional_int(command: str, default: int, minimum: int = 1, maximum: in
 
 
 def main() -> None:
-    orch = FoxforgeOrchestrator(ROOT)
+    orch = OathweaverOrchestrator(ROOT)
 
-    print("Foxforge Orchestrator")
+    print("Oathweaver Orchestrator")
     print("Type /help for commands. Type exit to quit.")
 
     while True:

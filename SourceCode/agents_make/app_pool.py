@@ -701,7 +701,7 @@ def _import_smoke_check(flask_code: str, db_py: str, schema_sql: str) -> tuple[b
 
 def _runtime_smoke_check(project_dir: Path, spec: AppSpec | None) -> tuple[bool, str]:
     """Run a short Flask runtime smoke test against /api/health and one spec GET route."""
-    if os.environ.get("FOXFORGE_SKIP_RUNTIME_SMOKE", "").strip() == "1":
+    if os.environ.get("OATHWEAVER_SKIP_RUNTIME_SMOKE", "").strip() == "1":
         return True, ""
 
     proc: subprocess.Popen[str] | None = None

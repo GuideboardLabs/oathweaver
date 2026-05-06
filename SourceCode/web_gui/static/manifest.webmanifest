@@ -1,15 +1,15 @@
 {
-  "name": "Foxforge",
-  "short_name": "Foxforge",
+  "name": "Oathweaver",
+  "short_name": "Oathweaver",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#0f1722",
   "theme_color": "#0f1722",
-  "description": "Foxforge family dashboard and chat workspace.",
+  "description": "Oathweaver family dashboard and chat workspace.",
   "icons": [
     {
-      "src": "/static/branding/foxforge-appicon.png",
+      "src": "/static/branding/oathweaver-appicon.png",
       "type": "image/png",
       "sizes": "750x750",
       "purpose": "any"

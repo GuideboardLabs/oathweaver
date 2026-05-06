@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from tests.common import ROOT, ensure_runtime
-from orchestrator.main import FoxforgeOrchestrator
+from orchestrator.main import OathweaverOrchestrator
 from shared_tools.external_requests import ExternalRequestStore, ExternalToolsSettings
 
 
@@ -19,7 +19,7 @@ class ExternalPendingActionsTests(unittest.TestCase):
         ensure_runtime(self.repo_root)
         self.store = ExternalRequestStore(self.repo_root)
         self.settings = ExternalToolsSettings(self.repo_root)
-        self.orch = FoxforgeOrchestrator(self.repo_root)
+        self.orch = OathweaverOrchestrator(self.repo_root)
 
     def tearDown(self) -> None:
         shutil.rmtree(self.runtime_tmp, ignore_errors=True)
@@ -102,7 +102,7 @@ class ExternalPendingActionsTests(unittest.TestCase):
             "Kids soccer practice is on Tuesday.",
             confidence=0.7,
             source="memory",
-            source_file="Runtime/state/foxforge.db",
+            source_file="Runtime/state/oathweaver.db",
             project="general",
         )
         actions = self.orch.pending_actions_data(limit=200)

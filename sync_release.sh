@@ -1,14 +1,14 @@
 #!/bin/bash
 # sync_release.sh
-# Syncs this dev environment to Foxforge-Release (public version).
+# Syncs this dev environment to Oathweaver-Release (public version).
 # Respects .gitignore — Runtime credentials and personal data are never copied.
 
 set -euo pipefail
 
-SRC="/home/sc/Foxforge"
-DEST="/home/sc/Foxforge-Release"
+SRC="/home/sc/Oathweaver"
+DEST="/home/sc/Oathweaver-Release"
 
-echo "=== Foxforge Release Sync ==="
+echo "=== Oathweaver Release Sync ==="
 echo "  Source : $SRC"
 echo "  Target : $DEST"
 echo ""

@@ -67,7 +67,7 @@ def register_owner_routes(bp: Blueprint, ctx: AppContext) -> None:
         if not is_configured(cfg):
             return {"ok": False, "error": "Email not fully configured."}, 400
         try:
-            send_notification_email(cfg, "Foxforge — test notification", "Email notifications are working.")
+            send_notification_email(cfg, "Oathweaver — test notification", "Email notifications are working.")
             return {"ok": True}, 200
         except Exception as exc:
             return {"ok": False, "error": str(exc)}, 500
@@ -133,16 +133,16 @@ def register_owner_routes(bp: Blueprint, ctx: AppContext) -> None:
         platform = str(payload.get("platform", "")).strip()
         platform_user_id = str(payload.get("platform_user_id", "")).strip()
         platform_username = str(payload.get("platform_username", "")).strip()
-        foxforge_user_id = str(payload.get("foxforge_user_id", "")).strip()
-        if not platform or not platform_user_id or not foxforge_user_id:
-            return {"ok": False, "error": "platform, platform_user_id, and foxforge_user_id are required."}, 400
-        conv_store = ConversationStore(ctx.root, foxforge_user_id)
+        oathweaver_user_id = str(payload.get("oathweaver_user_id", "")).strip()
+        if not platform or not platform_user_id or not oathweaver_user_id:
+            return {"ok": False, "error": "platform, platform_user_id, and oathweaver_user_id are required."}, 400
+        conv_store = ConversationStore(ctx.root, oathweaver_user_id)
         conv = conv_store.create(title=f"{platform.capitalize()} conversation", project="general")
         mapping = BotUserStore(ctx.root).create_mapping(
             platform=platform,
             platform_user_id=platform_user_id,
             platform_username=platform_username or platform_user_id,
-            foxforge_user_id=foxforge_user_id,
+            oathweaver_user_id=oathweaver_user_id,
             conversation_id=conv["id"],
         )
         return {"ok": True, "mapping": mapping}, 200
@@ -272,7 +272,7 @@ def register_owner_routes(bp: Blueprint, ctx: AppContext) -> None:
             _write_json(runtime_root / "watchtower" / "watches.json", [])
             _write_json(runtime_root / "family" / "accounts.json", {"accounts": [], "created_at": "", "updated_at": ""})
             clear_structured_runtime_state(ctx.root)
-            log.append("reset  Runtime/state/foxforge.db tables")
+            log.append("reset  Runtime/state/oathweaver.db tables")
 
             for path in [
                 runtime_root / "conversations",

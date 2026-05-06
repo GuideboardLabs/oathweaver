@@ -9,7 +9,6 @@ from shared_tools.external_requests import ExternalRequestStore, ExternalToolsSe
 from shared_tools.feedback_learning import FeedbackLearningEngine
 from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
-from shared_tools.personal_memory import PersonalMemory
 from shared_tools.project_context_memory import ProjectContextMemory
 from shared_tools.project_pipeline import ProjectPipelineStore
 from shared_tools.self_reflection import SelfReflectionEngine
@@ -105,12 +104,6 @@ class OrchestratorInfraRuntime:
         return self._cache["reflection_engine"]
 
     @property
-    def personal_memory(self) -> PersonalMemory:
-        if "personal_memory" not in self._cache:
-            self._cache["personal_memory"] = PersonalMemory(self.repo_root)
-        return self._cache["personal_memory"]
-
-    @property
     def workspace_tools(self) -> WorkspaceTools:
         if "workspace_tools" not in self._cache:
             self._cache["workspace_tools"] = WorkspaceTools(
@@ -140,7 +133,6 @@ class OrchestratorInfraRuntime:
         registry.register("pipeline_store", self.pipeline_store, description="Project pipeline store")
         registry.register("learning_engine", self.learning_engine, description="Feedback learning engine")
         registry.register("reflection_engine", self.reflection_engine, description="Self reflection engine")
-        registry.register("personal_memory", self.personal_memory, description="Personal context memory")
         registry.register("workspace_tools", self.workspace_tools, description="Workspace helper toolkit")
         registry.register("embedding_memory", self.embedding_memory, description="Embedding-backed memory")
         registry.register("library_service", self.library_service, description="Library retrieval service")

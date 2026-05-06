@@ -425,7 +425,7 @@ class LibraryService:
             target=self._ingest_item,
             args=(target,),
             daemon=True,
-            name=f"foxforge-library-{target[:8]}",
+            name=f"oathweaver-library-{target[:8]}",
         )
         thread.start()
 

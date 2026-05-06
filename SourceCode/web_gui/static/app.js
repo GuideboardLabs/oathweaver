@@ -2,7 +2,7 @@ const FILE_PATH_REGEX = /([A-Za-z]:(?:\\|\/)[^\r\n"'<>|?*]+?\.[A-Za-z0-9]{1,12}|
 
 const COMPOSER_PLACEHOLDERS = {
   talk: [
-    "Talk with Foxforge...",
+    "Talk with Oathweaver...",
     "What's on your mind?",
     "Ask anything...",
     "Start a conversation...",
@@ -1279,14 +1279,14 @@ const app = window.Vue.createApp({
         building_paused: false,
         building_active_jobs: 0,
         building_completion_unread: false,
-        briefings_unread: 0,
+        cards_unread: 0,
         action_proposals_pending: 0,
         watchtower_active: 0,
         topics_with_research: 0,
         library_items_total: 0,
         library_items_pending: 0,
       },
-      makeType: localStorage.getItem("foxforge_make_type") || "",
+      makeType: localStorage.getItem("oathweaver_make_type") || "",
       makeTypeModalOpen: false,
       makeOutputEditModalOpen: false,
       makeOutputEditLoading: false,
@@ -1295,21 +1295,6 @@ const app = window.Vue.createApp({
       pendingExtendsTitle: "",
       makeTypeCatalog: [],
       watchtowerForm: { topic: "", profile: "general", schedule: "daily", schedule_hour: 7 },
-      briefingsFilter: { mode: "unread", search: "" },
-      lifeAdminForms: {
-        profile: blankLifeAdminProfileForm(),
-        family: blankLifeAdminFamilyForm(),
-        pet: blankLifeAdminPetForm(),
-        notes: "",
-      },
-      lifeAdminState: {
-        profileDetailsOpen: false,
-        familyDetailsOpen: false,
-        petDetailsOpen: false,
-        familyEditingKey: "",
-        petEditingKey: "",
-        memoryFilter: "all",
-      },
       actionProposals: [],
       jobWebStack: {},
       pendingLiveSources: {},
@@ -1482,7 +1467,7 @@ const app = window.Vue.createApp({
       },
       botMappings: [],
       botPending: [],
-      botUserForm: { platform: "telegram", platform_user_id: "", platform_username: "", foxforge_user_id: "" },
+      botUserForm: { platform: "telegram", platform_user_id: "", platform_username: "", oathweaver_user_id: "" },
       botProfiles: [],
       digestSettings: { enabled: false, hour: 7, locationLabel: "", locationLat: null, locationLon: null },
       digestLocationDraft: "",
@@ -1693,85 +1678,6 @@ const app = window.Vue.createApp({
       const meta = this.conversationSendingMeta(this.activeConversationId);
       return Boolean(meta && meta.foraging);
     },
-    activeConversationSendingIsImageGen() {
-      const meta = this.conversationSendingMeta(this.activeConversationId);
-      return Boolean(meta && meta.imageGen);
-    },
-    activeConversationImageGenPhrase() {
-      const meta = this.conversationSendingMeta(this.activeConversationId);
-      const startedAt = Number(meta?.startedAt || 0);
-      const nowTs = Number(this.thinkingNowTs || Date.now());
-      const elapsed = startedAt > 0 ? Math.max(0, (nowTs - startedAt) / 1000) : 0;
-      let phrases, phaseStart;
-      if (elapsed < 22) {
-        // Phase 1: startup / model loading
-        phrases = [
-          'Warming up ComfyUI…',
-          'Loading the diffusion model…',
-          'Releasing Ollama VRAM…',
-          'Encoding your prompt…',
-          'Configuring LoRA weights…',
-          'Preparing the latent canvas…',
-          'Initializing the sampler…',
-          'Loading checkpoint weights…',
-          'Reading style parameters…',
-          'Setting up the neural pipeline…',
-          'Priming the diffusion engine…',
-        ];
-        phaseStart = 0;
-      } else if (elapsed < 62) {
-        // Phase 2: active denoising / sampling
-        phrases = [
-          'Sampling the latent space…',
-          'Denoising step by step…',
-          'Painting from noise…',
-          'Shapes emerging from static…',
-          'Each pass refines the image…',
-          'Diffusion in progress…',
-          'Brushstrokes taking form…',
-          'The image is becoming visible…',
-          'Sculpting detail from chaos…',
-          'Layers of structure accumulating…',
-          'Fine-tuning the composition…',
-          'Letting the model dream it through…',
-        ];
-        phaseStart = 22;
-      } else if (elapsed < 80) {
-        // Phase 3: decoding / post-processing
-        phrases = [
-          'Decoding the latent image…',
-          'Running the VAE decoder…',
-          'Converting latents to pixels…',
-          'Sharpening fine details…',
-          'Running post-processing pass…',
-          'Polishing edges and textures…',
-          'Face detailing in progress…',
-          'Applying finishing touches…',
-          'Quality refinement pass…',
-          'Almost painted…',
-          'Detail enhancement underway…',
-        ];
-        phaseStart = 62;
-      } else {
-        // Phase 4: wrapping up
-        phrases = [
-          'Wrapping up post-processing…',
-          'Saving the final image…',
-          'Last finishing touches…',
-          'Compressing the output…',
-          'Any moment now…',
-          'Finalizing the artwork…',
-          'Writing pixels to disk…',
-          'Image nearly ready…',
-          'Applying final strokes…',
-          'Sending the image your way…',
-          'Just about done…',
-        ];
-        phaseStart = 80;
-      }
-      const idx = Math.floor((elapsed - phaseStart) / 8) % phrases.length;
-      return phrases[idx];
-    },
     activeConversationThinkingPhrase() {
       const phrases = [
         'Working on it.',
@@ -1821,33 +1727,7 @@ const app = window.Vue.createApp({
       return this.activeConversationQueuedTurns.length;
     },
     activeTitle() {
-      return String(this.activeConversation?.title || "Foxforge");
-    },
-    lifeAdminContext() {
-      return Array.isArray(this.panelData) && this.panelData.length ? (this.panelData[0] || {}) : {};
-    },
-    secondBrainContext() {
-      if (this.panelKey === "life-admin") {
-        const brain = this.lifeAdminContext?.second_brain;
-        return brain && typeof brain === "object" ? brain : {};
-      }
-      return Array.isArray(this.panelData) && this.panelData.length ? (this.panelData[0] || {}) : {};
-    },
-    secondBrainSourceRows() {
-      const raw = this.secondBrainContext?.source_breakdown;
-      const rows = raw && typeof raw === "object" ? Object.entries(raw) : [];
-      return rows
-        .map(([key, count]) => ({ key: String(key || ""), count: Number(count || 0) }))
-        .filter((row) => row.key && Number.isFinite(row.count) && row.count > 0)
-        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
-    },
-    secondBrainStatusRows() {
-      const raw = this.secondBrainContext?.status_breakdown;
-      const rows = raw && typeof raw === "object" ? Object.entries(raw) : [];
-      return rows
-        .map(([key, count]) => ({ key: String(key || ""), count: Number(count || 0) }))
-        .filter((row) => row.key && Number.isFinite(row.count) && row.count > 0)
-        .sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+      return String(this.activeConversation?.title || "Oathweaver");
     },
     watchtowerRows() {
       const rows = Array.isArray(this.panelData) && this.panelKey === "watchtower" ? this.panelData : [];
@@ -1856,14 +1736,14 @@ const app = window.Vue.createApp({
           ...row,
           _schedule_label: this.watchScheduleLabel(row),
           _last_run_label: this.relativeTimeLabel(row?.last_run_at),
-          _last_briefing_label: this.relativeTimeLabel(row?.last_briefing_at),
+          _last_card_label: this.relativeTimeLabel(row?.last_card_at),
         }))
         .sort((a, b) => {
           const aEnabled = a?.enabled ? 0 : 1;
           const bEnabled = b?.enabled ? 0 : 1;
           if (aEnabled !== bEnabled) return aEnabled - bEnabled;
-          const aUnread = Number(a?.unread_briefings || 0);
-          const bUnread = Number(b?.unread_briefings || 0);
+          const aUnread = Number(a?.unread_cards || 0);
+          const bUnread = Number(b?.unread_cards || 0);
           if (aUnread !== bUnread) return bUnread - aUnread;
           return String(a?.created_at || "").localeCompare(String(b?.created_at || ""));
         });
@@ -1871,78 +1751,14 @@ const app = window.Vue.createApp({
     watchtowerSummary() {
       const rows = this.watchtowerRows;
       const enabled = rows.filter((row) => Boolean(row?.enabled)).length;
-      const unread = rows.reduce((sum, row) => sum + Number(row?.unread_briefings || 0), 0);
-      const totalBriefings = rows.reduce((sum, row) => sum + Number(row?.briefing_count || 0), 0);
+      const unread = rows.reduce((sum, row) => sum + Number(row?.unread_cards || 0), 0);
+      const totalCards = rows.reduce((sum, row) => sum + Number(row?.card_count || 0), 0);
       return {
         watch_count: rows.length,
         enabled_count: enabled,
         unread_count: unread,
-        total_briefings: totalBriefings,
+        total_cards: totalCards,
       };
-    },
-    briefingRows() {
-      const rows = Array.isArray(this.panelData) && this.panelKey === "briefings" ? this.panelData : [];
-      const mode = String(this.briefingsFilter?.mode || "unread").trim().toLowerCase();
-      const rawSearch = String(this.briefingsFilter?.search || "").trim().toLowerCase();
-      return rows
-        .filter((row) => {
-          if (mode === "unread") return !Boolean(row?.read);
-          if (mode === "read") return Boolean(row?.read);
-          return true;
-        })
-        .filter((row) => {
-          if (!rawSearch) return true;
-          const hay = [
-            row?.topic,
-            row?.headline,
-            row?.summary,
-            row?.preview,
-            (Array.isArray(row?.key_points) ? row.key_points.join(" ") : ""),
-          ]
-            .map((x) => String(x || "").toLowerCase())
-            .join(" ");
-          return hay.includes(rawSearch);
-        })
-        .sort((a, b) => {
-          const aUnread = a?.read ? 1 : 0;
-          const bUnread = b?.read ? 1 : 0;
-          if (aUnread !== bUnread) return aUnread - bUnread;
-          return String(b?.created_at || "").localeCompare(String(a?.created_at || ""));
-        });
-    },
-    lifeAdminRecords() {
-      const rows = Array.isArray(this.lifeAdminContext?.records) ? this.lifeAdminContext.records.slice() : [];
-      rows.sort((a, b) => {
-        const aPinned = String(a?.status || "").toLowerCase() === "pinned" ? 0 : 1;
-        const bPinned = String(b?.status || "").toLowerCase() === "pinned" ? 0 : 1;
-        if (aPinned !== bPinned) return aPinned - bPinned;
-        const aUpdated = String(a?.updated_at || "");
-        const bUpdated = String(b?.updated_at || "");
-        if (aUpdated > bUpdated) return -1;
-        if (aUpdated < bUpdated) return 1;
-        return String(a?.subject || "").localeCompare(String(b?.subject || ""));
-      });
-      return rows;
-    },
-    filteredLifeAdminRecords() {
-      const rows = this.lifeAdminRecords;
-      const filter = String(this.lifeAdminState?.memoryFilter || "all").toLowerCase();
-      if (filter === "all") return rows;
-      if (filter === "pinned") return rows.filter((row) => String(row?.status || "").toLowerCase() === "pinned");
-      if (filter === "needs_review") {
-        return rows.filter((row) => {
-          const status = String(row?.status || "").toLowerCase();
-          const confidence = Number(row?.confidence || 0);
-          return status === "captured" || status === "stale" || confidence < 0.7;
-        });
-      }
-      if (filter === "forgotten") return rows.filter((row) => String(row?.status || "").toLowerCase() === "forgotten");
-      if (filter === "recent") {
-        return rows
-          .filter((row) => String(row?.last_used_at || "").trim())
-          .sort((a, b) => String(b?.last_used_at || "").localeCompare(String(a?.last_used_at || "")));
-      }
-      return rows;
     },
     homeGreetingName() {
       return String(this.auth?.profile?.display_name || this.auth?.profile?.username || "there");
@@ -2018,13 +1834,11 @@ const app = window.Vue.createApp({
     junctionPanelBadgeCount() {
       const values = [
         this.panelStatus?.pending_actions,
-        this.panelStatus?.foraging_completion_unread ? 1 : 0,
-        this.panelStatus?.building_completion_unread ? 1 : 0,
         this.reflectionsUnreadCount,
         this.lessonsUnreadCount,
         this.panelStatus?.library_items_pending,
         this.panelStatus?.topics_with_research,
-        this.panelStatus?.briefings_unread,
+        this.panelStatus?.cards_unread,
         this.panelStatus?.watchtower_active,
       ];
       return values.reduce((sum, value) => {
@@ -2568,28 +2382,28 @@ const app = window.Vue.createApp({
     },
     foragingStatusShort() {
       if (this.panelStatus.foraging_paused) {
-        return "Foraging Paused";
+        return "Research Paused";
       }
       const active = Number(this.panelStatus.foraging_active_jobs || 0);
       if (active > 0) {
         if (this.panelStatus.foraging_yielding) {
-          return `Foraging Yielding (${active})`;
+          return `Research Yielding (${active})`;
         }
-        return `Foraging Active (${active})`;
+        return `Research Active (${active})`;
       }
       if (this.panelStatus.foraging_yielding) {
-        return "Foraging Yielding";
+        return "Research Yielding";
       }
       if (Boolean(this.panelStatus.foraging_completion_unread)) {
-        return "Foraging Complete";
+        return "Research Complete";
       }
-      return "Foraging Ready";
+      return "Research Ready";
     },
     foragingStatusTitle() {
       const active = Number(this.panelStatus.foraging_active_jobs || 0);
       const paused = Boolean(this.panelStatus.foraging_paused);
       const yielding = Boolean(this.panelStatus.foraging_yielding);
-      return `Foraging status: ${paused ? "paused" : "running"} | active jobs: ${active} | yielding: ${
+      return `Research status: ${paused ? "paused" : "running"} | active jobs: ${active} | yielding: ${
         yielding ? "yes" : "no"
       }`;
     },
@@ -2661,7 +2475,7 @@ const app = window.Vue.createApp({
     },
     panelTitle() {
       if (this.panelKey === "foraging") {
-        return "Foraging Control";
+        return "Research Control";
       }
       if (this.panelKey === "building") {
         return "Build Control";
@@ -2690,17 +2504,11 @@ const app = window.Vue.createApp({
       if (this.panelKey === "watchtower") {
         return "Watchtower";
       }
-      if (this.panelKey === "briefings") {
-        return "Briefings";
-      }
       if (this.panelKey === "library") {
         return "Library";
       }
       if (this.panelKey === "library_detail") {
         return this.libraryDetailItem ? `Library: ${this.libraryDetailItem.title || this.libraryDetailItem.source_name}` : "Library Detail";
-      }
-      if (this.panelKey === "life-admin") {
-        return "Personal Context";
       }
       if (this.panelKey === "topics") {
         return "Topics";
@@ -2715,7 +2523,7 @@ const app = window.Vue.createApp({
     },
     panelSubtitle() {
       if (this.panelKey === "foraging") {
-        return "Background Foraging jobs, progress checkpoints, and quick controls.";
+        return "Background Research jobs, progress checkpoints, and quick controls.";
       }
       if (this.panelKey === "building") {
         return "Active Build jobs, stage progress, and quick controls.";
@@ -2746,9 +2554,6 @@ const app = window.Vue.createApp({
       if (this.panelKey === "watchtower") {
         return "Monitoring watches, run cadence, and watch-level signal health.";
       }
-      if (this.panelKey === "briefings") {
-        return "Actionable briefings with confidence, risks, and next steps.";
-      }
       if (this.panelKey === "library") {
         return "Private source documents, ingestion status, and reusable knowledge.";
       }
@@ -2756,10 +2561,7 @@ const app = window.Vue.createApp({
         return "Document metadata, summary, markdown preview, and source links.";
       }
       if (this.panelKey === "forage-cards") {
-        return "Saved research cards from completed Forage runs. Pin to keep.";
-      }
-      if (this.panelKey === "life-admin") {
-        return "Editable personal context plus the memory dashboard Foxforge uses to ground chat.";
+        return "Saved research cards from completed Research runs. Pin to keep.";
       }
       if (this.panelKey === "topics") {
         return "Research topics — artifact counts, last activity, and mode.";
@@ -3084,7 +2886,7 @@ const app = window.Vue.createApp({
         return "Server-side Web Push is not ready yet.";
       }
       if (this.webPushSettings.has_subscription) {
-        return "This device is subscribed and can receive Foxforge notifications.";
+        return "This device is subscribed and can receive Oathweaver notifications.";
       }
       return "This device is not subscribed yet.";
     },
@@ -3106,7 +2908,7 @@ const app = window.Vue.createApp({
     sendingByConversation: {
       handler(val) {
         try {
-          sessionStorage.setItem("foxforge_pending_jobs", JSON.stringify(val || {}));
+          sessionStorage.setItem("oathweaver_pending_jobs", JSON.stringify(val || {}));
         } catch (_e) {}
       },
       deep: true,
@@ -3214,7 +3016,7 @@ const app = window.Vue.createApp({
           throw new Error("This browser does not currently support Web Push in this context.");
         }
         if (isProbablyIosDevice() && !this.webPushInstalled) {
-          throw new Error("On iPhone, add Foxforge to your Home Screen first, then open the installed web app and try again.");
+          throw new Error("On iPhone, add Oathweaver to your Home Screen first, then open the installed web app and try again.");
         }
         const registration = await this.getWebPushRegistration();
         if (!registration) {
@@ -3480,7 +3282,7 @@ const app = window.Vue.createApp({
             startedAt: Number(value.startedAt || Date.now()),
             cancelRequested: Boolean(value.cancelRequested),
             foraging: Boolean(value.foraging),
-            imageGen: Boolean(value.imageGen),
+            renderJob: Boolean(value.renderJob),
           };
         } else {
           next[id] = {
@@ -3488,7 +3290,7 @@ const app = window.Vue.createApp({
             startedAt: Date.now(),
             cancelRequested: false,
             foraging: false,
-            imageGen: false,
+            renderJob: false,
           };
         }
       } else {
@@ -3570,7 +3372,7 @@ const app = window.Vue.createApp({
 
     queuedMessageModeLabel(item) {
       const mode = String(item?.mode || "").trim().toLowerCase();
-      if (mode === "forage") return "Forage";
+      if (mode === "forage") return "Research";
       if (mode === "make") return "Make";
       return "Talk";
     },
@@ -3746,12 +3548,12 @@ const app = window.Vue.createApp({
 
     lessonsStorageKey() {
       const profileId = String(this.auth?.profile?.id || "anon").trim() || "anon";
-      return `foxforge_lessons_read_${profileId}`;
+      return `oathweaver_lessons_read_${profileId}`;
     },
 
     reflectionsStorageKey() {
       const profileId = String(this.auth?.profile?.id || "anon").trim() || "anon";
-      return `foxforge_reflections_read_${profileId}`;
+      return `oathweaver_reflections_read_${profileId}`;
     },
 
     loadLessonReadState() {
@@ -4139,7 +3941,7 @@ const app = window.Vue.createApp({
     },
 
     showWaypointRetiredNotice() {
-      window.alert("Waypoint has been retired from Foxforge.");
+      window.alert("Waypoint has been retired from Oathweaver.");
     },
 
     goToLandingHome() {
@@ -4516,7 +4318,7 @@ const app = window.Vue.createApp({
       }
       this.inputMode = next;
       try {
-        localStorage.setItem("foxforge_input_mode", this.inputMode);
+        localStorage.setItem("oathweaver_input_mode", this.inputMode);
       } catch (_err) {}
     },
 
@@ -4536,7 +4338,7 @@ const app = window.Vue.createApp({
       const defaultStack = "\"Segoe UI\", \"Trebuchet MS\", sans-serif";
       this.fontConfigError = "";
       document.documentElement.style.setProperty("--font-main", defaultStack);
-      const styleId = "foxforge-dynamic-fonts";
+      const styleId = "oathweaver-dynamic-fonts";
       try {
         let payload = null;
         let lastStatus = 0;
@@ -4624,8 +4426,8 @@ const app = window.Vue.createApp({
         let savedId = "";
         let savedFamily = "";
         try {
-          savedId = String(localStorage.getItem("foxforge_font_id") || "").trim().toLowerCase();
-          savedFamily = String(localStorage.getItem("foxforge_font_family") || "").trim().toLowerCase();
+          savedId = String(localStorage.getItem("oathweaver_font_id") || "").trim().toLowerCase();
+          savedFamily = String(localStorage.getItem("oathweaver_font_family") || "").trim().toLowerCase();
         } catch (_err) {}
 
         const forcedId = String(preferredFontId || "").trim().toLowerCase();
@@ -4651,8 +4453,8 @@ const app = window.Vue.createApp({
         this.activeFontId = String(active.id || "").trim().toLowerCase();
 
         try {
-          localStorage.setItem("foxforge_font_id", this.activeFontId);
-          localStorage.setItem("foxforge_font_family", String(active.family || "").trim());
+          localStorage.setItem("oathweaver_font_id", this.activeFontId);
+          localStorage.setItem("oathweaver_font_family", String(active.family || "").trim());
         } catch (_err) {}
       } catch (err) {
         console.warn("Font config load failed:", err);
@@ -4677,7 +4479,7 @@ const app = window.Vue.createApp({
         return;
       }
       try {
-        localStorage.setItem("foxforge_theme", next);
+        localStorage.setItem("oathweaver_theme", next);
       } catch (_err) {}
     },
 
@@ -4696,7 +4498,7 @@ const app = window.Vue.createApp({
         this.clearPendingMakeOutputExtension();
       }
       try {
-        localStorage.setItem("foxforge_active_project", this.activeProject);
+        localStorage.setItem("oathweaver_active_project", this.activeProject);
       } catch (_err) {}
       this.refreshProjectPipeline().catch(() => {});
     },
@@ -5485,7 +5287,7 @@ const app = window.Vue.createApp({
       return !!this.sourceExpandedMsgs[key];
     },
 
-    syncImageGenPrefsFromConversation(convo) {
+    syncImagePrefsFromConversation(convo) {
       const row = convo && typeof convo === "object" ? convo : {};
       const selected = this.normalizeLoraSelection(row?.selected_loras || []);
       this.composerSelectedLoras = selected;
@@ -5514,7 +5316,7 @@ const app = window.Vue.createApp({
       this.composerLoraLoading = true;
       this.composerLoraError = "";
       try {
-        const payload = await this.apiGet("/api/image-gen/loras");
+        const payload = await this.apiGet("/api/loras");
         const rows = Array.isArray(payload?.loras) ? payload.loras : [];
         this.composerLoraOptions = rows
           .map((row) => {
@@ -5542,7 +5344,7 @@ const app = window.Vue.createApp({
       this.imageToolPresetLoading = true;
       this.imageToolPresetError = "";
       try {
-        const payload = await this.apiGet("/api/image-gen/presets");
+        const payload = await this.apiGet("/api/presets");
         const rows = Array.isArray(payload?.presets) ? payload.presets : [];
         this.imageToolPresetOptions = rows
           .map((row) => {
@@ -5575,7 +5377,7 @@ const app = window.Vue.createApp({
       }
     },
 
-    async persistImageGenPreferences() {
+    async persistImagePreferences() {
       const conversationId = String(this.activeConversationId || "").trim();
       if (!conversationId) {
         return;
@@ -5590,7 +5392,7 @@ const app = window.Vue.createApp({
           selected_loras: selected,
         });
         if (payload?.conversation) {
-          this.syncImageGenPrefsFromConversation(payload.conversation);
+          this.syncImagePrefsFromConversation(payload.conversation);
           if (String(this.activeConversationId || "").trim() === conversationId) {
             this.activeConversation = payload.conversation;
           }
@@ -5611,7 +5413,7 @@ const app = window.Vue.createApp({
       }
       this.composerImageStyle = "realistic";
       this.composerSelectedLoras = [];
-      await this.persistImageGenPreferences();
+      await this.persistImagePreferences();
     },
 
     isLoraSelected(name) {
@@ -5639,7 +5441,7 @@ const app = window.Vue.createApp({
       }
       this.composerSelectedLoras = this.normalizeLoraSelection(next);
       this.composerImageStyle = this.composerSelectedLoras.length ? "lora" : "realistic";
-      await this.persistImageGenPreferences();
+      await this.persistImagePreferences();
     },
 
     clampImageToolSteps(raw) {
@@ -5778,7 +5580,7 @@ const app = window.Vue.createApp({
       nextDefaults[storageKey] = steps;
       this.imageToolStepDefaults = nextDefaults;
       try {
-        localStorage.setItem("foxforge_image_tool_step_defaults", JSON.stringify(nextDefaults));
+        localStorage.setItem("oathweaver_image_tool_step_defaults", JSON.stringify(nextDefaults));
       } catch (_err) {}
       const styleLabel = String(this.imageToolSelectedStyle?.label || "Selected Style").trim();
       this.imageToolDefaultSaveNote = `Saved default steps for ${styleLabel}.`;
@@ -5797,7 +5599,7 @@ const app = window.Vue.createApp({
       }
       let stepDefaults = {};
       try {
-        const raw = localStorage.getItem("foxforge_image_tool_step_defaults");
+        const raw = localStorage.getItem("oathweaver_image_tool_step_defaults");
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
@@ -5819,8 +5621,8 @@ const app = window.Vue.createApp({
       }
       // One-time migration from the old per-kind keys.
       try {
-        const oldReal = Number(localStorage.getItem("foxforge_image_tool_default_steps_realistic"));
-        const oldLora = Number(localStorage.getItem("foxforge_image_tool_default_steps_lora"));
+        const oldReal = Number(localStorage.getItem("oathweaver_image_tool_default_steps_realistic"));
+        const oldLora = Number(localStorage.getItem("oathweaver_image_tool_default_steps_lora"));
         if (Number.isFinite(oldReal) && stepDefaults.realistic === undefined) {
           stepDefaults.realistic = this.clampImageToolSteps(oldReal);
         }
@@ -5963,14 +5765,14 @@ const app = window.Vue.createApp({
         return;
       }
       // Generate request_id now, before the call, so sessionStorage can persist it
-      let imageGenRequestId = "";
+      let imageRequestId = "";
       try {
         if (window.crypto && typeof window.crypto.randomUUID === "function") {
-          imageGenRequestId = String(window.crypto.randomUUID());
+          imageRequestId = String(window.crypto.randomUUID());
         }
       } catch (_e) {}
-      if (!imageGenRequestId) {
-        imageGenRequestId = `imgtool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      if (!imageRequestId) {
+        imageRequestId = `imgtool_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       }
       // Close modal immediately and show thinking bubble in chat
       this.imageToolPromptModalOpen = false;
@@ -5980,11 +5782,11 @@ const app = window.Vue.createApp({
       this.imageToolLastPromptFinal = "";
       this.updateBodyClasses();
       this.setConversationSending(conversationId, {
-        requestId: imageGenRequestId,
+        requestId: imageRequestId,
         startedAt: Date.now(),
         cancelRequested: false,
         foraging: false,
-        imageGen: true,
+        renderJob: true,
       });
       this.$nextTick(() => this.scrollMessages());
       try {
@@ -6005,7 +5807,7 @@ const app = window.Vue.createApp({
         if (imageRefs.length) {
           const formData = new FormData();
           formData.append("prompt", prompt);
-          formData.append("request_id", imageGenRequestId);
+          formData.append("request_id", imageRequestId);
           formData.append("negative_prompt", String(this.imageToolNegativePrompt || "").trim());
           formData.append("refine_prompt", "true");
           formData.append("image_style", styleKind);
@@ -6036,7 +5838,7 @@ const app = window.Vue.createApp({
             `/api/conversations/${encodeURIComponent(conversationId)}/image-tool/generate`,
             {
               prompt,
-              request_id: imageGenRequestId,
+              request_id: imageRequestId,
               negative_prompt: String(this.imageToolNegativePrompt || "").trim(),
               refine_prompt: true,
               image_style: styleKind,
@@ -6053,7 +5855,7 @@ const app = window.Vue.createApp({
         const convo = payload?.conversation || null;
         if (convo && String(this.activeConversationId || "").trim() === conversationId) {
           this.activeConversation = convo;
-          this.syncImageGenPrefsFromConversation(convo);
+          this.syncImagePrefsFromConversation(convo);
           this.$nextTick(() => this.scrollMessages());
         }
         this.imageToolLastPromptFinal = String(payload?.prompt_final || "").trim();
@@ -6098,7 +5900,7 @@ const app = window.Vue.createApp({
         startedAt: Date.now(),
         cancelRequested: false,
         foraging: false,
-        imageGen: true,
+        renderJob: true,
       });
       this.$nextTick(() => this.scrollMessages());
       try {
@@ -6176,7 +5978,7 @@ const app = window.Vue.createApp({
         startedAt: Date.now(),
         cancelRequested: false,
         foraging: false,
-        imageGen: true,
+        renderJob: true,
       });
       this.$nextTick(() => this.scrollMessages());
       try {
@@ -6570,7 +6372,7 @@ const app = window.Vue.createApp({
       }
 
       if (action.kind === "add_task" || action.kind === "add_event" || action.kind === "add_shopping" || action.kind === "add_routine") {
-        throw new Error("Waypoint lane is not available in this Foxforge build.");
+        throw new Error("Waypoint lane is not available in this Oathweaver build.");
       }
 
       if (action.completed || this.isQuickActionCompleted(action)) {
@@ -6820,7 +6622,7 @@ const app = window.Vue.createApp({
       const total = Array.isArray(this.homeCompanionSketches) ? this.homeCompanionSketches.length : 0;
       if (total > 0) {
         try {
-          const saved = parseInt(localStorage.getItem("foxforge_companion_idx") || "0", 10);
+          const saved = parseInt(localStorage.getItem("oathweaver_companion_idx") || "0", 10);
           this.homeCompanionIndex = Number.isFinite(saved) && saved >= 0 ? saved % total : 0;
         } catch (_) {
           this.homeCompanionIndex = 0;
@@ -6829,7 +6631,7 @@ const app = window.Vue.createApp({
         this.homeCompanionIndex = 0;
       }
       try {
-        const savedName = this.sanitizeHomeCompanionName(localStorage.getItem("foxforge_companion_name") || "");
+        const savedName = this.sanitizeHomeCompanionName(localStorage.getItem("oathweaver_companion_name") || "");
         this.homeCompanionName = savedName || HOME_COMPANION_DEFAULT_NAME;
       } catch (_) {
         this.homeCompanionName = HOME_COMPANION_DEFAULT_NAME;
@@ -6842,7 +6644,7 @@ const app = window.Vue.createApp({
       if (!total) return;
       this.homeCompanionIndex = (this.homeCompanionIndex + 1) % total;
       try {
-        localStorage.setItem("foxforge_companion_idx", String(this.homeCompanionIndex));
+        localStorage.setItem("oathweaver_companion_idx", String(this.homeCompanionIndex));
       } catch (_) {}
     },
 
@@ -6866,7 +6668,7 @@ const app = window.Vue.createApp({
       this.homeCompanionNameDraft = this.homeCompanionName;
       this.homeCompanionRenaming = false;
       try {
-        localStorage.setItem("foxforge_companion_name", this.homeCompanionName);
+        localStorage.setItem("oathweaver_companion_name", this.homeCompanionName);
       } catch (_) {}
     },
 
@@ -6908,11 +6710,11 @@ const app = window.Vue.createApp({
 
     loadHomeWeatherState() {
       try {
-        const savedQuery = this.sanitizeHomeWeatherLocation(localStorage.getItem("foxforge_home_weather_query") || "");
-        const savedLabel = this.sanitizeHomeWeatherLocation(localStorage.getItem("foxforge_home_weather_label") || "");
-        const savedTimezone = String(localStorage.getItem("foxforge_home_weather_timezone") || "").trim() || "auto";
-        const savedLat = this.parseHomeWeatherCoordinate(localStorage.getItem("foxforge_home_weather_lat"), -90, 90);
-        const savedLon = this.parseHomeWeatherCoordinate(localStorage.getItem("foxforge_home_weather_lon"), -180, 180);
+        const savedQuery = this.sanitizeHomeWeatherLocation(localStorage.getItem("oathweaver_home_weather_query") || "");
+        const savedLabel = this.sanitizeHomeWeatherLocation(localStorage.getItem("oathweaver_home_weather_label") || "");
+        const savedTimezone = String(localStorage.getItem("oathweaver_home_weather_timezone") || "").trim() || "auto";
+        const savedLat = this.parseHomeWeatherCoordinate(localStorage.getItem("oathweaver_home_weather_lat"), -90, 90);
+        const savedLon = this.parseHomeWeatherCoordinate(localStorage.getItem("oathweaver_home_weather_lon"), -180, 180);
         this.homeWeather.locationQuery = savedQuery;
         this.homeWeather.locationLabel = savedLabel;
         this.homeWeather.timezone = savedTimezone || "auto";
@@ -6926,15 +6728,15 @@ const app = window.Vue.createApp({
 
     persistHomeWeatherState() {
       try {
-        localStorage.setItem("foxforge_home_weather_query", String(this.homeWeather.locationQuery || ""));
-        localStorage.setItem("foxforge_home_weather_label", String(this.homeWeather.locationLabel || ""));
-        localStorage.setItem("foxforge_home_weather_timezone", String(this.homeWeather.timezone || "auto"));
+        localStorage.setItem("oathweaver_home_weather_query", String(this.homeWeather.locationQuery || ""));
+        localStorage.setItem("oathweaver_home_weather_label", String(this.homeWeather.locationLabel || ""));
+        localStorage.setItem("oathweaver_home_weather_timezone", String(this.homeWeather.timezone || "auto"));
         if (Number.isFinite(Number(this.homeWeather.latitude)) && Number.isFinite(Number(this.homeWeather.longitude))) {
-          localStorage.setItem("foxforge_home_weather_lat", String(this.homeWeather.latitude));
-          localStorage.setItem("foxforge_home_weather_lon", String(this.homeWeather.longitude));
+          localStorage.setItem("oathweaver_home_weather_lat", String(this.homeWeather.latitude));
+          localStorage.setItem("oathweaver_home_weather_lon", String(this.homeWeather.longitude));
         } else {
-          localStorage.removeItem("foxforge_home_weather_lat");
-          localStorage.removeItem("foxforge_home_weather_lon");
+          localStorage.removeItem("oathweaver_home_weather_lat");
+          localStorage.removeItem("oathweaver_home_weather_lon");
         }
       } catch (_err) {}
     },
@@ -7511,8 +7313,6 @@ const app = window.Vue.createApp({
       if (stage === "lane_routed") return "Intent routed.";
       if (stage === "attachment_analysis") return "Reading your files.";
       if (stage === "attachment_analysis_done") return "Files digested.";
-      if (stage === "image_gen_queued") return "Image queued.";
-      if (stage === "image_gen_done") return "Image ready.";
       if (stage === "talk_mode") return "Drafting a reply.";
       if (stage === "web_research_started") return "Crawling the web.";
       if (stage === "web_source_discovered") {
@@ -7531,8 +7331,8 @@ const app = window.Vue.createApp({
       if (stage === "command_mode_done") return "Done.";
       if (stage === "pipeline_error") return "Hit a snag.";
 
-      // Foraging kick-off
-      if (stage === "foraging_started") return "Kicking off Foraging.";
+      // Research kick-off
+      if (stage === "foraging_started") return "Kicking off Research.";
       if (stage === "foraging_yield_requested") return "Stepping back temporarily.";
       if (stage === "foraging_run") return "Deploying the council.";
       if (stage === "foraging_run_done") return "Wrapping up.";
@@ -7648,7 +7448,7 @@ const app = window.Vue.createApp({
           building_paused: Boolean(payload.building_paused),
           building_active_jobs: Number(payload.building_active_jobs || 0),
           building_completion_unread: Boolean(payload.building_completion_unread),
-          briefings_unread: Number(payload.briefings_unread || 0),
+          cards_unread: Number(payload.cards_unread || 0),
           watchtower_active: Number(payload.watchtower_active || 0),
           topics_with_research: Number(payload.topics_with_research || 0),
           forage_cards_pinned: Number(payload.forage_cards_pinned || 0),
@@ -7713,7 +7513,7 @@ const app = window.Vue.createApp({
         this.panelStatus.foraging_yielding = Boolean(payload.yielding);
         await this.refreshPanelBadges();
       } catch (err) {
-        window.alert(`Could not update Foraging state: ${String(err.message || err)}`);
+        window.alert(`Could not update Research state: ${String(err.message || err)}`);
       }
     },
 
@@ -7732,7 +7532,7 @@ const app = window.Vue.createApp({
 
     selectMakeType(typeId) {
       this.makeType = String(typeId || "").trim();
-      localStorage.setItem("foxforge_make_type", this.makeType);
+      localStorage.setItem("oathweaver_make_type", this.makeType);
       this.makeTypeModalOpen = false;
     },
 
@@ -7798,7 +7598,7 @@ const app = window.Vue.createApp({
       this.pendingExtendsTitle = title;
       if (makeType) {
         this.makeType = makeType;
-        localStorage.setItem("foxforge_make_type", this.makeType);
+        localStorage.setItem("oathweaver_make_type", this.makeType);
       }
       this.closeMakeOutputEditModal();
     },
@@ -7933,7 +7733,7 @@ const app = window.Vue.createApp({
     pendingActionTitle(item) {
       const kind = String(item?.type || "").trim().toLowerCase();
       if (kind === "web_research") {
-        return "Foraging Web Follow-up";
+        return "Research Web Follow-up";
       }
       if (kind === "topic_review") {
         return "Memory Fact Review";
@@ -7979,44 +7779,6 @@ const app = window.Vue.createApp({
       return this.formatDate(raw) || "unknown";
     },
 
-    briefingConfidenceLabel(row) {
-      const label = String(row?.confidence_label || "").trim().toLowerCase();
-      if (label === "high") return "High confidence";
-      if (label === "medium") return "Medium confidence";
-      if (label === "low") return "Low confidence";
-      return "Confidence unknown";
-    },
-
-    async toggleBriefingDetails(row) {
-      if (!row || !row.id) return;
-      if (row._detailsLoaded) {
-        row._expanded = !row._expanded;
-        return;
-      }
-      row._loadingDetails = true;
-      try {
-        const payload = await this.apiGet(`/api/briefings/${encodeURIComponent(String(row.id))}`);
-        const detail = payload?.briefing || {};
-        row.headline = String(detail.headline || row.headline || row.topic || "").trim();
-        row.summary = String(detail.summary || row.summary || row.preview || "").trim();
-        row.key_points = Array.isArray(detail.key_points) ? detail.key_points : [];
-        row.risks = Array.isArray(detail.risks) ? detail.risks : [];
-        row.next_steps = Array.isArray(detail.next_steps) ? detail.next_steps : [];
-        row.confidence_label = String(detail.confidence_label || row.confidence_label || "").trim();
-        row.confidence_raw = String(detail.confidence_raw || row.confidence_raw || "").trim();
-        row.source_count = Number(detail.source_count || row.source_count || 0);
-        row.signal_score = Number(detail.signal_score || row.signal_score || 0);
-        row.quality_flags = Array.isArray(detail.quality_flags) ? detail.quality_flags : [];
-        row.content_markdown = String(detail.content_markdown || "").trim();
-        row._detailsLoaded = true;
-        row._expanded = true;
-      } catch (err) {
-        window.alert(`Could not load briefing detail: ${String(err.message || err)}`);
-      } finally {
-        row._loadingDetails = false;
-      }
-    },
-
     async addWatch(topic, profile, schedule, scheduleHour) {
       const t = String(topic || "").trim();
       if (!t) {
@@ -8041,7 +7803,7 @@ const app = window.Vue.createApp({
 
     async triggerWatch(watchId) {
       await this.apiPost(`/api/watchtower/watches/${encodeURIComponent(watchId)}/trigger`, {});
-      window.alert("Watch queued. The briefing card will update when the run completes.");
+      window.alert("Watch queued. The research card will update when the run completes.");
       await this.refreshPanelBadges();
       if (this.panelKey === "watchtower") {
         await this.refreshSystemPanel();
@@ -8051,29 +7813,6 @@ const app = window.Vue.createApp({
     async toggleWatch(watchId, enabled) {
       await this.apiPut(`/api/watchtower/watches/${encodeURIComponent(watchId)}`, { enabled });
       await this.refreshSystemPanel();
-    },
-
-    async markBriefingRead(briefingId) {
-      await this.apiPost(`/api/briefings/${encodeURIComponent(briefingId)}/read`, {});
-      await this.refreshSystemPanel();
-      await this.refreshPanelBadges();
-    },
-
-    async markBriefingUnread(briefingId) {
-      await this.apiPost(`/api/briefings/${encodeURIComponent(briefingId)}/unread`, {});
-      await this.refreshSystemPanel();
-      await this.refreshPanelBadges();
-    },
-
-    async markAllBriefingsRead() {
-      const unread = (this.briefingRows || []).filter(r => !r.read);
-      for (const row of unread) {
-        if (row.id) {
-          await this.apiPost(`/api/briefings/${encodeURIComponent(row.id)}/read`, {});
-        }
-      }
-      await this.refreshSystemPanel();
-      await this.refreshPanelBadges();
     },
 
     async approveActionProposal(id) {
@@ -8087,201 +7826,6 @@ const app = window.Vue.createApp({
       await this.refreshPendingActions();
       await this.refreshPanelBadges();
     },
-
-    // ------------------------------------------------------------------
-    // Personal context methods
-    // ------------------------------------------------------------------
-    lifeAdminDetailFieldDefs(section) {
-      if (section === "profile") return LIFE_ADMIN_PROFILE_DETAIL_FIELDS;
-      if (section === "family") return LIFE_ADMIN_FAMILY_DETAIL_FIELDS;
-      if (section === "pet") return LIFE_ADMIN_PET_DETAIL_FIELDS;
-      return [];
-    },
-    lifeAdminDetailItems(section, row) {
-      const out = [];
-      const source = row || {};
-      for (const [key, label] of this.lifeAdminDetailFieldDefs(section)) {
-        const value = String(source[key] || "").trim();
-        if (value) {
-          out.push(`${label}: ${value}`);
-        }
-      }
-      return out;
-    },
-    lifeAdminHasDetails(section, row) {
-      return this.lifeAdminDetailItems(section, row).length > 0;
-    },
-    toggleLifeAdminDetails(section) {
-      const key = `${section}DetailsOpen`;
-      if (!(key in this.lifeAdminState)) {
-        return;
-      }
-      this.lifeAdminState[key] = !this.lifeAdminState[key];
-    },
-    resetLifeAdminProfileForm() {
-      this.lifeAdminForms.profile = blankLifeAdminProfileForm();
-      this.lifeAdminState.profileDetailsOpen = false;
-    },
-    resetFamilyMemberForm() {
-      this.lifeAdminForms.family = blankLifeAdminFamilyForm();
-      this.lifeAdminState.familyEditingKey = "";
-      this.lifeAdminState.familyDetailsOpen = false;
-    },
-    resetPetForm() {
-      this.lifeAdminForms.pet = blankLifeAdminPetForm();
-      this.lifeAdminState.petEditingKey = "";
-      this.lifeAdminState.petDetailsOpen = false;
-    },
-    startEditFamilyMember(row) {
-      this.lifeAdminForms.family = cloneLifeAdminRecord(row, blankLifeAdminFamilyForm);
-      this.lifeAdminState.familyEditingKey = String(row?.name || "").trim();
-      this.lifeAdminState.familyDetailsOpen = this.lifeAdminHasDetails("family", row);
-    },
-    startEditPet(row) {
-      this.lifeAdminForms.pet = cloneLifeAdminRecord(row, blankLifeAdminPetForm);
-      this.lifeAdminState.petEditingKey = String(row?.name || "").trim();
-      this.lifeAdminState.petDetailsOpen = this.lifeAdminHasDetails("pet", row);
-    },
-    async saveUserProfile() {
-      const payload = cloneLifeAdminRecord(this.lifeAdminForms.profile, blankLifeAdminProfileForm);
-      if (!String(payload.preferred_name || payload.full_name || "").trim()) {
-        window.alert("Enter at least a preferred name or full name.");
-        return;
-      }
-      await this.apiPatch("/api/personal-memory/profile", payload);
-      await this.refreshSystemPanel();
-    },
-    async saveHouseholdNotes() {
-      await this.apiPatch("/api/personal-memory/notes", { notes: this.lifeAdminForms.notes });
-      await this.refreshSystemPanel();
-    },
-    async saveFamilyMember() {
-      const f = cloneLifeAdminRecord(this.lifeAdminForms.family, blankLifeAdminFamilyForm);
-      if (!String(f.name || "").trim()) return;
-      if (this.lifeAdminState.familyEditingKey) {
-        await this.apiPatch(`/api/personal-memory/family/${encodeURIComponent(this.lifeAdminState.familyEditingKey)}`, f);
-      } else {
-        await this.apiPost("/api/personal-memory/family", f);
-      }
-      this.resetFamilyMemberForm();
-      await this.refreshSystemPanel();
-    },
-    async removeFamilyMember(name) {
-      await this.apiDelete(`/api/personal-memory/family/${encodeURIComponent(name)}`);
-      if (String(this.lifeAdminState.familyEditingKey || "").trim().toLowerCase() === String(name || "").trim().toLowerCase()) {
-        this.resetFamilyMemberForm();
-      }
-      await this.refreshSystemPanel();
-    },
-    async savePet() {
-      const f = cloneLifeAdminRecord(this.lifeAdminForms.pet, blankLifeAdminPetForm);
-      if (!String(f.name || "").trim()) return;
-      if (this.lifeAdminState.petEditingKey) {
-        await this.apiPatch(`/api/personal-memory/pets/${encodeURIComponent(this.lifeAdminState.petEditingKey)}`, f);
-      } else {
-        await this.apiPost("/api/personal-memory/pets", f);
-      }
-      this.resetPetForm();
-      await this.refreshSystemPanel();
-    },
-    async removePet(name) {
-      await this.apiDelete(`/api/personal-memory/pets/${encodeURIComponent(name)}`);
-      if (String(this.lifeAdminState.petEditingKey || "").trim().toLowerCase() === String(name || "").trim().toLowerCase()) {
-        this.resetPetForm();
-      }
-      await this.refreshSystemPanel();
-    },
-    lifeAdminMemoryStatusLabel(record) {
-      return String(record?.status || "captured")
-        .replace(/_/g, " ")
-        .replace(/\b\w/g, (m) => m.toUpperCase());
-    },
-    lifeAdminMemoryBadgeClass(record) {
-      const status = String(record?.status || "captured").toLowerCase();
-      return `is-${status || "captured"}`;
-    },
-    lifeAdminMemorySummary(record) {
-      const parts = [];
-      const source = String(record?.source_label || record?.source_type || "").trim();
-      if (source) parts.push(source);
-      const field = String(record?.field || "").trim().replace(/_/g, " ");
-      if (field) parts.push(field);
-      const updated = String(record?.updated_at || "").trim();
-      if (updated) parts.push(updated.slice(0, 10));
-      return parts.join(" | ");
-    },
-    secondBrainRecordMeta(record) {
-      const parts = [];
-      const source = String(record?.source_label || record?.source_type || "").trim();
-      if (source) parts.push(source);
-      const confidence = Number(record?.confidence || 0);
-      if (Number.isFinite(confidence) && confidence > 0) parts.push(`confidence ${confidence.toFixed(2)}`);
-      const updated = String(record?.updated_at || "").trim();
-      if (updated) parts.push(`updated ${updated.slice(0, 10)}`);
-      const lastUsed = String(record?.last_used_at || "").trim();
-      if (lastUsed) parts.push(`used ${lastUsed.slice(0, 10)}`);
-      return parts.join(" | ");
-    },
-    secondBrainTimelineSummary(row) {
-      const parts = [];
-      const source = String(row?.source_label || row?.source_type || "").trim();
-      if (source) parts.push(source);
-      const updated = String(row?.updated_at || "").trim();
-      if (updated) parts.push(updated.slice(0, 10));
-      const age = Number(row?.age_days);
-      if (Number.isFinite(age)) parts.push(`${age}d old`);
-      return parts.join(" | ");
-    },
-    setLifeAdminMemoryFilter(filter) {
-      this.lifeAdminState.memoryFilter = String(filter || "all").trim() || "all";
-    },
-    async confirmLifeAdminMemory(recordId) {
-      await this.apiPatch(`/api/personal-memory/records/${encodeURIComponent(recordId)}/confirm`, {});
-      await this.refreshSystemPanel();
-    },
-    async pinLifeAdminMemory(recordId) {
-      await this.apiPatch(`/api/personal-memory/records/${encodeURIComponent(recordId)}/pin`, {});
-      await this.refreshSystemPanel();
-    },
-    async forgetLifeAdminMemory(recordId) {
-      const ok = window.confirm("Mark this memory as forgotten?");
-      if (!ok) return;
-      await this.apiPatch(`/api/personal-memory/records/${encodeURIComponent(recordId)}/forget`, {});
-      await this.refreshSystemPanel();
-    },
-    async explainLifeAdminMemory(recordId) {
-      const payload = await this.apiPost("/api/personal-memory/records/explain", { id: recordId });
-      const row = payload?.record || {};
-      const lines = [
-        `Subject: ${String(row.subject || "")}`,
-        `Field: ${String(row.field || "").replace(/_/g, " ")}`,
-        `Value: ${String(row.value || "")}`,
-        `Status: ${String(row.status || "")}`,
-        `Confidence: ${Number(row.confidence || 0).toFixed(2)}`,
-        `Source: ${String(row.source_label || row.source_type || "")}`,
-      ];
-      if (row.updated_at) lines.push(`Updated: ${String(row.updated_at)}`);
-      if (row.last_used_at) lines.push(`Last used: ${String(row.last_used_at)}`);
-      if (row.evidence) lines.push(`Evidence: ${String(row.evidence)}`);
-      window.alert(lines.join("\n"));
-    },
-    async editLifeAdminMemory(record) {
-      const current = String(record?.value || "");
-      const nextValue = window.prompt("Edit memory value", current);
-      if (nextValue === null) return;
-      const trimmed = String(nextValue || "").trim();
-      if (!trimmed) {
-        window.alert("Memory value cannot be empty.");
-        return;
-      }
-      await this.apiPatch(`/api/personal-memory/records/${encodeURIComponent(String(record?.id || ""))}`, {
-        value: trimmed,
-        status: "confirmed",
-        confidence: 1.0,
-      });
-      await this.refreshSystemPanel();
-    },
-
     async openPendingActions() {
       this.chatMenuOpen = false;
       this.panelOverlayOpen = false;
@@ -8457,18 +8001,6 @@ const app = window.Vue.createApp({
           this.panelData = Array.isArray(payload.watches) ? payload.watches : [];
           return;
         }
-        if (this.panelKey === "briefings") {
-          const payload = await this.apiGet("/api/panel/briefings?limit=50");
-          this.panelData = Array.isArray(payload.briefings)
-            ? payload.briefings.map((row) => ({
-              ...row,
-              _expanded: false,
-              _detailsLoaded: false,
-              _loadingDetails: false,
-            }))
-            : [];
-          return;
-        }
         if (this.panelKey === "library") {
           const payload = await this.apiGet("/api/panel/library?limit=150");
           this.panelData = payload && typeof payload === "object" ? payload : { items: [], counts: {}, topics: [], projects: [] };
@@ -8491,19 +8023,6 @@ const app = window.Vue.createApp({
         if (this.panelKey === "forage-cards") {
           const payload = await this.apiGet("/api/forage-cards?limit=50");
           this.panelData = Array.isArray(payload.cards) ? payload.cards : [];
-          return;
-        }
-        if (this.panelKey === "life-admin") {
-          const [payload, brainPayload] = await Promise.all([
-            this.apiGet("/api/personal-memory"),
-            this.apiGet("/api/second-brain"),
-          ]);
-          const ctx = payload.context || {};
-          ctx.records = Array.isArray(payload.records) ? payload.records : [];
-          ctx.second_brain = brainPayload && typeof brainPayload === "object" ? brainPayload : {};
-          this.panelData = [ctx];
-          this.lifeAdminForms.profile = cloneLifeAdminRecord(ctx.user_profile || {}, blankLifeAdminProfileForm);
-          this.lifeAdminForms.notes = String(ctx.household_notes || "");
           return;
         }
         if (this.panelKey === "topics") {
@@ -8532,10 +8051,7 @@ const app = window.Vue.createApp({
 
     async openSystemPanel(panelKey) {
       let key = String(panelKey || "").trim().toLowerCase();
-      if (key === "second-brain") {
-        key = "life-admin";
-      }
-      if (!["foraging", "building", "reflections", "lessons", "handoffs", "outbox", "projects", "project_detail", "content", "watchtower", "briefings", "library", "library_detail", "forage-cards", "life-admin", "topics", "topic_detail", "system"].includes(key)) {
+      if (!["foraging", "building", "reflections", "lessons", "handoffs", "outbox", "projects", "project_detail", "content", "watchtower", "library", "library_detail", "forage-cards", "topics", "topic_detail", "system"].includes(key)) {
         return;
       }
       this.chatMenuOpen = false;
@@ -8769,7 +8285,7 @@ const app = window.Vue.createApp({
       if (!requestId || !conversationId) {
         return;
       }
-      const confirmed = window.confirm(`Cancel Foraging job ${requestId}?`);
+      const confirmed = window.confirm(`Cancel Research job ${requestId}?`);
       if (!confirmed) {
         return;
       }
@@ -8906,7 +8422,7 @@ const app = window.Vue.createApp({
         this.loadReflectionReadState();
         await this.refreshWebPushSettings();
         try {
-          localStorage.setItem("foxforge_login_username", this.loginUsername);
+          localStorage.setItem("oathweaver_login_username", this.loginUsername);
         } catch (_err) {}
         this.loginPassword = "";
         this.authShowForm = false;
@@ -8974,7 +8490,7 @@ const app = window.Vue.createApp({
       }
       this.activeConversationId = convo.id;
       this.activeConversation = convo;
-      this.syncImageGenPrefsFromConversation(convo);
+      this.syncImagePrefsFromConversation(convo);
       this.setActiveProject(convo.project || this.activeProject);
       this.activeTopicId = normalizeTopicId(convo.topic_id || (String(convo.project || "").trim() === "general" ? "general" : this.activeTopicId));
       this.chatMenuOpen = false;
@@ -10043,7 +9559,7 @@ const app = window.Vue.createApp({
       this.botConfig = { telegram: { enabled: false, bot_token: "" }, discord: { enabled: false, bot_token: "" } };
       this.botMappings = [];
       this.botPending = [];
-      this.botUserForm = { platform: "telegram", platform_user_id: "", platform_username: "", foxforge_user_id: "" };
+      this.botUserForm = { platform: "telegram", platform_user_id: "", platform_username: "", oathweaver_user_id: "" };
       try {
         const [cfgData, usersData, pendingData, profilesData] = await Promise.all([
           this.apiGet("/api/owner/bot-config"),
@@ -10084,17 +9600,17 @@ const app = window.Vue.createApp({
     },
 
     async addBotUser() {
-      if (!this.botUserForm.platform_user_id || !this.botUserForm.foxforge_user_id) return;
+      if (!this.botUserForm.platform_user_id || !this.botUserForm.oathweaver_user_id) return;
       this.botSettingsSubmitting = true;
       try {
         const data = await this.apiPost("/api/owner/bot-users", {
           platform: this.botUserForm.platform,
           platform_user_id: this.botUserForm.platform_user_id.trim(),
           platform_username: this.botUserForm.platform_username.trim() || this.botUserForm.platform_user_id.trim(),
-          foxforge_user_id: this.botUserForm.foxforge_user_id,
+          oathweaver_user_id: this.botUserForm.oathweaver_user_id,
         });
         if (data && data.mapping) this.botMappings.push(data.mapping);
-        this.botUserForm = { platform: "telegram", platform_user_id: "", platform_username: "", foxforge_user_id: "" };
+        this.botUserForm = { platform: "telegram", platform_user_id: "", platform_username: "", oathweaver_user_id: "" };
       } catch (_) {}
       this.botSettingsSubmitting = false;
     },
@@ -10335,7 +9851,7 @@ const app = window.Vue.createApp({
         ? (String(queuedItem?.mode || "talk").trim() || "talk")
         : (this.inputMode === "forage" ? "forage" : (this.inputMode === "make" ? "make" : "talk"));
       const likelyForagingRequest = sendMode === "forage";
-      const likelyImageGenRequest = false;
+      const likelyRenderRequest = false;
       const extendsRequestId = sendMode === "make"
         ? String(this.pendingExtendsRequestId || "").trim()
         : "";
@@ -10353,7 +9869,7 @@ const app = window.Vue.createApp({
         startedAt: Date.now(),
         cancelRequested: false,
         foraging: likelyForagingRequest,
-        imageGen: likelyImageGenRequest,
+        renderJob: likelyRenderRequest,
       });
       if (sendMode === "forage" || sendMode === "make") {
         // Reset globally to Talk as soon as a Discovery/Make request is sent.
@@ -10449,7 +9965,7 @@ const app = window.Vue.createApp({
           if (String(this.activeConversationId || "").trim() === conversationId) {
             this.activeConversation = convo;
             this.activeConversationId = convo.id;
-            this.syncImageGenPrefsFromConversation(convo);
+            this.syncImagePrefsFromConversation(convo);
             this.setActiveProject(convo.project || this.activeProject);
             this.activeTopicId = normalizeTopicId(convo.topic_id || this.activeTopicId);
             this.startAssistantTypewriterFromConversation(convo, requestId);
@@ -13067,21 +12583,21 @@ const app = window.Vue.createApp({
     let storedTheme = "Night";
     let storedUsername = "owner";
     try {
-      const savedMode = localStorage.getItem("foxforge_input_mode");
+      const savedMode = localStorage.getItem("oathweaver_input_mode");
       if (savedMode === "command") {
         storedMode = "make";
       } else if (savedMode === "talk" || savedMode === "forage" || savedMode === "make") {
         storedMode = savedMode;
       }
-      const savedProject = localStorage.getItem("foxforge_active_project");
+      const savedProject = localStorage.getItem("oathweaver_active_project");
       if (savedProject) {
         storedProject = normalizeProjectSlug(savedProject);
       }
-      const savedTheme = localStorage.getItem("foxforge_theme");
+      const savedTheme = localStorage.getItem("oathweaver_theme");
       if (savedTheme) {
         storedTheme = savedTheme;
       }
-      const savedUsername = localStorage.getItem("foxforge_login_username");
+      const savedUsername = localStorage.getItem("oathweaver_login_username");
       if (savedUsername) {
         storedUsername = String(savedUsername).trim() || storedUsername;
       }
@@ -13126,7 +12642,7 @@ const app = window.Vue.createApp({
     await this.bootstrapConversations({ activateApp: false });
     // Restore in-progress regular-message sends after page reload
     try {
-      const raw = sessionStorage.getItem("foxforge_pending_jobs");
+      const raw = sessionStorage.getItem("oathweaver_pending_jobs");
       if (raw) {
         const stored = JSON.parse(raw);
         if (stored && typeof stored === "object") {

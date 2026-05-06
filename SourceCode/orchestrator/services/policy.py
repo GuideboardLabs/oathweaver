@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from shared_tools.phase0 import lane_to_pipeline, serious_mode_enabled
+from taxonomy.domains import domain_for_topic_type, normalize_domain
+from taxonomy.make_types import infer_make_type
+from taxonomy.research_focus import infer_research_focus
+
 
 _LIVE_TOKENS = {
     "today", "tonight", "live", "weigh-in", "weighin", "start time", "what time", "stream", "watch", "odds", "line", "favorite", "underdog",
@@ -89,22 +94,28 @@ class IntentRouter:
         is_personal_project = project_key in {"_personal", "personal"}
 
         if self._any_term(text, self.CONVERSATION_TERMS):
+            if serious_mode_enabled():
+                return ("research", False)
             return ("conversation", True)
         if self._any_term(text, self.RESEARCH_TERMS):
             return ("research", True)
         if self._is_explicit_ui_intent(text):
             return ("ui", True)
         if is_personal_project:
+            if serious_mode_enabled():
+                return ("research", False)
             return ("personal", True)
         if self._looks_like_followup_answers(text):
             return ("research", True)
         if self._any_term(text, self.PET_OR_RESEARCH_CONTEXT_TERMS):
             return ("research", True)
         if self._any_term(text, self.PERSONAL_STRONG_TERMS):
+            if serious_mode_enabled():
+                return ("research", False)
             return ("personal", True)
         # Short ambiguous messages (≤4 words, no domain keywords) → hint conversation
         words = text.split()
-        if len(words) <= 4 and not self._any_term(text, self.RESEARCH_TERMS | self.PERSONAL_STRONG_TERMS):
+        if len(words) <= 4 and not self._any_term(text, self.RESEARCH_TERMS + self.PERSONAL_STRONG_TERMS):
             return ("conversation", False)
         return ("research", False)
 
@@ -176,6 +187,8 @@ class IntentRouter:
                 keyword_lane=lane,
             )
             if llm_lane:
+                if serious_mode_enabled() and llm_lane in {"personal", "conversation"}:
+                    return "research"
                 return llm_lane
         return lane
 
@@ -219,6 +232,10 @@ def should_run_full_foraging(mode: str, complexity: str | None = None) -> bool:
     return complexity != "simple"
 
 
+def should_run_full_research(mode: str, complexity: str | None = None) -> bool:
+    return should_run_full_foraging(mode, complexity)
+
+
 def recommend_lane_override(mode: str, current_lane: str) -> str | None:
     mode = str(mode or "").strip().lower()
     if mode == "workspace_code":
@@ -230,11 +247,23 @@ def recommend_lane_override(mode: str, current_lane: str) -> str | None:
     return current_lane or None
 
 
+def recommend_pipeline_override(mode: str, current_pipeline: str) -> str | None:
+    lane = recommend_lane_override(mode, current_pipeline)
+    if lane is None:
+        return None
+    return lane_to_pipeline(lane)
+
+
 @dataclass(slots=True)
 class RoutingDecision:
     lane: str
+    pipeline: str
     query_mode: str
     complexity: str
+    domain: str
+    make_type: str
+    make_intent: str
+    research_focus: str
     lane_override: str | None = None
     should_run_foraging: bool = False
     meta: dict[str, Any] = field(default_factory=dict)
@@ -242,8 +271,13 @@ class RoutingDecision:
     def as_dict(self) -> dict[str, Any]:
         return {
             "lane": self.lane,
+            "pipeline": self.pipeline,
             "query_mode": self.query_mode,
             "complexity": self.complexity,
+            "domain": self.domain,
+            "make_type": self.make_type,
+            "make_intent": self.make_intent,
+            "research_focus": self.research_focus,
             "lane_override": self.lane_override,
             "should_run_foraging": self.should_run_foraging,
             "meta": dict(self.meta),
@@ -280,15 +314,34 @@ class RoutingPolicy:
         complexity = estimate_query_complexity(normalized)
         lane_override = recommend_lane_override(query_mode, lane or current_lane)
         should_forage = should_run_full_foraging(query_mode, complexity)
+        pipeline = lane_to_pipeline(lane)
+        domain = normalize_domain(domain_for_topic_type(topic_type))
+        make_type = infer_make_type(text=normalized, target="", lane=lane)
+        make_intent = query_mode
+        research_focus = infer_research_focus(
+            text=normalized,
+            query_mode=query_mode,
+            pipeline=pipeline,
+            make_type=make_type,
+        )
         return RoutingDecision(
             lane=lane,
+            pipeline=pipeline,
             query_mode=query_mode,
             complexity=complexity,
+            domain=domain,
+            make_type=make_type,
+            make_intent=make_intent,
+            research_focus=research_focus,
             lane_override=lane_override,
             should_run_foraging=should_forage,
             meta={
                 "project": project_slug,
                 "topic_type": topic_type,
+                "domain": domain,
+                "make_type": make_type,
+                "make_intent": make_intent,
+                "research_focus": research_focus,
                 "chars": len(normalized),
                 "words": len([p for p in normalized.split() if p]),
             },
@@ -302,5 +355,7 @@ __all__ = [
     "classify_query_mode",
     "estimate_query_complexity",
     "recommend_lane_override",
+    "recommend_pipeline_override",
+    "should_run_full_research",
     "should_run_full_foraging",
 ]

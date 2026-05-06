@@ -11,8 +11,8 @@ from tests.common import ROOT, ensure_runtime
 class ExternalToolsModeRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        os.environ.setdefault("FOXFORGE_OWNER_PASSWORD", "test-password")
-        os.environ.setdefault("FOXFORGE_AUTH_ENABLED", "0")
+        os.environ.setdefault("OATHWEAVER_OWNER_PASSWORD", "test-password")
+        os.environ.setdefault("OATHWEAVER_AUTH_ENABLED", "0")
         from web_gui import app as appmod
 
         cls.appmod = appmod

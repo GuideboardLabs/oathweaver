@@ -7,13 +7,13 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
-$installScriptPath = Join-Path $RepoRoot "install_foxforge.ps1"
+$installScriptPath = Join-Path $RepoRoot "install_oathweaver.ps1"
 if (-not (Test-Path $installScriptPath)) {
-    throw "install_foxforge.ps1 not found at: $installScriptPath"
+    throw "install_oathweaver.ps1 not found at: $installScriptPath"
 }
 
 if (-not $OutputExe) {
-    $OutputExe = Join-Path $RepoRoot "FoxforgeInstaller.exe"
+    $OutputExe = Join-Path $RepoRoot "OathweaverInstaller.exe"
 }
 $OutputExe = [System.IO.Path]::GetFullPath($OutputExe)
 $outDir = Split-Path $OutputExe -Parent
@@ -42,15 +42,15 @@ internal static class Program
         try
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string scriptAtSameLevel = Path.Combine(baseDir, "install_foxforge.ps1");
-            string scriptAtParent = Path.GetFullPath(Path.Combine(baseDir, "..", "install_foxforge.ps1"));
+            string scriptAtSameLevel = Path.Combine(baseDir, "install_oathweaver.ps1");
+            string scriptAtParent = Path.GetFullPath(Path.Combine(baseDir, "..", "install_oathweaver.ps1"));
             string scriptPath = File.Exists(scriptAtSameLevel) ? scriptAtSameLevel : (File.Exists(scriptAtParent) ? scriptAtParent : string.Empty);
 
             if (string.IsNullOrWhiteSpace(scriptPath))
             {
                 MessageBox.Show(
-                    "Could not find install_foxforge.ps1 near this launcher.\nPlace FoxforgeInstaller.exe in the project root (or a child folder).",
-                    "Foxforge Installer",
+                    "Could not find install_oathweaver.ps1 near this launcher.\nPlace OathweaverInstaller.exe in the project root (or a child folder).",
+                    "Oathweaver Installer",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error
                 );
@@ -64,8 +64,8 @@ internal static class Program
                 if (token == "--help" || token == "-h" || token == "/?")
                 {
                     MessageBox.Show(
-                        "Foxforge Installer Launcher\n\nDouble-click runs the GUI installer.\n\nOptional flags:\n  --cli   Run installer in terminal mode (-NoGui)\n  --help  Show this help\n\nTechnical users can also run install_foxforge.ps1 directly in PowerShell.",
-                        "Foxforge Installer",
+                        "Oathweaver Installer Launcher\n\nDouble-click runs the GUI installer.\n\nOptional flags:\n  --cli   Run installer in terminal mode (-NoGui)\n  --help  Show this help\n\nTechnical users can also run install_oathweaver.ps1 directly in PowerShell.",
+                        "Oathweaver Installer",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Information
                     );
@@ -99,7 +99,7 @@ internal static class Program
         {
             MessageBox.Show(
                 ex.Message,
-                "Foxforge Installer",
+                "Oathweaver Installer",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error
             );

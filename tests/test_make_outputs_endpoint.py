@@ -37,7 +37,7 @@ class _FakeCtx:
 
 class MakeOutputsEndpointTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="foxforge_make_outputs_")
+        self.tmpdir = tempfile.TemporaryDirectory(prefix="oathweaver_make_outputs_")
         self.repo_root = Path(self.tmpdir.name)
         ensure_runtime(self.repo_root)
         self.project_slug = "alpha"

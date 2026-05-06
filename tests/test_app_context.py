@@ -16,7 +16,7 @@ from web_gui.services import ForagingManager, JobManager
 
 class AppContextTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="foxforge_appctx_")
+        self.tmpdir = tempfile.TemporaryDirectory(prefix="oathweaver_appctx_")
         self.repo_root = Path(self.tmpdir.name)
         ensure_runtime(self.repo_root)
         auth_store = FamilyAuthStore(self.repo_root)
@@ -39,10 +39,10 @@ class AppContextTests(unittest.TestCase):
     def test_project_catalog_round_trip(self) -> None:
         self.ctx.save_project_catalog(
             self.repo_root,
-            {"foxforge": {"description": "Main project", "updated_at": "2026-03-23T00:00:00+00:00"}},
+            {"oathweaver": {"description": "Main project", "updated_at": "2026-03-23T00:00:00+00:00"}},
         )
         rows = self.ctx.load_project_catalog(self.repo_root)
-        self.assertEqual(rows["foxforge"]["description"], "Main project")
+        self.assertEqual(rows["oathweaver"]["description"], "Main project")
 
     def test_save_uploaded_images_marks_missing_document_dependency(self) -> None:
         app = Flask(__name__)

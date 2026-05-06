@@ -24,7 +24,7 @@ def _default_inputs(repo_root: Path) -> list[Path]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Foxforge make-type classifier.")
+    parser = argparse.ArgumentParser(description="Train Oathweaver make-type classifier.")
     parser.add_argument(
         "--repo-root",
         default=str(ROOT),

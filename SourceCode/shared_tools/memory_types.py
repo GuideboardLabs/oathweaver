@@ -9,7 +9,6 @@ from urllib.parse import urlsplit
 
 from shared_tools.conversation_store import ConversationStore
 from shared_tools.domain_reputation import DomainReputation
-from shared_tools.personal_memory import PersonalMemory
 from shared_tools.project_context_memory import ProjectContextMemory
 from shared_tools.topic_memory import TopicMemory
 
@@ -93,14 +92,12 @@ class TypedMemoryFacade:
         self,
         repo_root: Path,
         *,
-        personal_memory: PersonalMemory | None = None,
         topic_memory: TopicMemory | None = None,
         project_memory: ProjectContextMemory | None = None,
         conversation_store: ConversationStore | None = None,
         domain_reputation: DomainReputation | None = None,
     ) -> None:
         self.repo_root = Path(repo_root)
-        self.personal_memory = personal_memory or PersonalMemory(self.repo_root)
         self.topic_memory = topic_memory or TopicMemory(self.repo_root)
         self.project_memory = project_memory or ProjectContextMemory(self.repo_root)
         self.conversation_store = conversation_store or ConversationStore(self.repo_root)
@@ -129,10 +126,7 @@ class TypedMemoryFacade:
         return float(rep) + _recency_score(updated_at)
 
     def _personal_records(self) -> list[dict[str, Any]]:
-        try:
-            return [dict(r) for r in self.personal_memory.list_records(include_forgotten=False) if isinstance(r, dict)]
-        except Exception:
-            return []
+        return []
 
     def _semantic_from_project(self, project: str) -> list[MemoryRecord]:
         rows = self.project_memory.export_project_rows(project)

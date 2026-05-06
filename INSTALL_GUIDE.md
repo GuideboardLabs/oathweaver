@@ -1,14 +1,14 @@
-# Foxforge Install Guide (Recipient Version)
+# Oathweaver Install Guide (Recipient Version)
 
-This guide is for someone receiving a fresh Foxforge ZIP and getting it running locally.
+This guide is for someone receiving a fresh Oathweaver ZIP and getting it running locally.
 
 ## 1) Easiest path: double-click installer EXE
 
-If your ZIP already includes `FoxforgeInstaller.exe`, double-click it.
+If your ZIP already includes `OathweaverInstaller.exe`, double-click it.
 
 What it does:
 
-- launches `install_foxforge.ps1` in GUI mode
+- launches `install_oathweaver.ps1` in GUI mode
 - installs/checks prerequisites
 - prompts for first owner username + 4-digit PIN
 - offers to pull missing Ollama models
@@ -16,7 +16,7 @@ What it does:
 Optional CLI mode from terminal:
 
 ```powershell
-.\FoxforgeInstaller.exe --cli
+.\OathweaverInstaller.exe --cli
 ```
 
 ## 2) Fast script path: run the installer directly
@@ -24,7 +24,7 @@ Optional CLI mode from terminal:
 From the project root in PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\install_foxforge.ps1
+powershell -ExecutionPolicy Bypass -File .\install_oathweaver.ps1
 ```
 
 What this installer does:
@@ -39,7 +39,7 @@ What this installer does:
 After installer completion:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1
+powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1
 ```
 
 Open:
@@ -88,9 +88,9 @@ ollama pull nomic-embed-text
 First boot requires owner credentials through environment variables:
 
 ```powershell
-$env:FOXFORGE_OWNER_USERNAME="owner"
-$env:FOXFORGE_OWNER_PASSWORD="1234"
-powershell -ExecutionPolicy Bypass -File .\start_foxforge_web.ps1
+$env:OATHWEAVER_OWNER_USERNAME="owner"
+$env:OATHWEAVER_OWNER_PASSWORD="1234"
+powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1
 ```
 
 After first boot, owner is stored in the local DB, so you do not need to keep those env vars.
@@ -105,10 +105,10 @@ powershell -ExecutionPolicy Bypass -File .\start_web_foraging_stack.ps1
 
 ## 5) Troubleshooting
 
-- `Foxforge owner setup is incomplete`: run `install_foxforge.ps1` or set `FOXFORGE_OWNER_*` env vars for first boot.
+- `Oathweaver owner setup is incomplete`: run `install_oathweaver.ps1` or set `OATHWEAVER_OWNER_*` env vars for first boot.
 - Ollama not reachable: run `ollama serve`, then retry.
 - Missing models: run `ollama list` and pull the missing names shown above.
 - PDF / DOCX text extraction unavailable: install `requirements-optional-docs.txt`; OCR also requires the Tesseract binary on your machine.
 - Discord bot unavailable: install `requirements-optional-bots.txt`.
-- Port already in use: change web port with `-WebPort 5051` on `start_foxforge_web.ps1`.
-- No `FoxforgeInstaller.exe` in your ZIP: generate it with `powershell -ExecutionPolicy Bypass -File .\build_installer_exe.ps1`.
+- Port already in use: change web port with `-WebPort 5051` on `start_oathweaver_web.ps1`.
+- No `OathweaverInstaller.exe` in your ZIP: generate it with `powershell -ExecutionPolicy Bypass -File .\build_installer_exe.ps1`.

@@ -1,5 +1,5 @@
 """
-Foxforge Environment Reset
+Oathweaver Environment Reset
 -----------------------------
 Wipes local runtime state, with a DB-aware reset path for the new SQLite-backed
 subsystems.
@@ -351,7 +351,7 @@ def _recreate_db() -> None:
 
 def _print_header(args: argparse.Namespace) -> None:
     print()
-    print("=== Foxforge Environment Reset ===")
+    print("=== Oathweaver Environment Reset ===")
     print()
     if args.report:
         print("Mode: report")
@@ -561,7 +561,7 @@ def _run_full_reset(args: argparse.Namespace) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Reset Foxforge local runtime state.")
+    parser = argparse.ArgumentParser(description="Reset Oathweaver local runtime state.")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt.")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be reset without modifying anything.")
     parser.add_argument("--report", action="store_true", help="Show current SQLite counts and legacy runtime cleanup status.")
@@ -626,7 +626,7 @@ def run_reset() -> None:
     elif args.dry_run:
         print("Dry run complete. No runtime state was modified.")
     else:
-        print("Reset complete. Foxforge will boot as a fresh environment for the selected scope.")
+        print("Reset complete. Oathweaver will boot as a fresh environment for the selected scope.")
     print()
 
 

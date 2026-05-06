@@ -58,7 +58,7 @@ def main() -> int:
         thread.start()
         time.sleep(1.0)
 
-        required = ("Life Admin", "Second Brain", "System", "Foxforge")
+        required = ("Life Admin", "Second Brain", "System", "Oathweaver")
         browser_candidates = [browser]
         alternate = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
         if alternate.exists() and alternate not in browser_candidates:

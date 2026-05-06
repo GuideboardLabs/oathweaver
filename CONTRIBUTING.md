@@ -1,12 +1,12 @@
-# Contributing to Foxforge
+# Contributing to Oathweaver
 
-Thanks for helping improve Foxforge.
+Thanks for helping improve Oathweaver.
 
 ## Setup
 
 ```bash
 git clone <your-fork-or-repo-url>
-cd Foxforge
+cd Oathweaver
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.lock

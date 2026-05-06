@@ -1,4 +1,4 @@
-# Foxforge — Phase 19 Changelog
+# Oathweaver — Phase 19 Changelog
 ## Accuracy Maximization, Semantic Memory, and UI Polish
 
 **Date:** 2026-03-15

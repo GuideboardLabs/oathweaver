@@ -11,7 +11,7 @@ Architecture notes:
 - The app token (xapp-...) enables Socket Mode; the bot token (xoxb-...) handles API calls
 - Run `SocketModeHandler(app, app_token).start()` in this thread
 - Handle `@app.message()` events exactly like TelegramBot._handle_update()
-- Map Slack user IDs (U...) to Foxforge profiles via BotUserStore
+- Map Slack user IDs (U...) to Oathweaver profiles via BotUserStore
 - Discord message limit is 40,000 chars so chunking is rarely needed
 
 Config keys in Runtime/config/bot_config.json:

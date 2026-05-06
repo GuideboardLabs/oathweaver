@@ -13,7 +13,7 @@ from web_gui.routes.chat_messages import register_message_routes
 
 class ChatMakeNoTypeGuardTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="foxforge_chat_make_guard_")
+        self.tmpdir = tempfile.TemporaryDirectory(prefix="oathweaver_chat_make_guard_")
         self.repo_root = Path(self.tmpdir.name)
         ensure_runtime(self.repo_root)
         conversation = {

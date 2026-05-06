@@ -7,9 +7,9 @@
     <meta name="theme-color" content="#0f1722" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Foxforge</title>
+    <title>Oathweaver</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='branding/logo.png', v=asset_v) }}" />
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='branding/foxforge-appicon.png', v=asset_v) }}" />
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='branding/oathweaver-appicon.png', v=asset_v) }}" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -23,10 +23,10 @@
             <aside id="sidebar" class="sidebar">
                 <div class="sidebar-top">
                     <button class="brand-mark brand-home-btn" type="button" title="Go to landing page" @click="goToLandingHome">
-            <img src="{{ url_for('static', filename='branding/logo.png', v=asset_v) }}" alt="Foxforge logo" />
+            <img src="{{ url_for('static', filename='branding/logo.png', v=asset_v) }}" alt="Oathweaver logo" />
           </button>
                     <div class="sidebar-title-wrap">
-                        <h1>Foxforge</h1>
+                        <h1>Oathweaver</h1>
                     </div>
                 </div>
 
@@ -76,28 +76,6 @@
                 [[ panelBadgeValue(panelStatus.pending_actions) ]]
               </span>
             </button>
-                            <button class="panel-btn panel-btn-foraging" type="button" @click="openSystemPanel('foraging')">
-              <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-foraging" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4zm8.87 11.8 2.93 2.92-1.27 1.28-2.93-2.93 1.27-1.27z"/></svg>
-                </span>
-                <span class="panel-btn-label">Foraging</span>
-              </span>
-              <span class="panel-badge" :class="foragingPanelBadgeClass" v-if="foragingPanelBadgeText">
-                [[ foragingPanelBadgeText ]]
-              </span>
-            </button>
-                            <button class="panel-btn panel-btn-building" type="button" @click="openSystemPanel('building')">
-              <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-building" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M21.2 7.4a5.2 5.2 0 0 1-6.83 6.4l-6.55 6.55a1.8 1.8 0 0 1-2.54-2.54l6.55-6.55a5.2 5.2 0 0 1 6.4-6.83l-3.1 3.1.94 1.88 1.88.94 3.25-3.25z"/></svg>
-                </span>
-                <span class="panel-btn-label">Building</span>
-              </span>
-              <span class="panel-badge" :class="buildingPanelBadgeClass" v-if="buildingPanelBadgeText">
-                [[ buildingPanelBadgeText ]]
-              </span>
-            </button>
                             <button class="panel-btn panel-btn-reflections" type="button" @click="openSystemPanel('reflections')">
               <span class="panel-btn-main">
                 <span class="junction-icon junction-icon-reflections" aria-hidden="true">
@@ -141,19 +119,7 @@
               <span class="panel-badge" v-if="panelBadgeValue(panelStatus.library_items_pending)">
                 [[ panelBadgeValue(panelStatus.library_items_pending) ]]
               </span>
-            </button>
-                            <button class="panel-btn panel-btn-briefings" type="button" @click="openSystemPanel('briefings')">
-              <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-briefings" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M5 4h11a2 2 0 0 1 2 2v11H7a2 2 0 0 0-2 2V4zm4 4h7v1.6H9V8zm0 3h7v1.6H9V11zm0 3h5v1.6H9V14zm-2 8a1 1 0 0 1-1-1 1 1 0 0 1 1-1h11v-1H7a2 2 0 0 0 0 4h11v-2H7z"/></svg>
-                </span>
-                <span class="panel-btn-label">Briefings</span>
-              </span>
-              <span class="panel-badge" v-if="panelBadgeValue(panelStatus.briefings_unread)">
-                [[ panelBadgeValue(panelStatus.briefings_unread) ]]
-              </span>
-            </button>
-                            <button class="panel-btn panel-btn-watchtower" type="button" @click="openSystemPanel('watchtower')">
+            </button><button class="panel-btn panel-btn-watchtower" type="button" @click="openSystemPanel('watchtower')">
               <span class="panel-btn-main">
                 <span class="junction-icon junction-icon-watchtower" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false"><path d="M7 21h10l-1.3-5H8.3L7 21zm1.8-6h6.4l1.2-5H7.6l1.2 5zM9 3h6l1.2 5H7.8L9 3zm2.1 8.2h1.8v2.1h-1.8v-2.1z"/></svg>
@@ -173,12 +139,6 @@
               </span>
               <span class="panel-badge" v-if="panelBadgeValue(panelStatus.forage_cards_pinned)">
                 [[ panelBadgeValue(panelStatus.forage_cards_pinned) ]]
-              </span>
-            </button>
-<button class="panel-btn panel-btn-life-admin" type="button" @click="openSystemPanel('life-admin')">
-              <span class="panel-btn-main">
-                <span class="road-icon" aria-hidden="true">h</span>
-                <span class="panel-btn-label">Personal Context</span>
               </span>
             </button>
                             <button class="panel-btn panel-btn-system" type="button" @click="openSystemPanel('system')">
@@ -270,43 +230,6 @@
                     <section class="home-grid">
 
                         <section class="home-row">
-                            <article class="home-card">
-                                <header class="home-card-head">
-                                    <h3>Junction Status</h3>
-                                    <p>Quick view of active panel queues.</p>
-                                </header>
-                                <div class="home-junction-grid">
-                                    <button class="home-junction-btn" type="button" @click="openPendingActions">
-                    <span>Postbag</span>
-                    <strong>[[ Number(panelStatus.pending_actions || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('foraging')">
-                    <span>Foraging</span>
-                    <strong>[[ Number(panelStatus.foraging_active_jobs || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('building')">
-                    <span>Building</span>
-                    <strong>[[ Number(panelStatus.building_active_jobs || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('reflections')">
-                    <span>Reflections</span>
-                    <strong>[[ Number(reflectionsUnreadCount || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('lessons')">
-                    <span>Guidance</span>
-                    <strong>[[ Number(lessonsUnreadCount || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('library')">
-                    <span>Library</span>
-                    <strong>[[ Number(panelStatus.library_items_pending || panelStatus.library_items_total || 0) ]]</strong>
-                  </button>
-                                    <button class="home-junction-btn" type="button" @click="openSystemPanel('briefings')">
-                    <span>Briefings</span>
-                    <strong>[[ Number(panelStatus.briefings_unread || 0) ]]</strong>
-                  </button>
-                                </div>
-                            </article>
-
                             <article class="home-card home-last-card">
                                 <header class="home-card-head">
                                     <h3>Where You Left Off</h3>
@@ -372,26 +295,15 @@
                   <span class="composer-mode-icon composer-mode-icon-aa" aria-hidden="true">Aa</span>
                   <span class="composer-mode-label">Chat</span>
                 </button>
-                                <button class="composer-mode-btn" type="button" :class="{ 'is-active': inputMode === 'forage' }" @click="setComposerMode('forage')" title="Discovery" aria-label="Discovery">
+                                <button class="composer-mode-btn" type="button" :class="{ 'is-active': inputMode === 'forage' }" @click="setComposerMode('forage')" title="Research" aria-label="Research">
                   <svg class="composer-mode-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10.5 4a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-13zm0 1.8a4.7 4.7 0 1 0 0 9.4 4.7 4.7 0 0 0 0-9.4zm8.87 11.8 2.93 2.92-1.27 1.28-2.93-2.93 1.27-1.27z"/></svg>
-                  <span class="composer-mode-label">Search</span>
+                  <span class="composer-mode-label">Research</span>
                 </button>
                                 <button class="composer-mode-btn" type="button" :class="{ 'is-active': inputMode === 'make' }" @click="setComposerMode('make')" title="Make" aria-label="Make">
                   <svg class="composer-mode-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M21.2 7.4a5.2 5.2 0 0 1-6.83 6.4l-6.55 6.55a1.8 1.8 0 0 1-2.54-2.54l6.55-6.55a5.2 5.2 0 0 1 6.4-6.83l-3.1 3.1.94 1.88 1.88.94 3.25-3.25z"/></svg>
                   <span class="composer-mode-label">Create</span>
                 </button>
                             </div>
-                            <button
-                                class="chat-menu-btn image-tool-launch-btn"
-                                type="button"
-                                @click="openImageToolStyleModal"
-                                title="Image Tool"
-                                aria-label="Open Image Tool"
-                            >
-                                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
-                                    <path fill="currentColor" d="M4 5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H4zm0 2h16v6.2l-3.4-3.4a1 1 0 0 0-1.42 0l-3.5 3.5-1.8-1.8a1 1 0 0 0-1.42 0L4 16.06V7zm0 10 5.06-5.06 1.8 1.8a1 1 0 0 0 1.42 0l3.5-3.5L20 14.44V17H4zM8.5 8.5A1.5 1.5 0 1 0 8.5 11a1.5 1.5 0 0 0 0-2.5z"/>
-                                </svg>
-                            </button>
                             <div class="chat-menu-wrap">
                                 <button class="chat-menu-btn" type="button" aria-label="Conversation actions" title="Conversation actions" @click="chatMenuOpen = !chatMenuOpen">...</button>
                                 <div class="chat-menu" :aria-hidden="chatMenuOpen ? 'false' : 'true'">
@@ -417,7 +329,7 @@
               :class="[msg.role === 'user' ? 'user' : 'assistant', { 'is-foraging': !!msg.foraging, 'is-canceled': !!msg.canceled }]"
               :data-msg-id="msg.id || ''"
             >
-              <div v-if="msg.foraging" class="foraging-msg-tag">Foraging</div>
+              <div v-if="msg.foraging" class="foraging-msg-tag">Research</div>
               <div v-if="msg.building" class="building-msg-tag">Building</div>
               <button
                 v-if="msg.role === 'user' && msg.reply_to && msg.reply_to.id"
@@ -557,7 +469,7 @@
               </div>
             </article>
             </template>
-                        <article v-if="activeConversationSending && !activeConversationSendingIsForaging && !activeConversationSendingIsImageGen" class="msg assistant pending">
+                        <article v-if="activeConversationSending && !activeConversationSendingIsForaging" class="msg assistant pending">
                             <div class="msg-content">
                                 <span class="thinking-loader" aria-hidden="true">
                                     <span></span><span></span><span></span>
@@ -640,21 +552,7 @@
                                     Stop
                                 </button>
                             </div>
-                        </article>
-                        <article v-if="activeConversationSending && activeConversationSendingIsImageGen" class="msg assistant pending">
-                            <div class="msg-content">
-                                <span class="thinking-loader" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </span>
-                                <span class="foraging-stage-label imagegen-stage-label">
-                                    [[ activeConversationImageGenPhrase ]]
-                                </span>
-                                <span class="thinking-elapsed">
-                                    [[ activeConversationElapsedSec > 0 ? activeConversationElapsedSec + 's' : '' ]]
-                                </span>
-                            </div>
-                        </article>
-                    </section>
+                        </article></section>
 
                     <section v-if="activeConversationQueuedTurns.length" class="steer-queue">
                         <header class="steer-queue-head">
@@ -680,7 +578,7 @@
                     <div v-if="replyTargetMsg" class="composer-reply-preview">
                         <div class="composer-reply-bar"></div>
                         <div class="composer-reply-body">
-                            <span class="composer-reply-label">Replying to [[ replyTargetMsg.role === 'user' ? 'yourself' : 'Foxforge' ]]</span>
+                            <span class="composer-reply-label">Replying to [[ replyTargetMsg.role === 'user' ? 'yourself' : 'Oathweaver' ]]</span>
                             <span class="composer-reply-excerpt">[[ replyTargetMsg.excerpt ]]</span>
                         </div>
                         <button class="composer-reply-cancel" type="button" @click="cancelReply" aria-label="Cancel reply">&times;</button>
@@ -1297,7 +1195,7 @@
                     <div class="agent-graph-summary-line">
                         <span>jobs: [[ agentGraphSummary.active_jobs || 0 ]]</span>
                         <span>agents: [[ agentGraphSummary.active_agents || 0 ]]</span>
-                        <span>forage: [[ agentGraphSummary.foraging_active_agents || 0 ]]</span>
+                        <span>research: [[ agentGraphSummary.foraging_active_agents || 0 ]]</span>
                         <span>make: [[ agentGraphSummary.building_active_agents || 0 ]]</span>
                         <span>updated: [[ formatDate(agentGraphData.generated_at) || 'just now' ]]</span>
                     </div>
@@ -1431,7 +1329,7 @@
             <header class="family-profile-header">
                 <div>
                     <h3>Email Notifications</h3>
-                    <p>Configure Foxforge email notifications via Gmail App Password.</p>
+                    <p>Configure Oathweaver email notifications via Gmail App Password.</p>
                 </div>
                 <button type="button" class="family-profile-close" @click="closeEmailSettingsModal">&times;</button>
             </header>
@@ -1462,7 +1360,7 @@
             <header class="family-profile-header">
                 <div>
                     <h3>Safari Notifications</h3>
-                    <p>Install Foxforge to your Home Screen in Safari, then enable push notifications for this device.</p>
+                    <p>Install Oathweaver to your Home Screen in Safari, then enable push notifications for this device.</p>
                 </div>
                 <button type="button" class="family-profile-close" @click="closeWebPushSettingsModal">&times;</button>
             </header>
@@ -1505,7 +1403,7 @@
                 <button type="button" class="family-profile-close" @click="closeMorningDigestModal">&times;</button>
             </header>
             <div class="family-profile-form">
-                <p style="margin:0 0 12px;font-size:0.88rem;opacity:0.8;">Get a push notification each morning with unread briefings and your saved weather snapshot.</p>
+                <p style="margin:0 0 12px;font-size:0.88rem;opacity:0.8;">Get a push notification each morning with unread research cards and your saved weather snapshot.</p>
                 <label class="toggle-chip" style="flex-direction:row;align-items:center;gap:8px;cursor:pointer;padding:6px 0;">
                     <input type="checkbox" v-model="digestSettings.enabled" @change="saveDigestSettings" />
                     <span>Enable morning digest</span>
@@ -1540,7 +1438,7 @@
             <header class="family-profile-header">
                 <div>
                     <h3>Messaging Bots</h3>
-                    <p>Connect Telegram and Discord to send messages to Foxforge from anywhere.</p>
+                    <p>Connect Telegram and Discord to send messages to Oathweaver from anywhere.</p>
                 </div>
                 <button type="button" class="family-profile-close" @click="closeBotSettingsModal">&times;</button>
             </header>
@@ -1567,7 +1465,7 @@
                 <div v-for="m in botMappings" :key="m.id" style="display:flex;align-items:center;gap:8px;font-size:0.82rem;margin-bottom:4px;">
                     <span style="opacity:0.6;min-width:64px;">[[ m.platform ]]</span>
                     <span style="flex:1;">[[ m.platform_username ]] <span style="opacity:0.45;">([[ m.platform_user_id ]])</span></span>
-                    <span style="opacity:0.6;">→ [[ m.foxforge_user_id ]]</span>
+                    <span style="opacity:0.6;">→ [[ m.oathweaver_user_id ]]</span>
                     <button type="button" class="family-profile-btn" style="padding:2px 8px;font-size:0.75rem;" @click="deleteBotUser(m.id)">&times;</button>
                 </div>
                 <!-- Add user form -->
@@ -1578,12 +1476,12 @@
                     </select>
                     <input type="text" v-model="botUserForm.platform_user_id" placeholder="Platform user ID" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:inherit;border-radius:6px;padding:4px 8px;font-size:0.82rem;" />
                     <input type="text" v-model="botUserForm.platform_username" placeholder="Display name (optional)" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:inherit;border-radius:6px;padding:4px 8px;font-size:0.82rem;" />
-                    <select v-model="botUserForm.foxforge_user_id" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:inherit;border-radius:6px;padding:4px 8px;font-size:0.82rem;">
-                        <option value="">Select Foxforge user</option>
+                    <select v-model="botUserForm.oathweaver_user_id" style="border:1px solid var(--border-color);background:var(--bg-secondary);color:inherit;border-radius:6px;padding:4px 8px;font-size:0.82rem;">
+                        <option value="">Select Oathweaver user</option>
                         <option v-for="p in botProfiles" :key="p.id" :value="p.id">[[ p.display_name || p.username ]]</option>
                     </select>
                 </div>
-                <button type="button" class="family-profile-btn" style="margin-top:6px;" @click="addBotUser" :disabled="botSettingsSubmitting || !botUserForm.platform_user_id || !botUserForm.foxforge_user_id">Add User</button>
+                <button type="button" class="family-profile-btn" style="margin-top:6px;" @click="addBotUser" :disabled="botSettingsSubmitting || !botUserForm.platform_user_id || !botUserForm.oathweaver_user_id">Add User</button>
                 <!-- Pending unauthorized -->
                 <template v-if="botPending.length > 0">
                     <h4 style="margin:14px 0 4px;font-size:0.85rem;opacity:0.7;text-transform:uppercase;letter-spacing:0.05em;">Recent Unauthorized Attempts</h4>
@@ -1638,7 +1536,7 @@
                 <p class="danger-zone-modal-warning"><strong>This topic uses Underground (Uncensored) mode.</strong></p>
                 <p class="danger-zone-modal-warning">Underground mode routes requests through an unfiltered model. It will produce direct, unhedged output on sensitive topics without standard content refusals.</p>
                 <p class="danger-zone-modal-warning"><strong>Hard limits still apply.</strong> Content involving the sexual exploitation of minors or instructions for constructing weapons of mass destruction will be blocked regardless of mode.</p>
-                <p class="danger-zone-modal-warning">Only proceed if you understand and accept this. This is a personal tool running locally on your hardware. The creators of Foxforge and the underlying models bear no responsibility for your use of this mode.</p>
+                <p class="danger-zone-modal-warning">Only proceed if you understand and accept this. This is a personal tool running locally on your hardware. The creators of Oathweaver and the underlying models bear no responsibility for your use of this mode.</p>
             </div>
             <footer class="family-profile-footer">
                 <button type="button" class="family-profile-btn" @click="cancelUndergroundWarning">Cancel</button>
@@ -1777,7 +1675,7 @@
               [[ lessonsViewMode === 'archive' ? 'Current' : 'Archive' ]]
             </button>
                     <button v-if="panelKey === 'foraging'" class="panel-refresh-btn" type="button" @click="toggleForagingPause">
-              [[ panelStatus.foraging_paused ? 'Resume Foraging' : 'Pause Foraging' ]]
+              [[ panelStatus.foraging_paused ? 'Resume Research' : 'Pause Research' ]]
             </button>
                     <button v-if="panelKey === 'building'" class="panel-refresh-btn" type="button" @click="toggleBuildingPause">
               [[ panelStatus.building_paused ? 'Resume Building' : 'Pause Building' ]]
@@ -1809,8 +1707,8 @@
                   </div>
                   <div class="watch-summary-row" v-if="watchtowerRows.length">
                     <span class="watch-summary-chip">[[ watchtowerSummary.enabled_count ]] active</span>
-                    <span class="watch-summary-chip">[[ watchtowerSummary.unread_count ]] unread briefings</span>
-                    <span class="watch-summary-chip">[[ watchtowerSummary.total_briefings ]] total briefings</span>
+                    <span class="watch-summary-chip">[[ watchtowerSummary.unread_count ]] unread research cards</span>
+                    <span class="watch-summary-chip">[[ watchtowerSummary.total_cards ]] total research cards</span>
                   </div>
                   <div class="watch-row" v-for="row in watchtowerRows" :key="row.id" :class="{ 'is-disabled': !row.enabled }">
                     <div class="watch-row-main">
@@ -1820,9 +1718,9 @@
                     </div>
                     <div class="watch-row-stats">
                       <span class="watch-stat">Last run: [[ row._last_run_label ]]</span>
-                      <span class="watch-stat">Last briefing: [[ row._last_briefing_label ]]</span>
-                      <span class="watch-stat">Unread: [[ Number(row.unread_briefings || 0) ]]</span>
-                      <span class="watch-stat">Briefings: [[ Number(row.briefing_count || 0) ]]</span>
+                      <span class="watch-stat">Last research card: [[ row._last_card_label ]]</span>
+                      <span class="watch-stat">Unread: [[ Number(row.unread_cards || 0) ]]</span>
+                      <span class="watch-stat">Research cards: [[ Number(row.card_count || 0) ]]</span>
                     </div>
                     <div class="watch-row-actions">
                       <button class="panel-action-btn is-small" type="button" @click="triggerWatch(row.id)">Run Now</button>
@@ -1831,101 +1729,33 @@
                       </button>
                       <button class="panel-action-btn is-small is-danger" type="button" @click="deleteWatch(row.id)">Remove</button>
                     </div>
-                    <div class="watch-last-run" v-if="row.latest_briefing_preview">[[ row.latest_briefing_preview ]]</div>
+                    <div class="watch-last-run" v-if="row.latest_card_preview">[[ row.latest_card_preview ]]</div>
                   </div>
                   <div v-if="!watchtowerRows.length" class="panel-empty">No watches yet. Add a topic above.</div>
-                </template>
-
-                <template v-else-if="panelKey === 'briefings'">
-                  <div class="briefings-toolbar">
-                    <div class="briefings-filter-row">
-                      <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': briefingsFilter.mode === 'unread' }" @click="briefingsFilter.mode = 'unread'">Unread</button>
-                      <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': briefingsFilter.mode === 'all' }" @click="briefingsFilter.mode = 'all'">All</button>
-                      <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': briefingsFilter.mode === 'read' }" @click="briefingsFilter.mode = 'read'">Read</button>
-                      <button v-if="panelStatus.briefings_unread > 0" class="panel-action-btn is-small" type="button" @click="markAllBriefingsRead">Mark All Read</button>
-                    </div>
-                    <input class="input-field" v-model="briefingsFilter.search" placeholder="Filter by topic or signal..." />
-                  </div>
-                  <div class="briefing-card" v-for="row in briefingRows" :key="row.id" :class="{ 'is-unread': !row.read }">
-                    <header class="panel-card-head">
-                      <h4>[[ row.headline || row.topic ]]</h4>
-                      <span class="briefing-date">[[ formatDate(row.created_at) ]]</span>
-                    </header>
-                    <div class="briefing-chip-row">
-                      <span class="briefing-chip">[[ briefingConfidenceLabel(row) ]]</span>
-                      <span class="briefing-chip">Signal [[ Number(row.signal_score || 0) ]]</span>
-                      <span class="briefing-chip" v-if="Number(row.source_count || 0) > 0">[[ Number(row.source_count || 0) ]] source links</span>
-                      <span class="briefing-chip">[[ row.read ? 'Read' : 'Unread' ]]</span>
-                    </div>
-                    <p class="briefing-preview">[[ row.summary || row.preview ]]</p>
-                    <div class="briefing-bullets" v-if="Array.isArray(row.key_points) && row.key_points.length">
-                      <p class="briefing-mini-title">Key points</p>
-                      <ul>
-                        <li v-for="(point, idx) in row.key_points.slice(0,3)" :key="`${row.id}_kp_${idx}`">[[ point ]]</li>
-                      </ul>
-                    </div>
-                    <div class="panel-card-actions">
-                      <button class="panel-action-btn is-small" type="button" :disabled="row._loadingDetails" @click="toggleBriefingDetails(row)">
-                        [[ row._expanded ? 'Hide Details' : 'View Details' ]]
-                      </button>
-                      <button class="panel-action-btn is-small" type="button"
-                        v-if="!row.read"
-                        @click="markBriefingRead(row.id)">
-                        Mark Read
-                      </button>
-                      <button class="panel-action-btn is-small" type="button"
-                        v-else
-                        @click="markBriefingUnread(row.id)">
-                        Mark Unread
-                      </button>
-                    </div>
-                    <div class="briefing-detail" v-if="row._expanded">
-                      <div class="briefing-detail-grid">
-                        <div>
-                          <p class="briefing-mini-title">Risks</p>
-                          <ul v-if="Array.isArray(row.risks) && row.risks.length">
-                            <li v-for="(risk, idx) in row.risks.slice(0,3)" :key="`${row.id}_risk_${idx}`">[[ risk ]]</li>
-                          </ul>
-                          <p v-else class="briefing-empty-inline">No explicit risks captured.</p>
-                        </div>
-                        <div>
-                          <p class="briefing-mini-title">Next steps</p>
-                          <ul v-if="Array.isArray(row.next_steps) && row.next_steps.length">
-                            <li v-for="(step, idx) in row.next_steps.slice(0,3)" :key="`${row.id}_step_${idx}`">[[ step ]]</li>
-                          </ul>
-                          <p v-else class="briefing-empty-inline">No explicit next steps captured.</p>
-                        </div>
-                      </div>
-                      <p class="briefing-confidence-note" v-if="row.confidence_raw">[[ row.confidence_raw ]]</p>
-                    </div>
-                  </div>
-                  <div v-if="!briefingRows.length" class="panel-empty">No matching briefings yet. Run a watch or adjust filters.</div>
-                </template>
-
-                <template v-else-if="panelKey === 'library'">
+                </template><template v-else-if="panelKey === 'library'">
                   <div class="watch-row-actions" style="margin-bottom:12px;">
                     <button class="panel-action-btn" type="button" @click="openLibraryIntakeModal">Add Library Item</button>
                   </div>
-                  <div class="second-brain-stat-grid" style="margin-bottom:12px;">
-                    <article class="second-brain-stat-card">
+                  <div class="library-stat-grid" style="margin-bottom:12px;">
+                    <article class="library-stat-card">
                       <strong>[[ Number(libraryPanelContext.counts?.total || 0) ]]</strong>
                       <span>Total items</span>
                     </article>
-                    <article class="second-brain-stat-card">
+                    <article class="library-stat-card">
                       <strong>[[ Number(libraryPanelContext.counts?.pending || 0) ]]</strong>
                       <span>Pending</span>
                     </article>
-                    <article class="second-brain-stat-card">
+                    <article class="library-stat-card">
                       <strong>[[ Number(libraryPanelContext.counts?.ready || 0) ]]</strong>
                       <span>Ready</span>
                     </article>
-                    <article class="second-brain-stat-card">
+                    <article class="library-stat-card">
                       <strong>[[ Number(libraryPanelContext.counts?.failed || 0) ]]</strong>
                       <span>Failed</span>
                     </article>
                   </div>
-                  <div class="briefings-toolbar">
-                    <div class="briefings-filter-row">
+                  <div class="panel-toolbar">
+                    <div class="panel-filter-row">
                       <select class="watch-input" v-model="libraryFilter.status">
                         <option value="all">All statuses</option>
                         <option value="queued">Queued</option>
@@ -1987,7 +1817,7 @@
                       <span class="topic-card-name">[[ libraryDetailItem.title || libraryDetailItem.source_name ]]</span>
                       <span class="topic-active-pill">[[ libraryDetailItem.status ]]</span>
                     </div>
-                    <div class="life-admin-form-grid" style="margin-top:12px;">
+                    <div class="panel-form-grid" style="margin-top:12px;">
                       <input v-model="libraryDetailItem.title" class="watch-input" type="text" placeholder="Title" />
                       <select v-model="libraryDetailItem.source_kind" class="watch-input">
                         <option value="general">General</option>
@@ -2023,308 +1853,13 @@
                       <button class="panel-action-btn is-small is-danger" type="button" @click="deleteLibraryDetail">Delete</button>
                     </div>
                   </div>
-                  <div v-if="libraryDetailItem && libraryDetailItem._summary_html" class="briefing-content" v-html="libraryDetailItem._summary_html" style="margin-top:12px;"></div>
+                  <div v-if="libraryDetailItem && libraryDetailItem._summary_html" class="card-content" v-html="libraryDetailItem._summary_html" style="margin-top:12px;"></div>
                   <div v-else-if="libraryDetailItem" class="panel-empty">Summary not ready yet for this Library item.</div>
                   <div v-else class="panel-empty">Library detail unavailable.</div>
-                </template>
-
-                <template v-else-if="panelKey === 'life-admin'">
-                  <div v-if="panelData.length">
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">About You</h4>
-                      <div class="life-admin-form-card">
-                        <div class="life-admin-form-grid">
-                          <input v-model="lifeAdminForms.profile.preferred_name" class="watch-input" type="text" placeholder="Preferred name" />
-                          <input v-model="lifeAdminForms.profile.full_name" class="watch-input" type="text" placeholder="Full name" />
-                        </div>
-                        <button class="life-admin-details-toggle" type="button" @click="toggleLifeAdminDetails('profile')">
-                          [[ lifeAdminState.profileDetailsOpen ? 'Hide Details' : 'Add Details' ]]
-                        </button>
-                        <div v-if="lifeAdminState.profileDetailsOpen" class="life-admin-details-panel">
-                          <div class="life-admin-form-grid">
-                            <input v-model="lifeAdminForms.profile.age" class="watch-input" type="text" placeholder="Age" />
-                            <input v-model="lifeAdminForms.profile.gender" class="watch-input" type="text" placeholder="Gender" />
-                            <input v-model="lifeAdminForms.profile.birthday" class="watch-input" type="date" placeholder="Birthday" />
-                            <input v-model="lifeAdminForms.profile.location" class="watch-input" type="text" placeholder="Location" />
-                            <input v-model="lifeAdminForms.profile.ancestry" class="watch-input" type="text" placeholder="Ancestry / background" />
-                            <input v-model="lifeAdminForms.profile.work" class="watch-input" type="text" placeholder="Work / role" />
-                            <input v-model="lifeAdminForms.profile.likes" class="watch-input" type="text" placeholder="Likes" />
-                            <input v-model="lifeAdminForms.profile.dislikes" class="watch-input" type="text" placeholder="Dislikes" />
-                          </div>
-                          <textarea v-model="lifeAdminForms.profile.health" class="watch-input" rows="2" placeholder="Health context" style="width:100%;resize:vertical;"></textarea>
-                          <textarea v-model="lifeAdminForms.profile.notes" class="watch-input" rows="2" placeholder="Personal notes" style="width:100%;resize:vertical;"></textarea>
-                        </div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="saveUserProfile">Save Profile</button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Context Notes</h4>
-                      <textarea class="watch-input" v-model="lifeAdminForms.notes" rows="3" placeholder="Useful background context Foxforge should remember..." style="width:100%;resize:vertical;"></textarea>
-                      <button class="panel-action-btn is-small" type="button" @click="saveHouseholdNotes">Save Notes</button>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Memory Briefing</h4>
-                      <div class="second-brain-briefing">
-                        <article class="second-brain-briefing-card" v-for="(line, idx) in (secondBrainContext.briefing_lines || [])" :key="'brain_brief_merged_' + idx">
-                          [[ line ]]
-                        </article>
-                        <div v-if="!(secondBrainContext.briefing_lines || []).length" class="modal-empty">No briefing yet.</div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Memory Overview</h4>
-                      <div class="second-brain-stat-grid">
-                        <article class="second-brain-stat-card">
-                          <strong>[[ Number(secondBrainContext.overview?.active_records || 0) ]]</strong>
-                          <span>Active records</span>
-                        </article>
-                        <article class="second-brain-stat-card">
-                          <strong>[[ Number(secondBrainContext.overview?.pinned || 0) ]]</strong>
-                          <span>Pinned</span>
-                        </article>
-                        <article class="second-brain-stat-card">
-                          <strong>[[ Number(secondBrainContext.overview?.needs_review || 0) ]]</strong>
-                          <span>Needs review</span>
-                        </article>
-                        <article class="second-brain-stat-card">
-                          <strong>[[ Number(secondBrainContext.overview?.family_members || 0) ]]</strong>
-                          <span>Family tracked</span>
-                        </article>
-                        <article class="second-brain-stat-card">
-                          <strong>[[ Number(secondBrainContext.overview?.pets || 0) ]]</strong>
-                          <span>Pets tracked</span>
-                        </article>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Source Map</h4>
-                      <div class="second-brain-chip-row">
-                        <span v-for="row in secondBrainSourceRows" :key="'brain_source_merged_' + row.key" class="second-brain-chip">
-                          [[ row.key.replace(/_/g, ' ') ]] · [[ row.count ]]
-                        </span>
-                      </div>
-                      <div class="second-brain-chip-row second-brain-chip-row--soft">
-                        <span v-for="row in secondBrainStatusRows" :key="'brain_status_merged_' + row.key" class="second-brain-chip second-brain-chip--soft">
-                          [[ row.key.replace(/_/g, ' ') ]] · [[ row.count ]]
-                        </span>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Pinned Context</h4>
-                      <div class="second-brain-memory-grid">
-                        <div class="life-admin-memory-card" v-for="record in (secondBrainContext.pinned_records || [])" :key="'brain_pinned_merged_' + record.id">
-                          <div class="life-admin-memory-head">
-                            <div>
-                              <strong>[[ record.subject || record.category ]]</strong>
-                              <span class="life-admin-inline-tag">[[ String(record.field || '').replace(/_/g, ' ') ]]</span>
-                            </div>
-                            <span class="life-admin-memory-badge" :class="lifeAdminMemoryBadgeClass(record)">[[ lifeAdminMemoryStatusLabel(record) ]]</span>
-                          </div>
-                          <div class="life-admin-memory-value">[[ record.value ]]</div>
-                          <div class="life-admin-memory-meta">[[ secondBrainRecordMeta(record) ]]</div>
-                          <div class="watch-row-actions">
-                            <button class="panel-action-btn is-small" type="button" @click="editLifeAdminMemory(record)">Edit</button>
-                            <button class="panel-action-btn is-small" type="button" @click="explainLifeAdminMemory(record.id)">Why</button>
-                            <button class="panel-action-btn is-small is-danger" type="button" @click="forgetLifeAdminMemory(record.id)">Forget</button>
-                          </div>
-                        </div>
-                        <div v-if="!(secondBrainContext.pinned_records || []).length" class="modal-empty">No pinned memories yet.</div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Needs Review</h4>
-                      <div class="second-brain-memory-grid">
-                        <div class="life-admin-memory-card" v-for="record in (secondBrainContext.needs_review_records || [])" :key="'brain_review_merged_' + record.id">
-                          <div class="life-admin-memory-head">
-                            <div>
-                              <strong>[[ record.subject || record.category ]]</strong>
-                              <span class="life-admin-inline-tag">[[ String(record.field || '').replace(/_/g, ' ') ]]</span>
-                            </div>
-                            <span class="life-admin-memory-badge" :class="lifeAdminMemoryBadgeClass(record)">[[ lifeAdminMemoryStatusLabel(record) ]]</span>
-                          </div>
-                          <div class="life-admin-memory-value">[[ record.value ]]</div>
-                          <div class="life-admin-memory-meta">[[ secondBrainRecordMeta(record) ]]</div>
-                          <div class="watch-row-actions">
-                            <button class="panel-action-btn is-small" type="button" @click="confirmLifeAdminMemory(record.id)">Confirm</button>
-                            <button class="panel-action-btn is-small" type="button" @click="pinLifeAdminMemory(record.id)">Pin</button>
-                            <button class="panel-action-btn is-small" type="button" @click="explainLifeAdminMemory(record.id)">Why</button>
-                            <button class="panel-action-btn is-small is-danger" type="button" @click="forgetLifeAdminMemory(record.id)">Forget</button>
-                          </div>
-                        </div>
-                        <div v-if="!(secondBrainContext.needs_review_records || []).length" class="modal-empty">Nothing needs review right now.</div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Fading Context</h4>
-                      <div class="second-brain-memory-grid">
-                        <div class="life-admin-memory-card" v-for="record in (secondBrainContext.fading_records || [])" :key="'brain_fading_merged_' + record.id">
-                          <div class="life-admin-memory-head">
-                            <div>
-                              <strong>[[ record.subject || record.category ]]</strong>
-                              <span class="life-admin-inline-tag">[[ String(record.field || '').replace(/_/g, ' ') ]]</span>
-                            </div>
-                            <span class="life-admin-memory-badge" :class="lifeAdminMemoryBadgeClass(record)">[[ lifeAdminMemoryStatusLabel(record) ]]</span>
-                          </div>
-                          <div class="life-admin-memory-value">[[ record.value ]]</div>
-                          <div class="life-admin-memory-meta">[[ secondBrainRecordMeta(record) ]]</div>
-                          <div class="watch-row-actions">
-                            <button class="panel-action-btn is-small" type="button" @click="pinLifeAdminMemory(record.id)">Pin</button>
-                            <button class="panel-action-btn is-small" type="button" @click="confirmLifeAdminMemory(record.id)">Refresh</button>
-                            <button class="panel-action-btn is-small" type="button" @click="explainLifeAdminMemory(record.id)">Why</button>
-                          </div>
-                        </div>
-                        <div v-if="!(secondBrainContext.fading_records || []).length" class="modal-empty">No fading context yet.</div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Memory Ledger</h4>
-                      <div class="life-admin-filter-row">
-                        <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': lifeAdminState.memoryFilter === 'all' }" @click="setLifeAdminMemoryFilter('all')">All</button>
-                        <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': lifeAdminState.memoryFilter === 'pinned' }" @click="setLifeAdminMemoryFilter('pinned')">Pinned</button>
-                        <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': lifeAdminState.memoryFilter === 'needs_review' }" @click="setLifeAdminMemoryFilter('needs_review')">Needs Review</button>
-                        <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': lifeAdminState.memoryFilter === 'forgotten' }" @click="setLifeAdminMemoryFilter('forgotten')">Forgotten</button>
-                        <button class="panel-action-btn is-small" type="button" :class="{ 'is-active': lifeAdminState.memoryFilter === 'recent' }" @click="setLifeAdminMemoryFilter('recent')">Recently Used</button>
-                      </div>
-                      <div class="life-admin-memory-card" v-for="record in filteredLifeAdminRecords" :key="record.id">
-                        <div class="life-admin-memory-head">
-                          <div>
-                            <strong>[[ record.subject || record.category ]]</strong>
-                            <span class="life-admin-inline-tag">[[ String(record.field || '').replace(/_/g, ' ') ]]</span>
-                          </div>
-                          <span class="life-admin-memory-badge" :class="lifeAdminMemoryBadgeClass(record)">[[ lifeAdminMemoryStatusLabel(record) ]]</span>
-                        </div>
-                        <div class="life-admin-memory-value">[[ record.value ]]</div>
-                        <div class="life-admin-memory-meta">[[ lifeAdminMemorySummary(record) ]]</div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="confirmLifeAdminMemory(record.id)">Confirm</button>
-                          <button class="panel-action-btn is-small" type="button" @click="pinLifeAdminMemory(record.id)">Pin</button>
-                          <button class="panel-action-btn is-small" type="button" @click="editLifeAdminMemory(record)">Edit</button>
-                          <button class="panel-action-btn is-small" type="button" @click="explainLifeAdminMemory(record.id)">Why</button>
-                          <button class="panel-action-btn is-small is-danger" type="button" @click="forgetLifeAdminMemory(record.id)">Forget</button>
-                        </div>
-                      </div>
-                      <div v-if="!filteredLifeAdminRecords.length" class="panel-empty">No memory records in this view yet.</div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Family Members</h4>
-                      <div class="life-admin-entry-row" v-for="m in (panelData[0].family_members || [])" :key="m.name + '|' + (m.relationship || '') + '|' + (m.birthday || '')">
-                        <div class="life-admin-entry-body">
-                          <div class="life-admin-entry-mainline">
-                            <strong>[[ m.name ]]</strong>
-                            <span v-if="m.relationship">([[ m.relationship ]])</span>
-                            <span v-if="m.age" class="life-admin-inline-tag">age [[ m.age ]]</span>
-                          </div>
-                          <p v-if="m.notes" class="life-admin-entry-notes">[[ m.notes ]]</p>
-                          <div v-if="lifeAdminDetailItems('family', m).length" class="life-admin-detail-list">
-                            <span v-for="detail in lifeAdminDetailItems('family', m)" :key="'family_detail_' + m.name + detail" class="life-admin-detail-chip">[[ detail ]]</span>
-                          </div>
-                        </div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="startEditFamilyMember(m)">Edit</button>
-                          <button class="panel-action-btn is-small is-danger" type="button" @click="removeFamilyMember(m.name)">Remove</button>
-                        </div>
-                      </div>
-                      <div class="life-admin-form-card">
-                        <div class="life-admin-form-title">[[ lifeAdminState.familyEditingKey ? 'Edit Family Member' : 'Add Family Member' ]]</div>
-                        <div class="life-admin-form-grid">
-                          <input v-model="lifeAdminForms.family.name" class="watch-input" type="text" placeholder="Name" />
-                          <input v-model="lifeAdminForms.family.relationship" class="watch-input" type="text" placeholder="Relationship" />
-                        </div>
-                        <textarea v-model="lifeAdminForms.family.notes" class="watch-input" rows="2" placeholder="Notes" style="width:100%;resize:vertical;"></textarea>
-                        <button class="life-admin-details-toggle" type="button" @click="toggleLifeAdminDetails('family')">
-                          [[ lifeAdminState.familyDetailsOpen ? 'Hide Details' : 'Add Details' ]]
-                        </button>
-                        <div v-if="lifeAdminState.familyDetailsOpen" class="life-admin-details-panel">
-                          <div class="life-admin-form-grid">
-                            <input v-model="lifeAdminForms.family.nickname" class="watch-input" type="text" placeholder="Nickname" />
-                            <input v-model="lifeAdminForms.family.age" class="watch-input" type="text" placeholder="Age" />
-                            <input v-model="lifeAdminForms.family.birthday" class="watch-input" type="date" placeholder="Birthday" />
-                            <input v-model="lifeAdminForms.family.gender" class="watch-input" type="text" placeholder="Gender" />
-                            <input v-model="lifeAdminForms.family.school_or_work" class="watch-input" type="text" placeholder="School / work" />
-                            <input v-model="lifeAdminForms.family.likes" class="watch-input" type="text" placeholder="Likes" />
-                            <input v-model="lifeAdminForms.family.dislikes" class="watch-input" type="text" placeholder="Dislikes" />
-                            <input v-model="lifeAdminForms.family.important_dates" class="watch-input" type="text" placeholder="Important dates" />
-                          </div>
-                          <textarea v-model="lifeAdminForms.family.medical_notes" class="watch-input" rows="2" placeholder="Medical or care notes" style="width:100%;resize:vertical;"></textarea>
-                        </div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="saveFamilyMember">[[ lifeAdminState.familyEditingKey ? 'Save Changes' : 'Add Family Member' ]]</button>
-                          <button v-if="lifeAdminState.familyEditingKey" class="panel-action-btn is-small" type="button" @click="resetFamilyMemberForm">Cancel</button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Pets</h4>
-                      <div class="life-admin-entry-row" v-for="p in (panelData[0].pets || [])" :key="p.name + '|' + (p.species || '') + '|' + (p.birthday || '')">
-                        <div class="life-admin-entry-body">
-                          <div class="life-admin-entry-mainline">
-                            <strong>[[ p.name ]]</strong>
-                            <span v-if="p.species">([[ p.species ]])</span>
-                            <span v-if="p.age" class="life-admin-inline-tag">age [[ p.age ]]</span>
-                          </div>
-                          <p v-if="p.notes" class="life-admin-entry-notes">[[ p.notes ]]</p>
-                          <div v-if="lifeAdminDetailItems('pet', p).length" class="life-admin-detail-list">
-                            <span v-for="detail in lifeAdminDetailItems('pet', p)" :key="'pet_detail_' + p.name + detail" class="life-admin-detail-chip">[[ detail ]]</span>
-                          </div>
-                        </div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="startEditPet(p)">Edit</button>
-                          <button class="panel-action-btn is-small is-danger" type="button" @click="removePet(p.name)">Remove</button>
-                        </div>
-                      </div>
-                      <div class="life-admin-form-card">
-                        <div class="life-admin-form-title">[[ lifeAdminState.petEditingKey ? 'Edit Pet' : 'Add Pet' ]]</div>
-                        <div class="life-admin-form-grid">
-                          <input v-model="lifeAdminForms.pet.name" class="watch-input" type="text" placeholder="Name" />
-                          <input v-model="lifeAdminForms.pet.species" class="watch-input" type="text" placeholder="Species" />
-                        </div>
-                        <textarea v-model="lifeAdminForms.pet.notes" class="watch-input" rows="2" placeholder="Notes" style="width:100%;resize:vertical;"></textarea>
-                        <button class="life-admin-details-toggle" type="button" @click="toggleLifeAdminDetails('pet')">
-                          [[ lifeAdminState.petDetailsOpen ? 'Hide Details' : 'Add Details' ]]
-                        </button>
-                        <div v-if="lifeAdminState.petDetailsOpen" class="life-admin-details-panel">
-                          <div class="life-admin-form-grid">
-                            <input v-model="lifeAdminForms.pet.breed" class="watch-input" type="text" placeholder="Breed" />
-                            <input v-model="lifeAdminForms.pet.sex" class="watch-input" type="text" placeholder="Sex" />
-                            <input v-model="lifeAdminForms.pet.age" class="watch-input" type="text" placeholder="Age" />
-                            <input v-model="lifeAdminForms.pet.birthday" class="watch-input" type="date" placeholder="Birthday" />
-                            <input v-model="lifeAdminForms.pet.weight" class="watch-input" type="text" placeholder="Weight" />
-                            <input v-model="lifeAdminForms.pet.food" class="watch-input" type="text" placeholder="Food" />
-                            <input v-model="lifeAdminForms.pet.medications" class="watch-input" type="text" placeholder="Medications" />
-                            <input v-model="lifeAdminForms.pet.vet" class="watch-input" type="text" placeholder="Vet / clinic" />
-                            <input v-model="lifeAdminForms.pet.microchip" class="watch-input" type="text" placeholder="Microchip" />
-                          </div>
-                          <textarea v-model="lifeAdminForms.pet.behavior_notes" class="watch-input" rows="2" placeholder="Behavior notes" style="width:100%;resize:vertical;"></textarea>
-                        </div>
-                        <div class="watch-row-actions">
-                          <button class="panel-action-btn is-small" type="button" @click="savePet">[[ lifeAdminState.petEditingKey ? 'Save Changes' : 'Add Pet' ]]</button>
-                          <button v-if="lifeAdminState.petEditingKey" class="panel-action-btn is-small" type="button" @click="resetPetForm">Cancel</button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="life-admin-section">
-                      <h4 class="life-admin-section-title">Memory Timeline</h4>
-                      <div class="second-brain-timeline">
-                        <article class="second-brain-timeline-item" v-for="row in (secondBrainContext.timeline || [])" :key="'brain_timeline_merged_' + row.id">
-                          <div class="second-brain-timeline-head">
-                            <strong>[[ row.subject || row.category ]]</strong>
-                            <span class="life-admin-inline-tag">[[ String(row.field || '').replace(/_/g, ' ') ]]</span>
-                          </div>
-                          <div class="life-admin-memory-value">[[ row.value ]]</div>
-                          <div class="life-admin-memory-meta">[[ secondBrainTimelineSummary(row) ]]</div>
-                        </article>
-                        <div v-if="!(secondBrainContext.timeline || []).length" class="modal-empty">No timeline yet.</div>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-
-                <template v-else-if="panelKey === 'topics'">
+                </template><template v-else-if="panelKey === 'topics'">
                   <!-- Create Topic Form -->
                   <div class="topic-create-form">
-                    <h4 class="life-admin-section-title">New Topic</h4>
+                    <h4 class="panel-section-title">New Topic</h4>
                     <input v-model="topicForm.name" class="watch-input" type="text" placeholder="Topic name" />
                     <select v-model="topicForm.type" class="watch-input">
                       <option value="">-- Select type --</option>
@@ -2378,7 +1913,7 @@
                       </div>
                     </div>
                     <div v-if="(topicDetailData.subtopics || []).length">
-                      <h4 class="life-admin-section-title" style="margin-top:14px;">Sub-topics ([[ topicDetailData.subtopics.length ]])</h4>
+                      <h4 class="panel-section-title" style="margin-top:14px;">Sub-topics ([[ topicDetailData.subtopics.length ]])</h4>
                       <div class="topic-card" v-for="st in topicDetailData.subtopics" :key="st.id">
                         <div class="topic-card-head">
                           <span class="topic-type-badge" :class="'is-' + st.type">[[ topicTypeLabel(st.type) ]]</span>
@@ -2387,7 +1922,7 @@
                         <p class="topic-card-desc">[[ st.description ? st.description.slice(0,100) : '' ]]</p>
                       </div>
                     </div>
-                    <h4 class="life-admin-section-title" style="margin-top:14px;">Artifacts ([[ (topicDetailData.artifacts || []).length ]])</h4>
+                    <h4 class="panel-section-title" style="margin-top:14px;">Artifacts ([[ (topicDetailData.artifacts || []).length ]])</h4>
                     <div v-if="(topicDetailData.artifacts || []).length">
                       <div class="panel-card" v-for="(art, ai) in topicDetailData.artifacts" :key="'art_' + ai" style="padding:8px 10px;margin-bottom:6px;">
                         <span class="topic-type-badge" :class="art.folder === 'research_summaries' ? 'is-technical' : art.folder === 'implementation' ? 'is-science' : 'is-history'">[[ art.folder ]]</span>
@@ -2401,15 +1936,15 @@
 
                 <template v-else-if="panelKey === 'system'">
                   <div class="system-info-section">
-                    <h4 class="life-admin-section-title">System</h4>
-                    <p class="system-info-line">Foxforge local scaffold — all data stored in <code>Runtime/</code> and <code>Projects/</code>.</p>
+                    <h4 class="panel-section-title">System</h4>
+                    <p class="system-info-line">Oathweaver local scaffold — all data stored in <code>Runtime/</code> and <code>Projects/</code>.</p>
                     <p class="system-info-line">Models: configured in <code>SourceCode/configs/model_routing.json</code>.</p>
                     <p class="system-info-line">Web research: <code>Runtime/web/settings.json</code>.</p>
                     <p class="system-info-line">Cloud critique: <code>Runtime/cloud/settings.json</code>.</p>
                   </div>
 
                   <div class="system-settings-section">
-                    <h4 class="life-admin-section-title">Preferences</h4>
+                    <h4 class="panel-section-title">Preferences</h4>
                     <div class="system-setting-row">
                       <label for="settings-theme-select">Theme</label>
                       <select
@@ -2440,7 +1975,7 @@
                         Web Research: [[ formatModeLabel(panelStatus.web_mode) ]]
                       </button>
                       <button class="panel-action-btn" type="button" @click="toggleForagingPause">
-                        Foraging: [[ panelStatus.foraging_paused ? 'Paused' : ((panelStatus.foraging_active_jobs || 0) > 0 ? 'Active' : 'Ready') ]]
+                        Research: [[ panelStatus.foraging_paused ? 'Paused' : ((panelStatus.foraging_active_jobs || 0) > 0 ? 'Active' : 'Ready') ]]
                       </button>
                       <button class="panel-action-btn" type="button" @click="setProjectBuildTarget">Make Target: [[ makeTargetLabel ]]</button>
                       <button class="panel-action-btn" type="button" @click="openAgentGraphModal">Agent Graph</button>
@@ -2457,7 +1992,7 @@
                   </div>
 
                   <div class="system-settings-section system-social-panel">
-                    <h4 class="life-admin-section-title">Support Guideboard Labs</h4>
+                    <h4 class="panel-section-title">Support Guideboard Labs</h4>
                     <div class="system-social-section">
                       <p class="system-social-copy">Follow Guideboard Labs to support this and more!</p>
                       <div class="system-social-links">
@@ -2502,7 +2037,7 @@
 
                 <div v-else-if="Array.isArray(panelData) ? panelRows.length === 0 : !(panelData || []).length" class="panel-empty">No items found for this panel.</div>
 
-                <template v-if="!['watchtower','briefings','library','library_detail','life-admin','topics','topic_detail','system'].includes(panelKey)">
+                <template v-if="!['watchtower','library','library_detail','topics','topic_detail','system'].includes(panelKey)">
                 <article v-for="(row, idx) in panelRows" :key="row.id || row.created_at || idx" class="panel-card" :class="{ 'is-unread': panelKey === 'reflections' && !reflectionIsRead(row) }">
                     <template v-if="panelKey === 'reflections'">
               <header class="panel-card-head">
@@ -2624,7 +2159,7 @@
 
                 <template v-else-if="panelKey === 'foraging'">
               <header class="panel-card-head">
-                <h4><span class="road-icon" aria-hidden="true">k</span>[[ row.is_last_successful ? 'Last Successful Forage Run' : 'Foraging Job' ]]</h4>
+                <h4><span class="road-icon" aria-hidden="true">k</span>[[ row.is_last_successful ? 'Last Successful Research Run' : 'Research Job' ]]</h4>
                 <p>[[ formatDate(row.started_at || row.updated_at) || 'n/a' ]]</p>
               </header>
               <div class="panel-card-meta">
@@ -2773,14 +2308,14 @@
     <template v-else-if="panelKey === 'forage-cards'">
               <header class="panel-card-head">
                 <h4>[[ row.title || 'Research' ]]</h4>
-                <span class="briefing-date">[[ formatDate(row.created_at) ]]</span>
+                <span class="card-date">[[ formatDate(row.created_at) ]]</span>
               </header>
-              <div class="briefing-chip-row">
-                <span class="briefing-chip">[[ row.project || 'general' ]]</span>
-                <span class="briefing-chip" v-if="Number(row.is_pinned)">Pinned</span>
+              <div class="card-chip-row">
+                <span class="card-chip">[[ row.project || 'general' ]]</span>
+                <span class="card-chip" v-if="Number(row.is_pinned)">Pinned</span>
               </div>
-              <p class="briefing-preview" v-if="row.preview && !row._expanded">[[ row.preview ]]</p>
-              <div v-if="row._expanded && row._content_markdown" class="briefing-content" v-html="row._content_markdown" style="margin-top:8px;font-size:0.85rem;"></div>
+              <p class="card-preview" v-if="row.preview && !row._expanded">[[ row.preview ]]</p>
+              <div v-if="row._expanded && row._content_markdown" class="card-content" v-html="row._content_markdown" style="margin-top:8px;font-size:0.85rem;"></div>
               <div class="panel-card-actions" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
                 <button class="panel-action-btn is-small" type="button"
                   @click="openForageCardSummary(row)">[[ row._expanded ? 'Collapse' : 'View Summary' ]]</button>
@@ -2980,8 +2515,8 @@
 
     <div class="auth-gate-overlay" v-if="auth.enabled && !auth.authenticated">
         <section class="auth-gate-card auth-gate-card-landing">
-            <img class="auth-gate-logo" src="{{ url_for('static', filename='branding/FoxForgeTitleBold.png', v=asset_v) }}" alt="Foxforge" />
-            <p class="auth-gate-tagline">Welcome back to Foxforge.</p>
+            <img class="auth-gate-logo" src="{{ url_for('static', filename='branding/OathweaverTitleBold.png', v=asset_v) }}" alt="Oathweaver" />
+            <p class="auth-gate-tagline">Welcome back to Oathweaver.</p>
 
             <button v-if="!authShowForm" type="button" class="auth-gate-primary" @click="beginCheckIn">
           Check In

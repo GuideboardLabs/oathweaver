@@ -117,7 +117,7 @@ def register_settings_routes(bp: Blueprint, ctx: AppContext) -> None:
         if not bool(settings.get("has_subscription", False)):
             return {"ok": False, "error": "No device is subscribed for this account yet."}, 400
         push_payload = {
-            "title": "Foxforge push test",
+            "title": "Oathweaver push test",
             "body": f"Push notifications are working for {ctx.display_name(profile)}.",
             "url": "/",
             "tag": f"push-test:{str(profile.get('id', '')).strip()}",
@@ -285,7 +285,7 @@ def register_settings_routes(bp: Blueprint, ctx: AppContext) -> None:
     @bp.route("/api/settings/morning-digest", methods=["GET"])
     def get_digest_settings() -> tuple[dict, int]:
         ctx.require_profile()
-        cfg = ctx.load_foxforge_settings()
+        cfg = ctx.load_oathweaver_settings()
         return {
             "ok": True,
             "morning_digest_enabled": bool(cfg.get("morning_digest_enabled", False)),
@@ -299,7 +299,7 @@ def register_settings_routes(bp: Blueprint, ctx: AppContext) -> None:
     def save_digest_settings() -> tuple[dict, int]:
         ctx.require_profile()
         payload = request.get_json(silent=True) or {}
-        cfg = ctx.load_foxforge_settings()
+        cfg = ctx.load_oathweaver_settings()
         if "morning_digest_enabled" in payload:
             cfg["morning_digest_enabled"] = bool(payload["morning_digest_enabled"])
         if "morning_digest_hour" in payload:
@@ -310,7 +310,7 @@ def register_settings_routes(bp: Blueprint, ctx: AppContext) -> None:
             cfg["digest_location_lon"] = payload["digest_location_lon"]
         if "digest_location_label" in payload:
             cfg["digest_location_label"] = str(payload["digest_location_label"] or "")
-        ctx.save_foxforge_settings(cfg)
+        ctx.save_oathweaver_settings(cfg)
         return {"ok": True}, 200
 
     @bp.route("/api/forage-cards", methods=["GET"])

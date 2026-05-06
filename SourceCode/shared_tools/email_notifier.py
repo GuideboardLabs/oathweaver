@@ -115,7 +115,7 @@ def format_body(event: dict[str, Any], offset_minutes: int) -> str:
     if notes:
         lines.append(f"Notes:    {notes}")
     lines.append("")
-    lines.append("Foxforge reminder — automated.")
+    lines.append("Oathweaver reminder — automated.")
     return "\n".join(lines)
 
 
@@ -141,19 +141,19 @@ def format_task_nudge_body(owner_name: str, items: list[dict[str, Any]]) -> str:
 
     if is_morning:
         header = f"Good morning, {owner_name}! Here's what's on your plate for today:"
-        footer = "Have a productive day. — Foxforge"
+        footer = "Have a productive day. — Oathweaver"
     elif is_last:
         header = (
             f"It's 10 PM, {owner_name}. The following tasks were due today and "
             f"are still open. This is the last reminder — they'll carry over to "
             f"tomorrow if not finished tonight."
         )
-        footer = "Sort it out. — Foxforge"
+        footer = "Sort it out. — Oathweaver"
     else:
         hour_12 = block % 12 or 12
         ampm = "AM" if block < 12 else "PM"
         header = f"Hey {owner_name}, still open as of {hour_12} {ampm}:"
-        footer = "Foxforge task nudge — automated."
+        footer = "Oathweaver task nudge — automated."
 
     lines = [header, ""]
     for item in items:

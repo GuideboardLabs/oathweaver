@@ -28,7 +28,7 @@ def read_rows(path: Path) -> list[dict]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Foxforge activity viewer")
+    parser = argparse.ArgumentParser(description="Oathweaver activity viewer")
     parser.add_argument("--follow", action="store_true", help="Follow new events")
     parser.add_argument("--limit", type=int, default=30, help="How many recent events to print")
     args = parser.parse_args()

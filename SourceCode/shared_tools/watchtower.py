@@ -4,6 +4,7 @@ import logging
 import re
 import threading
 import uuid
+import json
 from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any
 
 from infra.persistence.repositories import WatchtowerRepository
 from shared_tools.topic_engine import VALID_TOPIC_TYPES
+from watchtower import WatchtowerScout
 
 
 def _now_iso() -> str:
@@ -136,7 +138,7 @@ def _text_similarity(left: str, right: str) -> float:
 def _build_briefing_digest(topic: str, markdown: str) -> dict[str, Any]:
     text = str(markdown or "")
     if not text.strip():
-        fallback = str(topic or "Watchtower briefing").strip() or "Watchtower briefing"
+        fallback = str(topic or "Watchtower research card").strip() or "Watchtower research card"
         return {
             "headline": fallback,
             "summary": "",
@@ -171,7 +173,7 @@ def _build_briefing_digest(topic: str, markdown: str) -> dict[str, Any]:
     confidence_raw, confidence_label = _confidence_from_text(text)
     sources = _source_count(text)
 
-    headline = title or _first_sentence(summary_body) or str(topic or "Watchtower briefing").strip() or "Watchtower briefing"
+    headline = title or _first_sentence(summary_body) or str(topic or "Watchtower research card").strip() or "Watchtower research card"
     signal_score = 40
     if summary:
         signal_score += 15
@@ -231,6 +233,7 @@ class WatchtowerEngine:
         self._running_lock = threading.Lock()
         self._briefing_digest_cache: dict[str, tuple[float, dict[str, Any], str]] = {}
         self._briefing_cache_lock = threading.Lock()
+        self.scout = WatchtowerScout(repo_root)
 
         self.watches_path.parent.mkdir(parents=True, exist_ok=True)
         self.briefings_dir.mkdir(parents=True, exist_ok=True)
@@ -509,6 +512,7 @@ class WatchtowerEngine:
         summary_path = str(out.get("summary_path", "")).strip()
         preview = ""
         briefing_path = ""
+        digest: dict[str, Any] = {}
         if summary_path and Path(summary_path).exists():
             try:
                 content = Path(summary_path).read_text(encoding="utf-8", errors="ignore")
@@ -534,14 +538,25 @@ class WatchtowerEngine:
             "id": brief_id,
             "watch_id": watch_id,
             "topic": topic,
+            "domain": profile,
             "path": briefing_path or summary_path,
             "preview": preview,
             "created_at": _now_iso(),
             "read": False,
         }
         self._save_briefing(entry)
+        try:
+            self.scout.queue_research_card_from_briefing(
+                briefing={
+                    **entry,
+                    "headline": str(digest.get("headline", "")).strip(),
+                    "summary": str(digest.get("summary", "")).strip() or preview,
+                }
+            )
+        except Exception:
+            LOGGER.exception("Failed to queue watchtower research card for card %s.", brief_id)
         self._update_watch_last_run(watch_id)
-        bus.emit("watchtower", "watch_completed", {"watch_id": watch_id, "briefing_id": brief_id})
+        bus.emit("watchtower", "watch_completed", {"watch_id": watch_id, "card_id": brief_id})
 
     # ------------------------------------------------------------------
     # Watch CRUD
@@ -578,25 +593,26 @@ class WatchtowerEngine:
             created_at = str(row.get("created_at", "")).strip()
             if state is None:
                 by_watch[wid] = {
-                    "briefing_count": 1,
-                    "unread_briefings": 0 if bool(row.get("read", False)) else 1,
-                    "last_briefing_at": created_at,
-                    "latest_briefing_preview": str(row.get("preview", "")).strip(),
+                    "card_count": 1,
+                    "unread_cards": 0 if bool(row.get("read", False)) else 1,
+                    "last_card_at": created_at,
+                    "latest_card_preview": str(row.get("preview", "")).strip(),
                 }
             else:
-                state["briefing_count"] = int(state.get("briefing_count", 0)) + 1
+                state["card_count"] = int(state.get("card_count", 0)) + 1
                 if not bool(row.get("read", False)):
-                    state["unread_briefings"] = int(state.get("unread_briefings", 0)) + 1
+                    state["unread_cards"] = int(state.get("unread_cards", 0)) + 1
 
         out: list[dict] = []
         for watch in watches:
             wid = str(watch.get("id", "")).strip()
             merged = dict(watch)
+            merged["domain"] = str(merged.get("profile", "general")).strip()
             stats = by_watch.get(wid, {})
-            merged["briefing_count"] = int(stats.get("briefing_count", 0))
-            merged["unread_briefings"] = int(stats.get("unread_briefings", 0))
-            merged["last_briefing_at"] = str(stats.get("last_briefing_at", "")).strip()
-            merged["latest_briefing_preview"] = str(stats.get("latest_briefing_preview", "")).strip()
+            merged["card_count"] = int(stats.get("card_count", 0))
+            merged["unread_cards"] = int(stats.get("unread_cards", 0))
+            merged["last_card_at"] = str(stats.get("last_card_at", "")).strip()
+            merged["latest_card_preview"] = str(stats.get("latest_card_preview", "")).strip()
             out.append(merged)
         return out
 
@@ -710,6 +726,9 @@ class WatchtowerEngine:
         rows = self.repo.list_briefings(limit=limit)
         return [self._enrich_briefing_row(row) for row in rows]
 
+    def list_research_cards(self, limit: int = 50) -> list[dict]:
+        return self.list_briefings(limit=limit)
+
     def get_briefing(self, briefing_id: str) -> dict[str, Any] | None:
         key = briefing_id.strip()
         row = self.repo.get_briefing(key)
@@ -717,22 +736,84 @@ class WatchtowerEngine:
             return None
         return self._enrich_briefing_row(row, include_markdown=True)
 
+    def get_research_card(self, card_id: str) -> dict[str, Any] | None:
+        return self.get_briefing(card_id)
+
     def mark_read(self, briefing_id: str) -> bool:
         key = briefing_id.strip()
         with self._lock:
             return self.repo.mark_read(key)
+
+    def mark_research_card_read(self, card_id: str) -> bool:
+        return self.mark_read(card_id)
 
     def mark_unread(self, briefing_id: str) -> bool:
         key = briefing_id.strip()
         with self._lock:
             return self.repo.mark_unread(key)
 
+    def mark_research_card_unread(self, card_id: str) -> bool:
+        return self.mark_unread(card_id)
+
     def unread_count(self) -> int:
         with self._lock:
             return self.repo.unread_count()
 
+    def list_cards(self, *, limit: int = 100, card_type: str = "", status: str = "") -> list[dict[str, Any]]:
+        return self.scout.card_store.list_cards(limit=limit, card_type=card_type, status=status)
+
+    def get_card(self, card_id: str) -> dict[str, Any] | None:
+        return self.scout.card_store.get_card(card_id)
+
+    def set_card_status(self, card_id: str, *, status: str, note: str = "") -> dict[str, Any] | None:
+        return self.scout.card_store.set_status(card_id, status=status, note=note)
+
+    def scan_project_gaps(
+        self,
+        *,
+        project: str = "general",
+        project_kernel: dict[str, Any] | None = None,
+        auditor_report: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        kernel = dict(project_kernel or {})
+        if not kernel:
+            from core.project_kernel import ProjectKernelStore
+
+            kernel = ProjectKernelStore(self.repo_root).snapshot(project)
+        report = dict(auditor_report or {})
+        if not report:
+            report = self._latest_auditor_report()
+        return self.scout.scan_project(project=project, project_kernel=kernel, auditor_report=report)
+
+    def _latest_auditor_report(self) -> dict[str, Any]:
+        index_path = self.repo_root / "Runtime" / "auditor" / "regression_reports" / "reports.jsonl"
+        if not index_path.exists():
+            return {}
+        lines = index_path.read_text(encoding="utf-8").splitlines()
+        for line in reversed(lines):
+            text = str(line or "").strip()
+            if not text:
+                continue
+            try:
+                row = json.loads(text)
+            except Exception:
+                continue
+            path = str(row.get("path", "")).strip()
+            if not path:
+                continue
+            report_path = self.repo_root / path
+            if not report_path.exists():
+                continue
+            try:
+                payload = json.loads(report_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return {}
+
     def recent_briefing_context(self, limit: int = 2, max_chars: int = 600) -> str:
-        """Return a brief context block from the most recent unread briefings.
+        """Return a brief context block from the most recent unread research cards.
 
         Designed for injection into agent prompts. Returns empty string if no
         unread briefings exist or on any error.
@@ -744,14 +825,14 @@ class WatchtowerEngine:
         unread = [r for r in rows if not bool(r.get("read", False))][:limit]
         if not unread:
             return ""
-        lines: list[str] = ["[Watchtower — recent unread briefings]"]
+        lines: list[str] = ["[Watchtower — recent unread research cards]"]
         chars_used = len(lines[0])
         for row in unread:
             try:
                 digest, _ = self._briefing_digest_for_row(row)
             except Exception:
                 continue
-            topic = str(row.get("topic", "")).strip() or "briefing"
+            topic = str(row.get("topic", "")).strip() or "research card"
             headline = str(digest.get("headline", "")).strip() or topic
             summary = str(digest.get("summary", "")).strip()
             key_points = list(digest.get("key_points") or [])
@@ -766,3 +847,6 @@ class WatchtowerEngine:
             lines.append(entry)
             chars_used += len(entry) + 1
         return "\n".join(lines) if len(lines) > 1 else ""
+
+    def recent_research_card_context(self, limit: int = 2, max_chars: int = 600) -> str:
+        return self.recent_briefing_context(limit=limit, max_chars=max_chars)

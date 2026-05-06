@@ -21,7 +21,7 @@ class _FakeClient:
 
 class PremiumModelLockTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = tempfile.TemporaryDirectory(prefix="foxforge_premium_lock_")
+        self.tmpdir = tempfile.TemporaryDirectory(prefix="oathweaver_premium_lock_")
         self.repo_root = Path(self.tmpdir.name)
         ensure_runtime(self.repo_root)
         self.client = _FakeClient()

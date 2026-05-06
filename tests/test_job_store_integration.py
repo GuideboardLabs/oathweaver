@@ -10,7 +10,7 @@ from infra.background.job_store import JobStore
 
 class JobStoreIntegrationTests(unittest.TestCase):
     def test_job_lifecycle_persists_events(self) -> None:
-        with tempfile.TemporaryDirectory(prefix='foxforge_jobs_') as tmpdir:
+        with tempfile.TemporaryDirectory(prefix='oathweaver_jobs_') as tmpdir:
             repo_root = Path(tmpdir)
             ensure_runtime(repo_root)
             store = JobStore(repo_root)

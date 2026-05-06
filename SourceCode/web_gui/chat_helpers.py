@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from shared_tools.conversation_store import ConversationStore
-    from orchestrator.main import FoxforgeOrchestrator
+    from orchestrator.main import OathweaverOrchestrator
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,8 +113,8 @@ def bg_retitle(conversation_id: str, store: ConversationStore, root: Path) -> No
         LOGGER.exception("Background conversation retitle failed for %s.", conversation_id)
 
 
-def vision_model_candidates(orch: FoxforgeOrchestrator) -> list[str]:
-    preferred = str(os.environ.get("FOXFORGE_VISION_MODEL", "")).strip()
+def vision_model_candidates(orch: OathweaverOrchestrator) -> list[str]:
+    preferred = str(os.environ.get("OATHWEAVER_VISION_MODEL", "")).strip()
     try:
         local_models = [str(x).strip() for x in orch.ollama.list_local_models() if str(x).strip()]
     except Exception:
@@ -139,7 +139,7 @@ def vision_model_candidates(orch: FoxforgeOrchestrator) -> list[str]:
 
 
 def handle_command(
-    orch: FoxforgeOrchestrator,
+    orch: OathweaverOrchestrator,
     text: str,
     *,
     command_history: list[dict[str, str]] | None = None,

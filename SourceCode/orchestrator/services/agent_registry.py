@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from infra.tools import ToolRegistry
+from shared_tools.phase0 import lane_to_pipeline
 from .agent_contracts import AgentCapability, AgentTask, BaseAgentExecutor
 from .result_types import WorkerResult
 
@@ -17,10 +18,24 @@ from agents_make.specialist_pool import run_specialist_pool
 from agents_research.deep_researcher import run_research_pool
 from agents_tool.tool_pool import run_tool_pool
 from agents_ui.ui_pool import run_ui_pool
-from .image_gen_agent import ImageComposeAgent, ImageGenAgent
-from .image_to_video_agent import ImageToVideoAgent
-from .image_enhance_agent import ImageEnhanceAgent
-from .stable_video_agent import StableVideoAgent
+
+
+_PIPELINE_ALIASES: dict[str, str] = {
+    "research_pipeline": "research",
+    "project_pipeline": "project",
+    "build_pipeline": "project",
+    "conversation_pipeline": "conversation",
+}
+
+
+def _normalize_lane_key(value: str) -> str:
+    key = str(value or "").strip()
+    if not key:
+        return key
+    low = key.lower()
+    if low in _PIPELINE_ALIASES:
+        return _PIPELINE_ALIASES[low]
+    return key
 
 
 class ResearchPoolAgent(BaseAgentExecutor):
@@ -46,6 +61,10 @@ class ResearchPoolAgent(BaseAgentExecutor):
             yield_checker=task.yield_checker,
             progress_callback=task.progress_callback,
             topic_type=str(task.context.get("topic_type", "general") or "general"),
+            domain=str(task.context.get("domain", "") or ""),
+            research_focus=str(task.context.get("research_focus", "") or ""),
+            make_type=str(task.context.get("make_type", "") or ""),
+            make_intent=str(task.context.get("make_intent", "") or ""),
         )
         return WorkerResult.from_legacy("research", result)
 
@@ -263,17 +282,25 @@ class AgentRegistry:
         self._agents: dict[str, BaseAgentExecutor] = {}
 
     def register(self, lane: str, executor: BaseAgentExecutor) -> BaseAgentExecutor:
-        key = str(lane or "").strip()
+        key = _normalize_lane_key(lane)
         if not key:
             raise ValueError("Agent lane must be non-empty.")
         self._agents[key] = executor
         return executor
 
     def get(self, lane: str) -> BaseAgentExecutor | None:
-        return self._agents.get(str(lane or "").strip())
+        key = _normalize_lane_key(lane)
+        agent = self._agents.get(key)
+        if agent is not None:
+            return agent
+        pipeline_key = lane_to_pipeline(key)
+        canonical = _PIPELINE_ALIASES.get(pipeline_key, "")
+        if canonical:
+            return self._agents.get(canonical)
+        return None
 
     def require(self, lane: str) -> BaseAgentExecutor:
-        key = str(lane or "").strip()
+        key = _normalize_lane_key(lane)
         agent = self.get(key)
         if agent is None:
             raise KeyError(f"No agent registered for lane '{key}'.")
@@ -289,6 +316,7 @@ class AgentRegistry:
             rows.append(
                 {
                     "lane": lane,
+                    "pipeline": lane_to_pipeline(lane),
                     "supports_progress": cap.supports_progress,
                     "supports_cancellation": cap.supports_cancellation,
                     "supports_history": cap.supports_history,
@@ -318,11 +346,6 @@ def build_default_agent_registry() -> AgentRegistry:
     registry.register("make_longform", LongformPoolAgent())
     registry.register("make_desktop_app", DesktopPoolAgent())
     registry.register("ui", UiPoolAgent())
-    registry.register("image_gen", ImageGenAgent())
-    registry.register("image_gen_compose", ImageComposeAgent())
-    registry.register("image_enhance", ImageEnhanceAgent())
-    registry.register("video_gen", StableVideoAgent())       # active: SVD XT
-    registry.register("video_gen_wan", ImageToVideoAgent())  # dormant: Wan2.1 (requires 16GB+ VRAM)
     return registry
 
 
@@ -334,12 +357,10 @@ __all__ = [
     "CreativePoolAgent",
     "DesktopPoolAgent",
     "EssayPoolAgent",
-    "ImageToVideoAgent",
     "LongformPoolAgent",
     "OrchestratorRegistries",
     "ResearchPoolAgent",
     "SpecialistPoolAgent",
-    "StableVideoAgent",
     "ToolPoolAgent",
     "UiPoolAgent",
     "build_default_agent_registry",

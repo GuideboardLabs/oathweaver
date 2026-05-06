@@ -1,4 +1,4 @@
-# Foxforge Release Notes — Phase 18 Optimization Pass
+# Oathweaver Release Notes — Phase 18 Optimization Pass
 
 This release focuses on adaptive performance improvements that reduce unnecessary work while preserving accuracy.
 

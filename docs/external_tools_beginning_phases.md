@@ -12,7 +12,7 @@ This plan defines the first external-tool phases without changing current runtim
 
 ## Why now
 
-Foxforge already has the right primitives for safe expansion later:
+Oathweaver already has the right primitives for safe expansion later:
 
 - pending-request style flow in `CloudConsultEngine`
 - proposal/approval model for user-visible actions
@@ -45,7 +45,7 @@ Core request envelope (target shape):
   "summary": "Send update email to school contact",
   "payload": {},
   "origin": {
-    "source": "foxforge_orchestrator",
+    "source": "oathweaver_orchestrator",
     "user_id": "owner",
     "conversation_id": "..."
   },
@@ -95,16 +95,16 @@ Exit criteria:
 
 ### Phase E3 - OpenClaw flow specification (no runtime wiring)
 
-Goal: define exact Foxforge <-> OpenClaw interaction semantics.
+Goal: define exact Oathweaver <-> OpenClaw interaction semantics.
 
 Planned behaviors:
 
-- Foxforge creates an external request with intent (example: `send_email`).
+- Oathweaver creates an external request with intent (example: `send_email`).
 - OpenClaw immediately acknowledges receipt with request metadata.
 - OpenClaw can emit:
   - completion/failure status
   - legacy planning suggestions (tasks/events only as suggestions)
-- Foxforge surfaces suggestions in panel with quick-apply.
+- Oathweaver surfaces suggestions in panel with quick-apply.
 - Nothing is auto-applied.
 
 Required message types:

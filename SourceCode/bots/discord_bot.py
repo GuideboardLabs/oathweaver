@@ -24,7 +24,7 @@ def get_pending_unauthorized() -> list[dict[str, str]]:
 
 class DiscordBot(threading.Thread):
     def __init__(self, repo_root: Path, token: str) -> None:
-        super().__init__(name="foxforge-discord-bot", daemon=True)
+        super().__init__(name="oathweaver-discord-bot", daemon=True)
         self._repo_root = repo_root
         self._token = token
         self._user_store: Any = None
@@ -127,7 +127,7 @@ class DiscordBot(threading.Thread):
             platform="discord",
             platform_user_id=user_id,
             platform_username=username,
-            foxforge_user_id=owner_uid,
+            oathweaver_user_id=owner_uid,
             conversation_id=conv["id"],
         )
 
@@ -153,7 +153,7 @@ class DiscordBot(threading.Thread):
             platform="discord_guild",
             platform_user_id=platform_user_id,
             platform_username=guild_name,
-            foxforge_user_id=owner_uid,
+            oathweaver_user_id=owner_uid,
             conversation_id=conv["id"],
         )
 
@@ -179,7 +179,7 @@ class DiscordBot(threading.Thread):
         parts: list[str] = []
         parts.append(f"Your name is {name}. Respond to {name} as direct address.")
         parts.append(
-            "You are the Discord-facing voice of Foxforge. "
+            "You are the Discord-facing voice of Oathweaver. "
             "Tone: warm, supportive, grounded, and lightly playful."
         )
         parts.append(
@@ -199,9 +199,9 @@ class DiscordBot(threading.Thread):
 
     def _run_orchestrator(self, mapping: dict[str, Any], text: str) -> str:
         from shared_tools.conversation_store import ConversationStore
-        from orchestrator.main import FoxforgeOrchestrator
+        from orchestrator.main import OathweaverOrchestrator
 
-        uid = mapping["foxforge_user_id"]
+        uid = mapping["oathweaver_user_id"]
         conv_id = mapping["conversation_id"]
 
         store = ConversationStore(self._repo_root, uid)
@@ -212,7 +212,7 @@ class DiscordBot(threading.Thread):
 
         store.add_message(conv_id, "user", text, mode="talk")
 
-        orch = FoxforgeOrchestrator(self._repo_root)
+        orch = OathweaverOrchestrator(self._repo_root)
         reply = orch.conversation_reply(
             text,
             history=history,

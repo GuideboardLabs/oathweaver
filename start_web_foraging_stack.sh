@@ -126,7 +126,7 @@ docker ps --filter "name=searxng" --filter "name=crawl4ai" \
 
 echo ""
 echo "Health checks:"
-echo "SearXNG /search json: $(test_url 'http://127.0.0.1:8080/search?q=foxforge&format=json')"
+echo "SearXNG /search json: $(test_url 'http://127.0.0.1:8080/search?q=oathweaver&format=json')"
 echo "Crawl4AI /health:     $(test_url 'http://127.0.0.1:11235/health')"
 echo ""
 echo "Web foraging stack ready."

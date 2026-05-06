@@ -1,4 +1,4 @@
-"""daily_digest.py — Assemble a morning digest from local weather and watchtower briefings.
+"""daily_digest.py — Assemble a morning digest from local weather and watchtower research cards.
 
 Usage:
     from shared_tools.daily_digest import build_digest
@@ -39,7 +39,7 @@ def _build(repo_root: Path, user_id: str | None) -> str:
     # ------------------------------------------------------------------
     try:
         import json as _json
-        settings_path = repo_root / "Runtime" / "config" / "foxforge_settings.json"
+        settings_path = repo_root / "Runtime" / "config" / "oathweaver_settings.json"
         cfg: dict = {}
         if settings_path.exists():
             try:
@@ -60,14 +60,14 @@ def _build(repo_root: Path, user_id: str | None) -> str:
         pass
 
     # ------------------------------------------------------------------
-    # Watchtower: any new unread briefings from overnight
+    # Watchtower: any new unread research cards from overnight
     # ------------------------------------------------------------------
     try:
         from web_gui.bootstrap import get_watchtower
         wt = get_watchtower(repo_root)
         unread = wt.unread_count()
         if unread:
-            lines.append(f"\n{unread} unread research briefing(s) waiting in Foxforge.")
+            lines.append(f"\n{unread} unread research card(s) waiting in Oathweaver.")
     except Exception:
         pass
 

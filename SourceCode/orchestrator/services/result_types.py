@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from shared_tools.phase0 import lane_to_pipeline
+
 
 @dataclass(slots=True)
 class WorkerResult:
@@ -48,6 +50,7 @@ class WorkerResult:
     def as_dict(self) -> dict[str, Any]:
         return {
             "lane": self.lane,
+            "pipeline": lane_to_pipeline(self.lane),
             "status": self.status,
             "message": self.message,
             "summary_path": self.summary_path,

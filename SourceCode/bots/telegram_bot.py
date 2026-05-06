@@ -29,7 +29,7 @@ def get_pending_unauthorized() -> list[dict[str, str]]:
 
 class TelegramBot(threading.Thread):
     def __init__(self, repo_root: Path, token: str) -> None:
-        super().__init__(name="foxforge-telegram-bot", daemon=True)
+        super().__init__(name="oathweaver-telegram-bot", daemon=True)
         self._repo_root = repo_root
         self._token = token
         self._stop = threading.Event()
@@ -116,9 +116,9 @@ class TelegramBot(threading.Thread):
 
     def _run_orchestrator(self, mapping: dict[str, Any], text: str) -> str:
         from shared_tools.conversation_store import ConversationStore
-        from orchestrator.main import FoxforgeOrchestrator
+        from orchestrator.main import OathweaverOrchestrator
 
-        uid = mapping["foxforge_user_id"]
+        uid = mapping["oathweaver_user_id"]
         conv_id = mapping["conversation_id"]
 
         store = ConversationStore(self._repo_root, uid)
@@ -129,7 +129,7 @@ class TelegramBot(threading.Thread):
 
         store.add_message(conv_id, "user", text, mode="talk")
 
-        orch = FoxforgeOrchestrator(self._repo_root)
+        orch = OathweaverOrchestrator(self._repo_root)
         reply = orch.conversation_reply(text, history=history, project="general")
 
         store.add_message(conv_id, "assistant", reply, mode="talk")

@@ -1,4 +1,4 @@
-# Foxforge Architecture Refactor Plan
+# Oathweaver Architecture Refactor Plan
 
 This document captures the cohesive phase plan implemented in this package and the next recommended steps.
 

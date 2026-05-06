@@ -4,12 +4,12 @@ import unittest
 from pathlib import Path
 
 from tests.common import ROOT  # noqa: F401
-from orchestrator.main import FoxforgeOrchestrator
+from orchestrator.main import OathweaverOrchestrator
 
 
 class ResearchArtifactLinkTests(unittest.TestCase):
-    def _host(self) -> FoxforgeOrchestrator:
-        host = FoxforgeOrchestrator.__new__(FoxforgeOrchestrator)
+    def _host(self) -> OathweaverOrchestrator:
+        host = OathweaverOrchestrator.__new__(OathweaverOrchestrator)
         host.repo_root = Path(ROOT)
         return host
 

@@ -197,15 +197,14 @@ def compile_chat_turn_graph(
 
     def context_gate(state: dict[str, Any]) -> dict[str, Any]:
         text_value = str(state.get("text", "")).strip()
-        _, _, personal_context, _ = orchestrator._context_bundle_for_query(  # pylint: disable=protected-access
+        _, _, _ = orchestrator._context_bundle_for_query(  # pylint: disable=protected-access
             text_value,
             household_chars=900,
-            personal_chars=900,
         )
         return _assert_serializable(
             {
                 "foraging_plan": {"eligible": False},
-                "context_gate": {"personal_context": bool(str(personal_context or "").strip())},
+                "context_gate": {"personal_context": False},
             },
             "context_gate",
         )

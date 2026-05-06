@@ -16,7 +16,7 @@ class ApprovalGate:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = Path(repo_root)
         initialize_database(self.repo_root)
-        self.enabled = str(os.getenv("FOXFORGE_APPROVAL_GATE", "0")).strip().lower() in {"1", "true", "yes", "on"}
+        self.enabled = str(os.getenv("OATHWEAVER_APPROVAL_GATE", "0")).strip().lower() in {"1", "true", "yes", "on"}
         self.action_keywords = {
             "send",
             "email",
@@ -36,7 +36,8 @@ class ApprovalGate:
             return False
         lower = text.lower()
         has_action = any(word in lower for word in self.action_keywords)
-        return lane == "personal" and has_action
+        lane_key = str(lane or "").strip().lower()
+        return has_action and lane_key in {"project", "research", "action"}
 
     def create_request(self, lane: str, text: str, project_slug: str) -> str:
         request_id = uuid.uuid4().hex[:10]

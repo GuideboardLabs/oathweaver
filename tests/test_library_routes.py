@@ -13,8 +13,8 @@ from tests.common import ROOT, ensure_runtime
 class LibraryRouteTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        os.environ.setdefault("FOXFORGE_OWNER_PASSWORD", "test-password")
-        os.environ.setdefault("FOXFORGE_AUTH_ENABLED", "0")
+        os.environ.setdefault("OATHWEAVER_OWNER_PASSWORD", "test-password")
+        os.environ.setdefault("OATHWEAVER_AUTH_ENABLED", "0")
         from web_gui import app as appmod
 
         cls.appmod = appmod
@@ -77,7 +77,7 @@ class LibraryRouteTests(unittest.TestCase):
                 data={
                     "source_kind": "book",
                     "topic_id": "topic_library",
-                    "files": (io.BytesIO(b"Library route content for foxforge."), "route_notes.txt"),
+                    "files": (io.BytesIO(b"Library route content for oathweaver."), "route_notes.txt"),
                 },
                 content_type="multipart/form-data",
             )

@@ -10,7 +10,9 @@ from urllib.parse import urlsplit
 from typing import Any, Callable
 
 from agents_research.citation_linker import build_retrieved_chunks
+from agents_research.domain_primitives import extract_primitives, persist_primitives
 from agents_research.synthesizer import SynthesisUnavailableError, run_skeptic_pass, run_skeptic_pass_with_severity, synthesize
+from agents_research.topic_policy import stage_roles_for
 from shared_tools.answer_composer import evaluate_answer_confidence
 from shared_tools.embedding_memory import _vec_cosine
 from shared_tools.file_store import ProjectStore
@@ -1587,7 +1589,7 @@ def _agent_prompt(question: str, persona: str, directive: str, learned_guidance:
         "Use [S] only as a last resort for genuine hypotheses, never to launder missing facts. "
         "Uncertainty is not a failure — fabrication is.\n\n"
         "SOURCE INTEGRITY: Cite only external sources retrieved this session (web pages, PDFs, docs). "
-        "Prior Foxforge research files, summaries, critiques, and project notes are internal artifacts, "
+        "Prior Oathweaver research files, summaries, critiques, and project notes are internal artifacts, "
         "not sources. Do not cite them.\n\n"
         "SOURCE QUALITY: Prefer high-quality institutional domains (.gov, .edu, recognized medical/scientific "
         "institutions, standards bodies). If you cite a low-editorial platform (for example Medium/LinkedIn/Substack), "
@@ -1814,9 +1816,26 @@ def _run_one_agent(
     return row
 
 
-def _agent_specs(model_cfg: dict[str, Any], topic_type: str = "general") -> list[dict[str, Any]]:
+def _agent_specs(
+    model_cfg: dict[str, Any],
+    topic_type: str = "general",
+    make_type: str = "",
+    research_focus: str = "",
+) -> list[dict[str, Any]]:
     profile = _analysis_profile_for_type(topic_type)
     templates = _profile_agent_templates(profile)
+    preferred_roles = stage_roles_for(
+        topic_type=topic_type,
+        make_type=make_type,
+        research_focus=research_focus,
+        pipeline_stage="synthesis",
+    )
+    priority = {role: idx for idx, role in enumerate(preferred_roles)}
+    if priority:
+        templates = sorted(
+            templates,
+            key=lambda row: priority.get(str(row.get("persona", "")).strip(), 9999),
+        )
     default_validation_cycles = int(model_cfg.get("validation_cycles", 3))
     if profile in {ANALYSIS_PROFILE_MEDICAL, ANALYSIS_PROFILE_FINANCE, ANALYSIS_PROFILE_UNDERGROUND}:
         default_validation_cycles = max(4, default_validation_cycles)
@@ -2188,6 +2207,10 @@ def run_research_pool(
     yield_checker: Callable[[], bool] | None = None,
     progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
     topic_type: str = "general",
+    domain: str = "",
+    research_focus: str = "",
+    make_type: str = "",
+    make_intent: str = "",
 ) -> dict:
     bus.emit("research_pool", "start", {"question": question, "project": project_slug})
 
@@ -2230,7 +2253,16 @@ def run_research_pool(
     learned_guidance = learning.guidance_for_lane("research", limit=5)
     resolved_type = str(topic_type or "general").strip().lower() or "general"
     profile_name = _analysis_profile_for_type(resolved_type)
-    agents = _agent_specs(model_cfg, topic_type=resolved_type)
+    resolved_domain = str(domain or "").strip().lower() or "general_research"
+    resolved_focus = str(research_focus or "").strip().lower() or "domain_focused"
+    resolved_make_type = str(make_type or "").strip().lower()
+    resolved_make_intent = str(make_intent or "").strip().lower()
+    agents = _agent_specs(
+        model_cfg,
+        topic_type=resolved_type,
+        make_type=resolved_make_type,
+        research_focus=resolved_focus,
+    )
     allowed_personas = {
         str(row.get("persona", "")).strip()
         for row in agents
@@ -2273,6 +2305,10 @@ def run_research_pool(
             "project": project_slug,
             "topic_type": resolved_type,
             "analysis_profile": profile_name,
+            "domain": resolved_domain,
+            "research_focus": resolved_focus,
+            "make_type": resolved_make_type,
+            "make_intent": resolved_make_intent,
         },
     )
 
@@ -2841,6 +2877,29 @@ def run_research_pool(
             "recycled_open_questions": recycled_questions,
         },
     )
+    primitives: dict[str, Any] = {"enabled": False}
+    primitives_path = ""
+    try:
+        primitives = extract_primitives(
+            question=question,
+            synthesis_md=summary_md,
+            claims=[{"agent": str(item.get("agent", "")), "finding": str(item.get("finding", ""))} for item in findings],
+            client=client,
+            model_cfg=synth_cfg,
+            research_focus=resolved_focus,
+            domain=resolved_domain,
+            make_type=resolved_make_type,
+        )
+        if bool(primitives.get("enabled", False)):
+            primitives_path = persist_primitives(
+                repo_root=repo_root,
+                project_slug=project_slug,
+                summary_path=str(summary_path),
+                primitives=primitives,
+            )
+    except Exception:
+        primitives = {"enabled": False}
+        primitives_path = ""
 
     # Release Ollama-hosted models from VRAM now that the full pipeline is done.
     # Models routed through llama.cpp are managed by that server process and skipped.
@@ -2867,8 +2926,13 @@ def run_research_pool(
                 "reliability": reliability,
                 "analysis_profile": profile_name,
                 "topic_type": resolved_type,
+                "domain": resolved_domain,
+                "research_focus": resolved_focus,
+                "make_type": resolved_make_type,
+                "make_intent": resolved_make_intent,
                 "recycled_open_questions": recycled_questions,
                 "warning_banner": warning_banner,
+                "primitives_path": primitives_path,
             },
         )
 
@@ -2885,8 +2949,14 @@ def run_research_pool(
         "reliability": reliability,
         "analysis_profile": profile_name,
         "topic_type": resolved_type,
+        "domain": resolved_domain,
+        "research_focus": resolved_focus,
+        "make_type": resolved_make_type,
+        "make_intent": resolved_make_intent,
         "recycled_open_questions": recycled_questions,
         "warning_banner": warning_banner,
+        "primitives": primitives,
+        "primitives_path": primitives_path,
         "findings": findings,
         "retrieved_chunks": retrieved_chunks,
         "visited_agents_per_leaf": visited_agents_per_leaf,

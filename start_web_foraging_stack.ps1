@@ -167,7 +167,7 @@ Write-Host "Container status:"
 
 Write-Host ""
 Write-Host "Health checks:"
-Write-Host "SearXNG /search json: $(Test-Url -Url 'http://127.0.0.1:8080/search?q=foxforge&format=json')"
+Write-Host "SearXNG /search json: $(Test-Url -Url 'http://127.0.0.1:8080/search?q=oathweaver&format=json')"
 Write-Host "Crawl4AI /health: $(Test-Url -Url 'http://127.0.0.1:11235/health')"
 Write-Host ""
 Write-Host "Web foraging stack ready."

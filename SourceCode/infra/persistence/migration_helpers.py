@@ -11,7 +11,7 @@ def migrate_runtime_state(repo_root: Path) -> dict[str, object]:
     return {
         "project_pipeline_rows": len(project_repo.list_all()),
         "watch_rows": len(watch_repo.list_watches()),
-        "briefing_rows": len(watch_repo.list_briefings(limit=500)),
+        "research_card_rows": len(watch_repo.list_briefings(limit=500)),
     }
 
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Foxforge Benchmark Runner
+Oathweaver Benchmark Runner
 ============================
 Runs a fixed set of research questions through run_research_pool and reports
 wall-clock timing, per-agent elapsed time, reliability, and synthesis quality.
 
-Usage (from e:\\Foxforge\\SourceCode):
+Usage (from e:\\Oathweaver\\SourceCode):
     python -m benchmark.run              # full suite (~8 questions)
     python -m benchmark.run --quick      # first 2 questions only
     python -m benchmark.run --target sports
@@ -405,7 +405,7 @@ def _print_summary(results: list[dict[str, Any]]) -> None:
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Foxforge benchmark runner — measures timing, reliability, and synthesis quality",
+        description="Oathweaver benchmark runner — measures timing, reliability, and synthesis quality",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -446,7 +446,7 @@ def main() -> None:
     out_path = Path(args.out) if args.out else out_dir / f"results_{ts}.json"
 
     print()
-    print("  Foxforge Benchmark Runner")
+    print("  Oathweaver Benchmark Runner")
     print(f"  Questions to run : {len(questions)}")
     print(f"  Repo root        : {repo_root}")
     print(f"  Results file     : {out_path}")

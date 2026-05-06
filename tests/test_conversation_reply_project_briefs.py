@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import unittest
 
 from tests.common import ROOT  # noqa: F401  # ensure SourceCode on sys.path
-from orchestrator.main import FoxforgeOrchestrator
+from orchestrator.main import OathweaverOrchestrator
 
 
 class _DummyGeneralPool:
@@ -28,10 +28,10 @@ class _DummyOllama:
 
 class ConversationReplyProjectBriefsTests(unittest.TestCase):
     def setUp(self) -> None:
-        orch = FoxforgeOrchestrator.__new__(FoxforgeOrchestrator)
+        orch = OathweaverOrchestrator.__new__(OathweaverOrchestrator)
         orch.repo_root = Path(ROOT)
         orch.project_slug = "alpha"
-        orch.manifesto_path = orch.repo_root / "Runtime" / "config" / "foxforge_manifesto.md"
+        orch.manifesto_path = orch.repo_root / "Runtime" / "config" / "oathweaver_manifesto.md"
         orch._manifesto_cache_mtime = -1.0
         orch._manifesto_cache_text = ""
         orch._project_research_brief_cache = {}
@@ -47,7 +47,6 @@ class ConversationReplyProjectBriefsTests(unittest.TestCase):
                 ingest_text=lambda *_args, **_kwargs: None,
                 summary_text=lambda *_args, **_kwargs: "",
             ),
-            personal_memory=SimpleNamespace(capture_from_text=lambda *_args, **_kwargs: None),
             watchtower=None,
         )
 
@@ -62,9 +61,8 @@ class ConversationReplyProjectBriefsTests(unittest.TestCase):
             "think": False,
         }
         orch._reynard_persona_block = lambda: "Persona block"
-        orch._strip_foxforge_vocative_prefix = lambda text: str(text)
-        orch._is_foxforge_self_query = lambda _text: False
-        orch._handle_memory_command = lambda _text: ""
+        orch._strip_oathweaver_vocative_prefix = lambda text: str(text)
+        orch._is_oathweaver_self_query = lambda _text: False
         orch._capture_daymarker_reminder = lambda _text: ""
         orch._capture_daymarker_event = lambda _text, history=None: ""
         orch._is_reminder_only_request = lambda _text: False
@@ -78,7 +76,7 @@ class ConversationReplyProjectBriefsTests(unittest.TestCase):
         orch._requires_live_verification = lambda _text, _topic: False
         orch._should_offer_web = lambda _text, _lane: False
         orch._routing_context_gate = lambda _text, _prior, trigger_reason="keyword": True
-        orch._context_bundle_for_query = lambda _text, household_chars=0, personal_chars=0: ("", "", "", "")
+        orch._context_bundle_for_query = lambda _text, household_chars=0: ("", "", "")
         orch._extract_rejected_tool = lambda _text: ""
         orch._watchtower_context_for_query = lambda: ""
         orch._surface_polish_reply = lambda text: str(text)

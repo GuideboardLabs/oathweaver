@@ -7,7 +7,7 @@ from .server import run_http, run_stdio
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Foxforge MCP server.")
+    parser = argparse.ArgumentParser(description="Run Oathweaver MCP server.")
     parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parents[3]))
     parser.add_argument("--transport", choices=["stdio", "http"], default="stdio")
     parser.add_argument("--host", default="127.0.0.1")

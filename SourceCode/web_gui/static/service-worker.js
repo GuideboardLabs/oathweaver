@@ -7,7 +7,7 @@ self.addEventListener("push", (event) => {
     }
   })();
 
-  const title = String(payload.title || "Foxforge").trim() || "Foxforge";
+  const title = String(payload.title || "Oathweaver").trim() || "Oathweaver";
   const body = String(payload.body || "").trim();
   const url = String(payload.url || "/").trim() || "/";
   const data = {

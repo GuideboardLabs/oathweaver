@@ -905,7 +905,7 @@ class WebResearchEngine:
         data["provider"] = provider
 
         searxng_base_url = str(
-            os.getenv("FOXFORGE_SEARXNG_URL", str(data.get("searxng_base_url", "http://127.0.0.1:8080")))
+            os.getenv("OATHWEAVER_SEARXNG_URL", str(data.get("searxng_base_url", "http://127.0.0.1:8080")))
         ).strip()
         data["searxng_base_url"] = searxng_base_url.rstrip("/") or "http://127.0.0.1:8080"
 
@@ -1038,7 +1038,7 @@ class WebResearchEngine:
 
         data["crawl4ai_enabled"] = _bool_setting("crawl4ai_enabled", True)
         data["crawl4ai_base_url"] = (
-            str(os.getenv("FOXFORGE_CRAWL4AI_URL", str(data.get("crawl4ai_base_url", "http://127.0.0.1:11235"))))
+            str(os.getenv("OATHWEAVER_CRAWL4AI_URL", str(data.get("crawl4ai_base_url", "http://127.0.0.1:11235"))))
             .strip()
             .rstrip("/")
         )
@@ -1366,7 +1366,7 @@ class WebResearchEngine:
         req = urllib.request.Request(
             url=url,
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Foxforge/1.0",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Oathweaver/1.0",
             },
             method="GET",
         )
@@ -1406,7 +1406,7 @@ class WebResearchEngine:
         url = f"https://api.duckduckgo.com/?{params}"
         req = urllib.request.Request(
             url=url,
-            headers={"User-Agent": "Foxforge/1.0"},
+            headers={"User-Agent": "Oathweaver/1.0"},
             method="GET",
         )
         with self._urlopen(req, timeout=20) as resp:
@@ -1466,7 +1466,7 @@ class WebResearchEngine:
         query_string = urllib.parse.urlencode(params)
         req = urllib.request.Request(
             url=f"{endpoint}?{query_string}",
-            headers={"User-Agent": "Foxforge/1.0"},
+            headers={"User-Agent": "Oathweaver/1.0"},
             method="GET",
         )
         with self._urlopen(req, timeout=timeout_sec) as resp:
@@ -3057,7 +3057,7 @@ class WebResearchEngine:
         req = urllib.request.Request(
             url=url,
             headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FoxforgeCrawler/1.0",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) OathweaverCrawler/1.0",
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             },
             method="GET",
@@ -3246,7 +3246,7 @@ class WebResearchEngine:
                 "&format=json&utf8=1&srlimit=5"
             )
             try:
-                req = urllib.request.Request(url, headers={"User-Agent": "Foxforge/1.0"})
+                req = urllib.request.Request(url, headers={"User-Agent": "Oathweaver/1.0"})
                 with self._urlopen(req, timeout=10) as resp:
                     return json.loads(resp.read().decode("utf-8", errors="ignore")).get("query", {}).get("search", [])
             except Exception:
@@ -3291,7 +3291,7 @@ class WebResearchEngine:
         try:
             req3 = urllib.request.Request(
                 url=extract_url,
-                headers={"User-Agent": "Foxforge/1.0 (research assistant; contact: local)"},
+                headers={"User-Agent": "Oathweaver/1.0 (research assistant; contact: local)"},
             )
             with self._urlopen(req3, timeout=12) as resp3:
                 extract_data = json.loads(resp3.read().decode("utf-8", errors="ignore"))
@@ -3342,7 +3342,7 @@ class WebResearchEngine:
             req = urllib.request.Request(
                 json_url,
                 headers={
-                    "User-Agent": "Foxforge/1.0 (research assistant)",
+                    "User-Agent": "Oathweaver/1.0 (research assistant)",
                     "Accept": "application/json",
                 },
             )
@@ -3433,7 +3433,7 @@ class WebResearchEngine:
             req = urllib.request.Request(
                 search_url,
                 headers={
-                    "User-Agent": "Foxforge/1.0 (research assistant)",
+                    "User-Agent": "Oathweaver/1.0 (research assistant)",
                     "Accept": "application/json",
                 },
             )
@@ -3497,7 +3497,7 @@ class WebResearchEngine:
             url=f"{base_url}/crawl",
             data=json.dumps(payload).encode("utf-8"),
             headers={
-                "User-Agent": "Foxforge/1.0",
+                "User-Agent": "Oathweaver/1.0",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
             },

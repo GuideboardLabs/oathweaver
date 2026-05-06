@@ -1,5 +1,5 @@
 """
-topic_memory.py — Semantic Topic Memory for Foxforge
+topic_memory.py — Semantic Topic Memory for Oathweaver
 
 Extracts factual claims from web research results, stores them in a
 hierarchical topic store, and surfaces high-confidence canon facts for
@@ -290,7 +290,7 @@ class TopicMemory:
         rev_id = "rev_" + uuid.uuid4().hex[:10]
         now = _now_iso()
         claim_short = claim[:200]
-        question = f'Did Foxforge get this right? "{claim_short}"'
+        question = f'Did Oathweaver get this right? "{claim_short}"'
 
         with self.lock:
             data = self._load_reviews()

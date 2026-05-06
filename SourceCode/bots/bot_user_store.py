@@ -31,7 +31,7 @@ class BotUserStore:
         platform: str,
         platform_user_id: str,
         platform_username: str,
-        foxforge_user_id: str,
+        oathweaver_user_id: str,
         conversation_id: str,
     ) -> dict[str, Any]:
         now = _now_iso()
@@ -42,16 +42,16 @@ class BotUserStore:
                     """
                     INSERT INTO bot_user_mappings(
                         id, platform, platform_user_id, platform_username,
-                        foxforge_user_id, conversation_id, created_at, updated_at
+                        oathweaver_user_id, conversation_id, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(platform, platform_user_id) DO UPDATE SET
                         platform_username = excluded.platform_username,
-                        foxforge_user_id = excluded.foxforge_user_id,
+                        oathweaver_user_id = excluded.oathweaver_user_id,
                         conversation_id = excluded.conversation_id,
                         updated_at = excluded.updated_at;
                     """.strip(),
                     (row_id, platform, str(platform_user_id), platform_username,
-                     foxforge_user_id, conversation_id, now, now),
+                     oathweaver_user_id, conversation_id, now, now),
                 )
             row = conn.execute(
                 "SELECT * FROM bot_user_mappings WHERE platform = ? AND platform_user_id = ?;",

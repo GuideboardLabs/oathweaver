@@ -13,15 +13,15 @@ class AppPoolRuntimeSmokeTests(unittest.TestCase):
     def test_runtime_smoke_respects_skip_env_toggle(self) -> None:
         with tempfile.TemporaryDirectory(prefix="runtime_smoke_skip_") as tmp:
             probe_dir = Path(tmp)
-            original = os.environ.get("FOXFORGE_SKIP_RUNTIME_SMOKE")
-            os.environ["FOXFORGE_SKIP_RUNTIME_SMOKE"] = "1"
+            original = os.environ.get("OATHWEAVER_SKIP_RUNTIME_SMOKE")
+            os.environ["OATHWEAVER_SKIP_RUNTIME_SMOKE"] = "1"
             try:
                 ok, err = _runtime_smoke_check(probe_dir, spec=None)
             finally:
                 if original is None:
-                    os.environ.pop("FOXFORGE_SKIP_RUNTIME_SMOKE", None)
+                    os.environ.pop("OATHWEAVER_SKIP_RUNTIME_SMOKE", None)
                 else:
-                    os.environ["FOXFORGE_SKIP_RUNTIME_SMOKE"] = original
+                    os.environ["OATHWEAVER_SKIP_RUNTIME_SMOKE"] = original
             self.assertTrue(ok)
             self.assertEqual(err, "")
 

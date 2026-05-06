@@ -1,6 +1,6 @@
 # Workspace Tools
 
-Foxforge now includes a small, local-first code workspace layer aimed at safe repository assistance rather than fully autonomous coding loops.
+Oathweaver now includes a small, local-first code workspace layer aimed at safe repository assistance rather than fully autonomous coding loops.
 
 ## Included capabilities
 

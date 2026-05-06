@@ -21,7 +21,7 @@ class RoutingConsolidationTests(unittest.TestCase):
         policy = RoutingPolicy(ROOT)
         decision = policy.decide(
             'Compare the long-term tradeoffs of SQLite vs PostgreSQL for a local-first AI app',
-            project_slug='foxforge',
+            project_slug='oathweaver',
             topic_type='technical',
         )
         self.assertEqual(decision.lane, 'research')

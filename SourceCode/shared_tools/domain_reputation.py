@@ -21,7 +21,7 @@ def _now_iso() -> str:
 class DomainReputation:
     def __init__(self, repo_root: Path | str) -> None:
         self.repo_root = Path(repo_root)
-        self._db_path = self.repo_root / "Runtime" / "state" / "foxforge.db"
+        self._db_path = self.repo_root / "Runtime" / "state" / "oathweaver.db"
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(str(self._db_path), timeout=10)

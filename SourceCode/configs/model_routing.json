@@ -75,7 +75,7 @@
     "reflection_timeout_sec": 300
   },
   "research_pool": {
-    "purpose": "Foraging and evidence synthesis \u2014 reading web crawl output and general reasoning",
+    "purpose": "Foraging and evidence synthesis — reading web crawl output and general reasoning",
     "provider": "ollama",
     "model": "qwen3:8b",
     "parallel_agents": 2,
@@ -137,7 +137,7 @@
     ]
   },
   "synthesis": {
-    "purpose": "Cross-agent synthesis \u2014 reasoning-focused model for unified narrative output",
+    "purpose": "Cross-agent synthesis — reasoning-focused model for unified narrative output",
     "provider": "ollama",
     "model": "qwen3:8b",
     "temperature": 0.2,
@@ -232,7 +232,6 @@
       "max_revise_loops": 1
     }
   },
-  
   "ui_pool": {
     "purpose": "Flask + vanilla JS implementation planning and code generation",
     "provider": "ollama",
@@ -241,18 +240,6 @@
     "temperature": 0.2,
     "num_ctx": 8192,
     "timeout_sec": 300
-  },
-  "personal_pool": {
-    "purpose": "Reminders, scheduling, accountability loops, and conversational household tasks",
-    "provider": "ollama",
-    "model": "gemma3:4b",
-    "parallel_agents": 3,
-    "temperature": 0.5,
-    "num_ctx": 8192,
-    "timeout_sec": 240,
-    "fallback_models": [
-      "qwen3:4b"
-    ]
   },
   "embeddings": {
     "purpose": "RAG and memory embeddings",
@@ -334,7 +321,7 @@
     ]
   },
   "intent_confirmer": {
-    "purpose": "Fast intent classification gate \u2014 confirms Make lane vs. chat vs. forage",
+    "purpose": "Fast intent classification gate — confirms Make lane vs. chat vs. forage",
     "provider": "ollama",
     "model": "gemma3:4b",
     "temperature": 0.1,
@@ -347,7 +334,7 @@
     ]
   },
   "chat_routing_gate": {
-    "purpose": "Lightweight context gate \u2014 validates chat web-crawl routing decisions, suppresses false positives from keyword/pattern triggers",
+    "purpose": "Lightweight context gate — validates chat web-crawl routing decisions, suppresses false positives from keyword/pattern triggers",
     "provider": "ollama",
     "model": "qwen3:4b",
     "temperature": 0.0,
@@ -358,136 +345,6 @@
     "fallback_models": [
       "gemma3:4b"
     ]
-  },
-  "image_generation_xl_compose": {
-    "purpose": "Multi-image composition via ComfyUI + SDXL (Pony) + IP-Adapter Plus",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sdxl_ipadapter_compose",
-    "checkpoint_name": "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-    "vae_name": "sdxl_vae.safetensors",
-    "steps": 30,
-    "cfg": 7.0,
-    "ipadapter_weight": 0.8,
-    "width": 768,
-    "height": 768,
-    "timeout_sec": 900
-  },
-  "image_generation_compose": {
-    "purpose": "Multi-image composition via ComfyUI + SD1.5 + IP-Adapter Plus",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sd15_ipadapter_compose",
-    "checkpoint_name": "v1-5-pruned-emaonly.safetensors",
-    "steps": 30,
-    "cfg": 7.0,
-    "ipadapter_weight": 0.8,
-    "width": 512,
-    "height": 512,
-    "timeout_sec": 180
-  },
-  "image_generation_sd15": {
-    "purpose": "Text-to-image via ComfyUI + SD1.5 with optional LoRA chaining",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sd15_standard",
-    "checkpoint_name": "v1-5-pruned-emaonly.safetensors",
-    "steps": 30,
-    "cfg": 7.0,
-    "width": 512,
-    "height": 512,
-    "timeout_sec": 180,
-    "lora_strength_model": 0.8,
-    "lora_strength_clip": 0.8
-  },
-  "image_generation_xl_standard": {
-    "purpose": "Text-to-image via ComfyUI + Juggernaut XL (standard SDXL, no clip skip, baked VAE) with optional LoRA chaining",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sdxl_standard",
-    "checkpoint_name": "JuggernautXL_Ragnarok_ByRunDiffusion.safetensors",
-    "steps": 50,
-    "cfg": 4.0,
-    "width": 832,
-    "height": 1216,
-    "timeout_sec": 900,
-    "lora_strength_model": 0.7,
-    "lora_strength_clip": 0.7
-  },
-  "image_generation_xl": {
-    "purpose": "Text-to-image via ComfyUI + SDXL (Pony/Illustrious) with optional LoRA chaining",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sdxl_clipskip2_vae",
-    "checkpoint_name": "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-    "vae_name": "sdxl_vae.safetensors",
-    "steps": 28,
-    "cfg": 5.5,
-    "width": 768,
-    "height": 768,
-    "timeout_sec": 900,
-    "lora_strength_model": 0.8,
-    "lora_strength_clip": 0.8
-  },
-  "image_enhancement_xl": {
-    "purpose": "Background detail enhancement via SDXL img2img + zy_Detailed_Backgrounds LoRA (Pony XL images only)",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sdxl_img2img_lora",
-    "checkpoint_name": "ponyDiffusionV6XL_v6StartWithThisOne.safetensors",
-    "vae_name": "sdxl_vae.safetensors",
-    "lora_name": "zy_Detailed_Backgrounds_v1.safetensors",
-    "lora_strength": 0.7,
-    "steps": 20,
-    "cfg": 5.0,
-    "denoise": 0.38,
-    "timeout_sec": 360
-  },
-  "video_generation_svd": {
-    "purpose": "Image-to-video via ComfyUI + Stable Video Diffusion XT 1.1 (25 frames @ 8fps ~= 3s)",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "svd_xt_i2v",
-    "checkpoint_name": "svd_xt_1_1.safetensors",
-    "steps": 20,
-    "cfg": 2.5,
-    "width": 320,
-    "height": 320,
-    "fps": 8,
-    "motion_bucket_id": 127,
-    "timeout_sec": 1800
-  },
-  "video_generation": {
-    "_note": "Requires 8GB+ VRAM. Dormant by default \u2014 see README for activation steps. Workflow JSON must be exported from ComfyUI (wan22_i2v_480p.json).",
-    "purpose": "Image-to-video via ComfyUI + Wan2.2 TI2V 5B GGUF (recommended) or I2V 14B GGUF (high quality)",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "wan22_i2v_480p",
-    "model_name": "Wan2.2-TI2V-5B-Q4_K_M.gguf",
-    "vae_name": "wan2.2_vae.safetensors",
-    "text_encoder_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
-    "steps": 25,
-    "cfg": 5.0,
-    "width": 832,
-    "height": 480,
-    "num_frames": 81,
-    "timeout_sec": 1800
-  },
-  "image_generation": {
-    "purpose": "Text-to-image via ComfyUI + SD3.5 Medium GGUF",
-    "provider": "comfyui",
-    "base_url": "http://100.69.67.59:8188",
-    "workflow": "sd35_medium_gguf",
-    "unet_name": "sd3.5_medium-Q4_K_M.gguf",
-    "clip_l_name": "clip_l.safetensors",
-    "clip_g_name": "clip_g.safetensors",
-    "t5_name": "t5xxl_fp8_e4m3fn.safetensors",
-    "vae_name": "sd3.5_vae.safetensors",
-    "steps": 28,
-    "cfg": 4.5,
-    "width": 768,
-    "height": 768,
-    "timeout_sec": 1200
   },
   "orchestrator.chat_via_graph": true,
   "orchestrator.checkpoint_retention_days": 30,

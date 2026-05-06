@@ -11,12 +11,11 @@ from shared_tools.continuous_improvement import ContinuousImprovementEngine
 
 
 class ContextPolicyTests(unittest.TestCase):
-    def test_analyze_query_context_separates_general_from_personal_planning(self) -> None:
+    def test_analyze_query_context_detects_family_hints_without_personal_flags(self) -> None:
         general = analyze_query_context("Explain how heat pumps work.")
-        self.assertFalse(general["allow_personal"])
+        self.assertFalse(general["family_query"])
 
         family_plan = analyze_query_context("What should I be paying attention to this week for the kids?")
-        self.assertTrue(family_plan["allow_personal"])
         self.assertTrue(family_plan["family_query"])
 
     def test_context_guidance_includes_non_intrusive_rules(self) -> None:
@@ -32,13 +31,13 @@ class ContextPolicyTests(unittest.TestCase):
             personal_context_available=True,
             personal_context_injected=True,
         )
-        self.assertEqual(feedback["outcome"], "poor")
-        self.assertLess(feedback["score"], 0.42)
+        self.assertEqual(feedback["outcome"], "mixed")
+        self.assertLess(feedback["score"], 0.72)
         self.assertTrue(any("intrusive_context_mention" in note for note in feedback["notes"]))
 
     def test_continuous_improvement_tracks_context_score(self) -> None:
         import tempfile
-        runtime_tmp = Path(tempfile.mkdtemp(prefix="foxforge_test_context_policy_"))
+        runtime_tmp = Path(tempfile.mkdtemp(prefix="oathweaver_test_context_policy_"))
         repo_root = runtime_tmp / "repo"
         repo_root.mkdir(parents=True, exist_ok=True)
         engine = ContinuousImprovementEngine(repo_root)
@@ -47,7 +46,7 @@ class ContextPolicyTests(unittest.TestCase):
             assistant_text="You have a packed week and should front-load school prep.",
             lane="project",
             worker_result=None,
-            context_feedback={"score": 0.9, "notes": ["personal_context_injected_with_clear_need"]},
+            context_feedback={"score": 0.9, "notes": ["context_used_well"]},
         )
         engine.note_turn(
             project="general",

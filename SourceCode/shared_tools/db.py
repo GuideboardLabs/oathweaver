@@ -6,11 +6,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-_DB_ENV_VAR = "FOXFORGE_DB_PATH"
-_DEFAULT_DB_RELATIVE_PATH = Path("Runtime") / "state" / "foxforge.db"
+_DB_ENV_VAR = "OATHWEAVER_DB_PATH"
+_DEFAULT_DB_RELATIVE_PATH = Path("Runtime") / "state" / "oathweaver.db"
 
 
-class FoxforgeConnection(sqlite3.Connection):
+class OathweaverConnection(sqlite3.Connection):
     """SQLite connection that closes itself when used as a context manager."""
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:
@@ -25,13 +25,13 @@ def resolve_repo_root(repo_root: Path | str | None = None) -> Path:
 
     Preference order:
     1. Explicit repo_root argument
-    2. FOXFORGE_REPO_ROOT environment override
+    2. OATHWEAVER_REPO_ROOT environment override
     3. Walk up from this file location
     """
     if repo_root is not None:
         return Path(repo_root).expanduser().resolve()
 
-    env_root = os.environ.get("FOXFORGE_REPO_ROOT", "").strip()
+    env_root = os.environ.get("OATHWEAVER_REPO_ROOT", "").strip()
     if env_root:
         return Path(env_root).expanduser().resolve()
 
@@ -60,7 +60,7 @@ def row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
 
 
 def connect(repo_root: Path | str | None = None, *, timeout: float = 30.0) -> sqlite3.Connection:
-    """Open a Foxforge SQLite connection with local-first defaults.
+    """Open a Oathweaver SQLite connection with local-first defaults.
 
     The connection uses sqlite3.Row so callers can access columns by name.
     Autocommit mode is enabled to keep transaction boundaries explicit via
@@ -72,7 +72,7 @@ def connect(repo_root: Path | str | None = None, *, timeout: float = 30.0) -> sq
         timeout=timeout,
         isolation_level=None,
         check_same_thread=False,
-        factory=FoxforgeConnection,
+        factory=OathweaverConnection,
     )
     conn.row_factory = sqlite3.Row
     _apply_pragmas(conn)

@@ -12,7 +12,7 @@ from shared_tools.library_service import LibraryService
 
 class LibraryServiceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.tmpdir = Path(tempfile.mkdtemp(prefix="foxforge_library_service_"))
+        self.tmpdir = Path(tempfile.mkdtemp(prefix="oathweaver_library_service_"))
         ensure_runtime(self.tmpdir)
         topics_dir = self.tmpdir / "Runtime" / "topics"
         topics_dir.mkdir(parents=True, exist_ok=True)
@@ -42,7 +42,7 @@ class LibraryServiceTests(unittest.TestCase):
     def test_intake_and_ingest_plain_text_file_produces_markdown_and_chunks(self) -> None:
         source = self.tmpdir / "book_notes.txt"
         source.write_text(
-            "Chapter 1\n\nFoxforge library notes about domain knowledge and reusable context.\n\n"
+            "Chapter 1\n\nOathweaver library notes about domain knowledge and reusable context.\n\n"
             "Chapter 2\n\nMore detail for retrieval and summaries.",
             encoding="utf-8",
         )
@@ -86,7 +86,7 @@ class LibraryServiceTests(unittest.TestCase):
 
     def test_retrieve_prefers_linked_items(self) -> None:
         linked = self.tmpdir / "linked.txt"
-        linked.write_text("Alpha retrieval target for foxforge library linked topic.", encoding="utf-8")
+        linked.write_text("Alpha retrieval target for oathweaver library linked topic.", encoding="utf-8")
         global_doc = self.tmpdir / "global.txt"
         global_doc.write_text("Alpha retrieval target in a global document.", encoding="utf-8")
 
