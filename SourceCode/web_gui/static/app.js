@@ -39,14 +39,6 @@ const ADD_TASK_REGEX     = /\[ADD_TASK:\s*"([^"]+)"(?:[^\]]*due="([^"]*)")?\]/gi
 const ADD_EVENT_REGEX    = /\[ADD_EVENT:\s*"([^"]+)"(?:[^\]]*date="([^"]*)")?(?:[^\]]*time="([^"]*)")?\]/gi;
 const ADD_SHOPPING_REGEX = /\[ADD_SHOPPING:\s*"([^"]+)"\]/gi;
 const ADD_ROUTINE_REGEX  = /\[ADD_ROUTINE:\s*"([^"]+)"(?:[^\]]*schedule="([^"]*)")?(?:[^\]]*weekday="([^"]*)")?(?:[^\]]*day="([^"]*)")?(?:[^\]]*time="([^"]*)")?(?:[^\]]*until="([^"]*)")?\]/gi;
-const PLANNER_PET_RELATION_OPTIONS = [
-  { value: "cat", label: "Cat" },
-  { value: "dog", label: "Dog" },
-  { value: "fish", label: "Fish" },
-  { value: "snake", label: "Snake" },
-  { value: "hamster_rodent", label: "Hamster / Rodent" },
-  { value: "turtle", label: "Turtle" },
-];
 const PLANNER_PERSON_RELATION_OPTIONS = [
   { value: "son", label: "Son" },
   { value: "daughter", label: "Daughter" },
@@ -2759,20 +2751,16 @@ const app = window.Vue.createApp({
     waypointContactKindOptions() {
       return [
         { value: "person", label: "Person" },
-        { value: "pet", label: "Pet" },
       ];
     },
     waypointContactRelationshipOptions() {
-      const kind = String(this.waypointContactForm?.kind || "person").trim().toLowerCase();
-      return kind === "pet" ? PLANNER_PET_RELATION_OPTIONS : PLANNER_PERSON_RELATION_OPTIONS;
+      return PLANNER_PERSON_RELATION_OPTIONS;
     },
     waypointMemberRelationshipOptions() {
-      const kind = String(this.waypointMemberForm?.kind || "person").trim().toLowerCase();
-      return kind === "pet" ? PLANNER_PET_RELATION_OPTIONS : PLANNER_PERSON_RELATION_OPTIONS;
+      return PLANNER_PERSON_RELATION_OPTIONS;
     },
     waypointMemberEditorRelationshipOptions() {
-      const kind = String(this.waypointMemberEditorForm?.kind || "person").trim().toLowerCase();
-      return kind === "pet" ? PLANNER_PET_RELATION_OPTIONS : PLANNER_PERSON_RELATION_OPTIONS;
+      return PLANNER_PERSON_RELATION_OPTIONS;
     },
     waypointMemberRoleOptions() {
       return PLANNER_MEMBER_ROLE_OPTIONS;
@@ -9554,7 +9542,7 @@ const app = window.Vue.createApp({
     openFamilyProfileModal() {
       this.chatMenuOpen = false;
       if (!this.auth.profile || !this.auth.profile.is_owner) {
-        window.alert("Only the owner profile can add family members.");
+        window.alert("Only the owner profile can add member logins.");
         return;
       }
       this.closeWaypointEntryModals();
@@ -9768,7 +9756,7 @@ const app = window.Vue.createApp({
 
     async submitFamilyProfileModal() {
       if (!this.auth.profile || !this.auth.profile.is_owner) {
-        window.alert("Only the owner profile can add family members.");
+        window.alert("Only the owner profile can add member logins.");
         return;
       }
       const username = String(this.familyProfileForm.username || "").trim();
@@ -9804,7 +9792,7 @@ const app = window.Vue.createApp({
         window.alert(
           `Created profile: ${String(created.display_name || created.username || username)}\n` +
             `Username: ${String(created.username || username)}\n` +
-            "Share the username and PIN with that family member."
+            "Share the username and PIN with that person."
         );
       } catch (err) {
         window.alert(`Could not create profile: ${String(err.message || err)}`);

@@ -15,7 +15,7 @@ def create_family_blueprint(ctx: AppContext) -> Blueprint:
     def family_profiles() -> tuple[dict, int]:
         profile = ctx.require_profile()
         if not bool(profile.get("is_owner", False)):
-            return {"ok": False, "error": "Only owner can list family profiles."}, 403
+            return {"ok": False, "error": "Only owner can list member profiles."}, 403
         rows = ctx.auth_store.list_profiles()
         return {"ok": True, "profiles": rows}, 200
 
@@ -23,7 +23,7 @@ def create_family_blueprint(ctx: AppContext) -> Blueprint:
     def family_create_profile() -> tuple[dict, int]:
         profile = ctx.require_profile()
         if not bool(profile.get("is_owner", False)):
-            return {"ok": False, "error": "Only owner can create family profiles."}, 403
+            return {"ok": False, "error": "Only owner can create member profiles."}, 403
         payload = request.get_json(silent=True) or {}
         username = str(payload.get("username", "")).strip()
         pin = str(payload.get("pin", payload.get("password", ""))).strip()
@@ -46,7 +46,7 @@ def create_family_blueprint(ctx: AppContext) -> Blueprint:
     def family_update_profile(profile_id: str) -> tuple[dict, int]:
         profile = ctx.require_profile()
         if not bool(profile.get("is_owner", False)):
-            return {"ok": False, "error": "Only owner can edit family profiles."}, 403
+            return {"ok": False, "error": "Only owner can edit member profiles."}, 403
         payload = request.get_json(silent=True) or {}
         username = payload.get("username", None)
         display_name = payload.get("display_name", None)

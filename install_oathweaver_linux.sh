@@ -324,7 +324,6 @@ else
     REQUIRED_MODELS="dolphin3:8b
 deepseek-r1:8b
 qwen2.5-coder:7b
-mistral:7b
 qwen3:4b
 nomic-embed-text"
 fi

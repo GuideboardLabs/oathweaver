@@ -24,7 +24,7 @@ These are still part of the live system and should remain in place unless their 
 
 These are no longer the source of truth. They remain only to support one-time import, fallback resets, or smoother transitions from older copies of the project.
 
-- `Runtime/family/accounts.json` — legacy family bootstrap source. Real users now live in SQLite `users`.
+- `Runtime/family/accounts.json` — legacy account bootstrap source. Real users now live in SQLite `users`.
 - `Runtime/learning/lessons.json` — legacy lessons file. Real lessons now live in SQLite `lessons`.
 - `Runtime/learning/reflections.json` — legacy reflection/lesson fallback. Learning now stages in SQLite.
 - `Runtime/memory/project_context.json` — legacy project memory source. Real project memory now lives in SQLite `project_facts`.

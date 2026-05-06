@@ -1292,11 +1292,11 @@
 
     <div class="family-profile-overlay" :aria-hidden="familyProfileModalOpen ? 'false' : 'true'" v-show="familyProfileModalOpen">
         <div class="family-profile-backdrop" @click="closeFamilyProfileModal"></div>
-        <section class="family-profile-modal" role="dialog" aria-modal="true" aria-label="Add family member profile">
+        <section class="family-profile-modal" role="dialog" aria-modal="true" aria-label="Add member profile">
             <header class="family-profile-header">
                 <div>
-                    <h3>Add Family Member</h3>
-                    <p>Create a household login with 4-digit PIN.</p>
+                    <h3>Add Member Login</h3>
+                    <p>Create an additional login with a 4-digit PIN.</p>
                 </div>
                 <button type="button" class="family-profile-close" @click="closeFamilyProfileModal">&times;</button>
             </header>
@@ -1981,7 +1981,7 @@
                       <button class="panel-action-btn" type="button" @click="openAgentGraphModal">Agent Graph</button>
                       <button class="panel-action-btn" type="button" @click="openSystemPanel('project_detail')">Project Detail</button>
                       <button class="panel-action-btn" type="button" @click="openSystemPanel('content')">Content Panel</button>
-                      <button v-if="auth.profile && auth.profile.is_owner" class="panel-action-btn" type="button" @click="openFamilyProfileModal">Add Family Member</button>
+                      <button v-if="auth.profile && auth.profile.is_owner" class="panel-action-btn" type="button" @click="openFamilyProfileModal">Add Member Login</button>
                       <button class="panel-action-btn" type="button" @click="openWebPushSettingsModal">Safari Notifications</button>
                       <button v-if="auth.profile && auth.profile.is_owner" class="panel-action-btn" type="button" @click="openEmailSettingsModal">Email Notifications</button>
                       <button v-if="auth.profile && auth.profile.is_owner" class="panel-action-btn" type="button" @click="openBotSettingsModal">Messaging Bots</button>
@@ -2544,7 +2544,7 @@
                 </form>
                 <p class="auth-gate-note">Profile access only. Data is separated per user account.</p>
             </template>
-            <p class="auth-gate-note" v-if="authSetup.required && authSetup.allowed">Use a private password. You can add family profiles after login.</p>
+            <p class="auth-gate-note" v-if="authSetup.required && authSetup.allowed">Use a private password. You can add additional profiles after login.</p>
             <p class="auth-gate-error" v-if="authError">[[ authError ]]</p>
         </section>
     </div>

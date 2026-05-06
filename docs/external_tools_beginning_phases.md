@@ -147,7 +147,7 @@ Constraint:
 ## Cross-cutting requirements
 
 - Security: per-provider API key isolation, request signing, callback verification.
-- Privacy: redact sensitive family data by policy before dispatch.
+- Privacy: redact sensitive personal data by policy before dispatch.
 - Audit: log every state transition with timestamp and actor.
 - UX: always show provider status and confidence, never silently fail.
 
