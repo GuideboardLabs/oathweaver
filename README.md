@@ -114,7 +114,7 @@ Specialist selection is derived from `(stage, domain, make_type, research_focus)
 
 ### 3. CAG Memory Layer
 
-Context-Augmented Generation memory ([SourceCode/cag/](SourceCode/cag/)) is the long-lived knowledge substrate. Memory rows are tagged with a `ScopeRow` across five levels:
+Context Accumulation Generation memory ([SourceCode/cag/](SourceCode/cag/)) is the long-lived knowledge substrate. Memory rows are tagged with a `ScopeRow` across five levels:
 
 ```
 domain → topic → thread → project → run
@@ -433,7 +433,7 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 | Path | Purpose |
 |---|---|
 | `SourceCode/core/` | Pipeline engine, output contracts, capability registry, model runtime, project kernel, state store, trace ledger, replay, context compiler, context pack, kernel commands |
-| `SourceCode/cag/` | Context-Augmented Generation memory: scope, lifecycle, memory store, scoped selector, promotion gate, contradiction detector, decision ledger |
+| `SourceCode/cag/` | Context Accumulation Generation memory: scope, lifecycle, memory store, scoped selector, promotion gate, contradiction detector, decision ledger |
 | `SourceCode/specialists/` | Specialist skill packs (planner, researcher, auditor, skeptic, synthesizer, verifier, memory_critic) |
 | `SourceCode/auditor/` | Trace analysis, implication engine, benchmark import, regression reporter |
 | `SourceCode/scheduler/` | Specialist registry, resource budget, on-deck runtime, bench manager |

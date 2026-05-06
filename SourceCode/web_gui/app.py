@@ -143,13 +143,19 @@ def create_app() -> Flask:
         or str(os.environ.get("OATHWEAVER_WEB_PASSWORD", "")).strip()
     )
     owner_username = str(os.environ.get("OATHWEAVER_OWNER_USERNAME", "owner")).strip() or "owner"
-    try:
-        owner_profile = auth_store.ensure_owner(owner_password=owner_password, owner_username=owner_username)
-    except ValueError as exc:
-        raise RuntimeError(
-            "Oathweaver owner setup is incomplete. Set OATHWEAVER_OWNER_PASSWORD for first boot."
-        ) from exc
-    owner_id = str(owner_profile.get("id", "")).strip()
+    if owner_password:
+        try:
+            auth_store.ensure_owner(owner_password=owner_password, owner_username=owner_username)
+        except ValueError:
+            # If first-owner bootstrap is invalid, continue and let the GUI setup flow handle it.
+            pass
+
+    owner_profile = None
+    for row in auth_store.list_profiles():
+        if bool((row or {}).get("is_owner", False)):
+            owner_profile = row
+            break
+    owner_id = str((owner_profile or {}).get("id", "")).strip()
 
     session_secret = str(os.environ.get("OATHWEAVER_WEB_SECRET", "")).strip()
     if not session_secret:
@@ -201,6 +207,7 @@ def create_app() -> Flask:
             "/api/auth/status",
             "/api/auth/login",
             "/api/auth/logout",
+            "/api/auth/setup-owner",
             "/api/settings/fonts",
         }:
             return None

@@ -39,7 +39,7 @@ class AppContext:
         root: Path,
         auth_store: FamilyAuthStore,
         auth_enabled: bool,
-        owner_profile: dict[str, Any],
+        owner_profile: dict[str, Any] | None,
         owner_id: str,
         panel_cache: dict[str, dict[str, Any]],
         job_manager: JobManager,
@@ -94,6 +94,28 @@ class AppContext:
         if profile is None:
             abort(401, description="Authentication required")
         return profile
+
+    def auth_bootstrap_state(self) -> dict[str, Any]:
+        rows = self.auth_store.list_profiles()
+        owner_profile = None
+        for row in rows:
+            if bool((row or {}).get("is_owner", False)):
+                owner_profile = row
+                break
+        user_count = len(rows)
+        setup_required = owner_profile is None
+        setup_allowed = setup_required and user_count == 0
+        setup_message = ""
+        if setup_required and not setup_allowed:
+            setup_message = "Owner account is missing while other profiles exist. Reset environment or repair user records first."
+        return {
+            "owner_profile": self.public_profile(owner_profile),
+            "owner_exists": owner_profile is not None,
+            "setup_required": setup_required,
+            "setup_allowed": setup_allowed,
+            "setup_message": setup_message,
+            "user_count": user_count,
+        }
 
     def is_legacy_owner(self, profile: dict[str, Any]) -> bool:
         return bool(profile.get("is_owner", False)) and str(profile.get("id", "")).strip() == self.owner_id

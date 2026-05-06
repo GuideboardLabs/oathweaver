@@ -1552,6 +1552,15 @@ const app = window.Vue.createApp({
         authenticated: false,
         profile: null,
       },
+      authSetup: {
+        required: false,
+        allowed: true,
+        message: "",
+        username: "owner",
+        password: "",
+        confirmPassword: "",
+        submitting: false,
+      },
       authShowForm: false,
       loginUsername: "",
       loginPassword: "",
@@ -8358,12 +8367,27 @@ const app = window.Vue.createApp({
       this.auth.enabled = Boolean(payload.enabled);
       this.auth.authenticated = Boolean(payload.authenticated);
       this.auth.profile = payload.profile && typeof payload.profile === "object" ? payload.profile : null;
+      this.authSetup.required = Boolean(payload.setup_required);
+      this.authSetup.allowed = payload.setup_allowed !== false;
+      this.authSetup.message = String(payload.setup_message || "").trim();
+      if (!this.authSetup.username) {
+        this.authSetup.username = String(payload.default_owner_username || "owner").trim().toLowerCase() || "owner";
+      }
       if (this.auth.authenticated && this.auth.profile) {
         this.loginUsername = String(this.auth.profile.username || this.loginUsername || "").trim();
         this.authShowForm = false;
+        this.authSetup.required = false;
+        this.authSetup.message = "";
         this.loadLessonReadState();
         this.loadReflectionReadState();
         this.refreshHomePhrase();
+      }
+      if (this.authSetup.required) {
+        if (!this.authSetup.username) {
+          this.authSetup.username = String(this.loginUsername || "owner").trim().toLowerCase() || "owner";
+        }
+        this.authShowForm = false;
+        this.loginPassword = "";
       }
       if (!this.auth.authenticated && !this.loginUsername) {
         this.loginUsername = "owner";
@@ -8380,6 +8404,9 @@ const app = window.Vue.createApp({
     },
 
     beginCheckIn() {
+      if (this.authSetup.required) {
+        return;
+      }
       this.authError = "";
       this.authShowForm = true;
       this.$nextTick(() => {
@@ -8396,7 +8423,74 @@ const app = window.Vue.createApp({
       this.authShowForm = false;
     },
 
+    async finalizeAuthSuccess(payload) {
+      this.auth.enabled = Boolean(payload.enabled);
+      this.auth.authenticated = Boolean(payload.authenticated);
+      this.auth.profile = payload.profile && typeof payload.profile === "object" ? payload.profile : null;
+      if (!this.auth.profile) {
+        throw new Error("No profile returned from server.");
+      }
+      this.loginUsername = String(this.auth.profile.username || this.loginUsername || "").trim();
+      this.authSetup.required = false;
+      this.authSetup.allowed = false;
+      this.authSetup.message = "";
+      this.authSetup.password = "";
+      this.authSetup.confirmPassword = "";
+      this.loadLessonReadState();
+      this.loadReflectionReadState();
+      await this.refreshWebPushSettings();
+      try {
+        localStorage.setItem("oathweaver_login_username", this.loginUsername);
+      } catch (_err) {}
+      this.loginPassword = "";
+      this.authShowForm = false;
+      this.waypointDayPanelExpanded = true;
+      this.refreshHomePhrase();
+      await this.bootstrapConversations({ activateApp: false });
+      try {
+        await this.refreshWaypointState();
+      } catch (_err) {}
+      await this.refreshPanelBadges();
+      this.setActiveApp("home");
+    },
+
+    async submitOwnerSetup() {
+      this.authError = "";
+      const username = String(this.authSetup.username || "").trim().toLowerCase();
+      const password = String(this.authSetup.password || "");
+      const confirmPassword = String(this.authSetup.confirmPassword || "");
+      if (!username) {
+        this.authError = "Username is required.";
+        return;
+      }
+      if (!password) {
+        this.authError = "Password is required.";
+        return;
+      }
+      if (password !== confirmPassword) {
+        this.authError = "Password confirmation does not match.";
+        return;
+      }
+      this.authSetup.submitting = true;
+      try {
+        const payload = await this.apiPost("/api/auth/setup-owner", {
+          username,
+          password,
+          confirm_password: confirmPassword,
+        });
+        await this.finalizeAuthSuccess(payload);
+      } catch (err) {
+        this.authError = String(err.message || err);
+      } finally {
+        this.authSetup.submitting = false;
+      }
+    },
+
     async submitLogin() {
+      if (this.authSetup.required) {
+        this.authError = "Create the owner account first.";
+        return;
+      }
       this.authError = "";
       const username = String(this.loginUsername || "").trim();
       if (!username) {
@@ -8409,31 +8503,7 @@ const app = window.Vue.createApp({
           username,
           password: this.loginPassword,
         });
-        this.auth.enabled = Boolean(payload.enabled);
-        this.auth.authenticated = Boolean(payload.authenticated);
-        this.auth.profile = payload.profile && typeof payload.profile === "object" ? payload.profile : null;
-        if (!this.auth.profile) {
-          this.authError = "No profile returned from server.";
-          this.authShowForm = true;
-          return;
-        }
-        this.loginUsername = String(this.auth.profile.username || this.loginUsername || "").trim();
-        this.loadLessonReadState();
-        this.loadReflectionReadState();
-        await this.refreshWebPushSettings();
-        try {
-          localStorage.setItem("oathweaver_login_username", this.loginUsername);
-        } catch (_err) {}
-        this.loginPassword = "";
-        this.authShowForm = false;
-        this.waypointDayPanelExpanded = true;
-        this.refreshHomePhrase();
-        await this.bootstrapConversations({ activateApp: false });
-        try {
-          await this.refreshWaypointState();
-        } catch (_err) {}
-        await this.refreshPanelBadges();
-        this.setActiveApp("home");
+        await this.finalizeAuthSuccess(payload);
       } catch (err) {
         this.authError = String(err.message || err);
         this.authShowForm = true;
@@ -12608,6 +12678,7 @@ const app = window.Vue.createApp({
     this.applyTheme(storedTheme, false);
     await this.applyFontConfig();
     this.loginUsername = storedUsername;
+    this.authSetup.username = storedUsername;
     this.syncViewportHeight();
     this.updateBodyClasses();
     this.resizeComposer();

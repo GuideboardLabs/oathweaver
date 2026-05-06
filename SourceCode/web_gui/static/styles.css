@@ -9512,6 +9512,14 @@ body.day .topic-type-badge.is-art           { background: rgba(134, 25, 143, 0.1
     font-size: 0.95rem;
 }
 
+.auth-gate-headline {
+    margin: 2px 0 0;
+    color: var(--palette-white);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
 .auth-gate-form {
     width: min(360px, 100%);
     margin-top: 6px;
@@ -9537,6 +9545,10 @@ body.day .topic-type-badge.is-art           { background: rgba(134, 25, 143, 0.1
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px;
+}
+
+.auth-gate-actions-single {
+    grid-template-columns: 1fr;
 }
 
 .auth-gate-primary,

@@ -2516,22 +2516,35 @@
     <div class="auth-gate-overlay" v-if="auth.enabled && !auth.authenticated">
         <section class="auth-gate-card auth-gate-card-landing">
             <img class="auth-gate-logo" src="{{ url_for('static', filename='branding/OathweaverTitleBold.png', v=asset_v) }}" alt="Oathweaver" />
-            <p class="auth-gate-tagline">Welcome back to Oathweaver.</p>
-
-            <button v-if="!authShowForm" type="button" class="auth-gate-primary" @click="beginCheckIn">
-          Check In
-        </button>
-
-            <form v-else class="auth-gate-form" @submit.prevent="submitLogin">
-                <input v-model="loginUsername" ref="loginUsernameInput" type="text" placeholder="Username" autocomplete="username" />
-                <input v-model="loginPassword" type="password" placeholder="PIN" autocomplete="current-password" />
-                <div class="auth-gate-actions">
-                    <button type="submit" class="auth-gate-primary">Check In</button>
-                    <button type="button" class="auth-gate-secondary" @click="cancelCheckIn">Back</button>
-                </div>
-            </form>
-
-            <p class="auth-gate-note">Profile access only. Data is separated per user account.</p>
+            <template v-if="authSetup.required">
+                <h2 class="auth-gate-headline">Set up your owner account</h2>
+                <p class="auth-gate-tagline">First launch only. Create the account used to manage this Oathweaver install.</p>
+                <form v-if="authSetup.allowed" class="auth-gate-form" @submit.prevent="submitOwnerSetup">
+                    <input v-model="authSetup.username" ref="ownerSetupUsernameInput" type="text" placeholder="Owner username" autocomplete="username" />
+                    <input v-model="authSetup.password" type="password" placeholder="Password" autocomplete="new-password" />
+                    <input v-model="authSetup.confirmPassword" type="password" placeholder="Confirm password" autocomplete="new-password" />
+                    <div class="auth-gate-actions auth-gate-actions-single">
+                        <button type="submit" class="auth-gate-primary" :disabled="authSetup.submitting">[[ authSetup.submitting ? 'Creating…' : 'Create owner account' ]]</button>
+                    </div>
+                </form>
+                <p v-else class="auth-gate-note">[[ authSetup.message || 'Owner setup is blocked. Reset environment or repair user records first.' ]]</p>
+            </template>
+            <template v-else>
+                <p class="auth-gate-tagline">Welcome back to Oathweaver.</p>
+                <button v-if="!authShowForm" type="button" class="auth-gate-primary" @click="beginCheckIn">
+                    Check In
+                </button>
+                <form v-else class="auth-gate-form" @submit.prevent="submitLogin">
+                    <input v-model="loginUsername" ref="loginUsernameInput" type="text" placeholder="Username" autocomplete="username" />
+                    <input v-model="loginPassword" type="password" placeholder="Password or PIN" autocomplete="current-password" />
+                    <div class="auth-gate-actions">
+                        <button type="submit" class="auth-gate-primary">Check In</button>
+                        <button type="button" class="auth-gate-secondary" @click="cancelCheckIn">Back</button>
+                    </div>
+                </form>
+                <p class="auth-gate-note">Profile access only. Data is separated per user account.</p>
+            </template>
+            <p class="auth-gate-note" v-if="authSetup.required && authSetup.allowed">Use a private password. You can add family profiles after login.</p>
             <p class="auth-gate-error" v-if="authError">[[ authError ]]</p>
         </section>
     </div>
