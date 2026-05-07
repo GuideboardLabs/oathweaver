@@ -266,6 +266,7 @@ class LibraryService:
         source_kind: str | None = None,
         topic_id: str | None = None,
         project_slug: str | None = None,
+        domain: str | None = None,
     ) -> dict[str, Any] | None:
         current = self.get_item(item_id)
         if current is None:
@@ -275,15 +276,16 @@ class LibraryService:
         next_kind = _safe_kind(source_kind if source_kind is not None else str(current.get("source_kind", "")))
         next_topic = self._normalize_topic_id(topic_id if topic_id is not None else str(current.get("topic_id", "")))
         next_project = self._normalize_project_slug(project_slug if project_slug is not None else str(current.get("project_slug", "")))
+        next_domain = str(domain or "").strip().lower() if domain is not None else str(current.get("domain", "")).strip().lower()
         now = _now_iso()
         with self._lock, self._connect() as conn:
             conn.execute(
                 """
                 UPDATE library_items
-                SET title = ?, source_kind = ?, topic_id = ?, project_slug = ?, updated_at = ?
+                SET title = ?, source_kind = ?, topic_id = ?, project_slug = ?, domain = ?, updated_at = ?
                 WHERE id = ?;
                 """.strip(),
-                (next_title, next_kind, next_topic, next_project, now, item_id),
+                (next_title, next_kind, next_topic, next_project, next_domain, now, item_id),
             )
         updated = self.get_item(item_id)
         if updated:
@@ -320,6 +322,7 @@ class LibraryService:
         title: str = "",
         topic_id: str = "",
         project_slug: str = "",
+        domain: str = "",
         source_origin: str = "manual_upload",
         conversation_id: str = "",
     ) -> dict[str, Any]:
@@ -329,6 +332,7 @@ class LibraryService:
         content_hash = self._hash_file(src)
         normalized_topic_id = self._normalize_topic_id(topic_id)
         normalized_project = self._normalize_project_slug(project_slug)
+        normalized_domain = str(domain or "").strip().lower()
         clean_name = str(source_name or src.name).strip() or src.name
         clean_title = _compact(title)[:_MAX_TITLE_CHARS] or self._title_from_name(clean_name)
         safe_kind = _safe_kind(source_kind)
@@ -355,6 +359,7 @@ class LibraryService:
                         source_kind = ?,
                         topic_id = COALESCE(NULLIF(?, ''), topic_id),
                         project_slug = COALESCE(NULLIF(?, ''), project_slug),
+                        domain = COALESCE(NULLIF(?, ''), domain),
                         source_origin = ?,
                         conversation_id = COALESCE(NULLIF(?, ''), conversation_id),
                         updated_at = ?
@@ -365,6 +370,7 @@ class LibraryService:
                         safe_kind,
                         normalized_topic_id,
                         normalized_project,
+                        normalized_domain,
                         str(source_origin or "manual_upload").strip() or "manual_upload",
                         str(conversation_id or "").strip(),
                         now,
@@ -381,10 +387,10 @@ class LibraryService:
                     """
                     INSERT INTO library_items(
                         id, title, source_name, source_kind, mime, ext, file_size, content_hash,
-                        source_path, markdown_path, summary_path, topic_id, project_slug, status,
-                        error_text, source_origin, conversation_id, created_at, updated_at, ingested_at
+                        source_path, markdown_path, summary_path, topic_id, project_slug, domain,
+                        status, error_text, source_origin, conversation_id, created_at, updated_at, ingested_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, 'queued', '', ?, ?, ?, ?, '');
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, 'queued', '', ?, ?, ?, ?, '');
                     """.strip(),
                     (
                         item_id,
@@ -398,6 +404,7 @@ class LibraryService:
                         str(source_file),
                         normalized_topic_id,
                         normalized_project,
+                        normalized_domain,
                         str(source_origin or "manual_upload").strip() or "manual_upload",
                         str(conversation_id or "").strip(),
                         now,
@@ -456,17 +463,26 @@ class LibraryService:
         *,
         topic_id: str = "",
         project_slug: str = "",
-        limit: int = 3,
+        domain: str = "",
+        limit: int = 5,
     ) -> list[dict[str, Any]]:
+        """Find relevant library items and return ALL their chunks in order.
+
+        Instead of returning top-N individual chunks, this finds the best-matching
+        items (by peak chunk score) and returns every chunk from those items so the
+        model has the full document content available.
+        """
         text = _compact(query)
         if not text:
             return []
         normalized_topic = self._normalize_topic_id(topic_id)
         normalized_project = self._normalize_project_slug(project_slug)
+        normalized_domain = str(domain or "").strip().lower()
+
         with self._lock, self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT i.id, i.title, i.topic_id, i.project_slug, i.updated_at,
+                SELECT i.id, i.title, i.topic_id, i.project_slug, i.domain, i.updated_at,
                        c.chunk_index, c.heading, c.chunk_text, c.embedding_json, c.char_count
                 FROM library_items AS i
                 INNER JOIN library_chunks AS c
@@ -479,55 +495,107 @@ class LibraryService:
 
         query_tokens = _tokens(text)
         query_vec = self._try_embed(text[:2000])
-        items: list[dict[str, Any]] = []
+
+        # First pass: find the best score per item and its priority
+        item_meta: dict[str, dict[str, Any]] = {}
+        item_chunks: dict[str, list[dict[str, Any]]] = {}
+
         for row in rows:
-            row_dict = row_to_dict(row) or {}
-            item_topic = self._normalize_topic_id(row_dict.get("topic_id"))
-            item_project = self._normalize_project_slug(row_dict.get("project_slug"))
+            rd = row_to_dict(row) or {}
+            item_id = str(rd.get("id", "")).strip()
+            if not item_id:
+                continue
+            item_topic = self._normalize_topic_id(rd.get("topic_id"))
+            item_project = self._normalize_project_slug(rd.get("project_slug"))
+            item_domain = str(rd.get("domain", "") or "").strip().lower()
             priority = self._priority_bucket(
                 item_topic=item_topic,
                 item_project=item_project,
+                item_domain=item_domain,
                 active_topic=normalized_topic,
                 active_project=normalized_project,
+                active_domain=normalized_domain,
             )
             if priority >= 3:
                 continue
-            chunk_text = str(row_dict.get("chunk_text", "")).strip()
+
+            chunk_text = str(rd.get("chunk_text", "")).strip()
             if not chunk_text:
                 continue
+
+            # Score this chunk
             score = 0.0
             if query_vec is not None:
                 try:
-                    chunk_vec = json.loads(str(row_dict.get("embedding_json", "") or ""))
+                    chunk_vec = json.loads(str(rd.get("embedding_json", "") or ""))
                     if isinstance(chunk_vec, list) and chunk_vec:
                         score = _vec_cosine(query_vec, [float(x) for x in chunk_vec])
                 except (json.JSONDecodeError, ValueError, TypeError):
-                    score = 0.0
+                    pass
             if score <= 0.0:
                 score = _bow_cosine(query_tokens, _tokens(chunk_text[:3000]))
-            threshold = _VECTOR_THRESHOLD if query_vec is not None else 0.05
-            if priority == 0:
-                threshold *= 0.45
-            elif priority == 1:
-                threshold *= 0.8
-            if score < threshold:
-                continue
-            items.append(
-                {
-                    "item_id": str(row_dict.get("id", "")).strip(),
-                    "title": str(row_dict.get("title", "")).strip() or "Library Item",
+
+            # Track peak score per item
+            if item_id not in item_meta or score > item_meta[item_id]["best_score"]:
+                item_meta[item_id] = {
+                    "item_id": item_id,
+                    "title": str(rd.get("title", "")).strip() or "Library Item",
                     "topic_id": item_topic,
                     "project_slug": item_project,
+                    "domain": item_domain,
                     "priority": priority,
-                    "score": round(float(score), 3),
-                    "heading": str(row_dict.get("heading", "")).strip(),
-                    "preview": chunk_text[:700].strip(),
-                    "updated_at": str(row_dict.get("updated_at", "")).strip(),
+                    "best_score": score,
+                    "updated_at": str(rd.get("updated_at", "")).strip(),
                 }
-            )
 
-        items.sort(key=lambda row: (int(row["priority"]), -float(row["score"]), str(row["updated_at"])), reverse=False)
-        return items[: max(1, min(int(limit or 3), 10))]
+            if item_id not in item_chunks:
+                item_chunks[item_id] = []
+            item_chunks[item_id].append({
+                "chunk_index": int(rd.get("chunk_index", 0)),
+                "heading": str(rd.get("heading", "")).strip(),
+                "chunk_text": chunk_text,
+            })
+
+        if not item_meta:
+            return []
+
+        # Apply threshold to filter items that aren't relevant enough
+        qualified: list[dict[str, Any]] = []
+        for meta in item_meta.values():
+            threshold = _VECTOR_THRESHOLD if query_vec is not None else 0.05
+            priority = meta["priority"]
+            if priority == 0:
+                threshold *= 0.3   # very lenient for direct scope matches
+            elif priority == 1:
+                threshold *= 0.55  # lenient for domain matches
+            elif priority == 2:
+                threshold *= 0.8   # standard for global items
+            if meta["best_score"] >= threshold:
+                qualified.append(meta)
+
+        qualified.sort(key=lambda m: (int(m["priority"]), -float(m["best_score"])))
+        top_items = qualified[:max(1, int(limit))]
+
+        # Second pass: return ALL chunks from qualifying items in document order
+        results: list[dict[str, Any]] = []
+        for meta in top_items:
+            iid = meta["item_id"]
+            chunks = sorted(item_chunks.get(iid, []), key=lambda c: c["chunk_index"])
+            for chunk in chunks:
+                results.append({
+                    "item_id": iid,
+                    "title": meta["title"],
+                    "topic_id": meta["topic_id"],
+                    "project_slug": meta["project_slug"],
+                    "domain": meta["domain"],
+                    "priority": meta["priority"],
+                    "score": round(float(meta["best_score"]), 3),
+                    "heading": chunk["heading"],
+                    "chunk_text": chunk["chunk_text"],
+                    "chunk_index": chunk["chunk_index"],
+                    "updated_at": meta["updated_at"],
+                })
+        return results
 
     def context_text(
         self,
@@ -535,16 +603,33 @@ class LibraryService:
         *,
         topic_id: str = "",
         project_slug: str = "",
-        limit: int = 3,
+        domain: str = "",
+        limit: int = 5,
     ) -> str:
-        rows = self.retrieve(query, topic_id=topic_id, project_slug=project_slug, limit=limit)
+        """Return full content of relevant library items as context string."""
+        rows = self.retrieve(query, topic_id=topic_id, project_slug=project_slug, domain=domain, limit=limit)
         if not rows:
             return ""
-        lines = ["Relevant Library context:"]
+
+        # Group chunks back by item for clean presentation
+        seen_items: dict[str, list[dict[str, Any]]] = {}
+        item_order: list[str] = []
         for row in rows:
-            heading = f" / {row['heading']}" if row.get("heading") else ""
-            lines.append(f"- [{row['title']}{heading}] score={row['score']:.2f}")
-            lines.append(f"  preview: {row['preview']}")
+            iid = row["item_id"]
+            if iid not in seen_items:
+                seen_items[iid] = []
+                item_order.append(iid)
+            seen_items[iid].append(row)
+
+        lines = ["Library context:"]
+        for iid in item_order:
+            chunks = seen_items[iid]
+            title = chunks[0]["title"]
+            lines.append(f"\n## {title}")
+            for chunk in chunks:
+                if chunk.get("heading"):
+                    lines.append(f"### {chunk['heading']}")
+                lines.append(chunk["chunk_text"])
         return "\n".join(lines)
 
     def _priority_bucket(
@@ -552,17 +637,26 @@ class LibraryService:
         *,
         item_topic: str,
         item_project: str,
+        item_domain: str,
         active_topic: str,
         active_project: str,
+        active_domain: str,
     ) -> int:
+        # 0 = highest: direct thread or topic match
         if active_project and item_project and item_project == active_project:
             return 0
         if active_topic and item_topic and item_topic == active_topic:
             return 0
-        if not item_project and not item_topic:
+        # 1 = domain match
+        if active_domain and item_domain and item_domain == active_domain:
             return 1
-        if not active_project and not active_topic:
-            return 1
+        # 2 = unscoped (available to everyone)
+        if not item_project and not item_topic and not item_domain:
+            return 2
+        # No active scope set — treat unscoped items as domain-level
+        if not active_project and not active_topic and not active_domain:
+            return 2
+        # 3 = different scope — skip
         return 3
 
     def _set_status(

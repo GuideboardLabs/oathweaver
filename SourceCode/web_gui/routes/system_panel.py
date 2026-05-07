@@ -218,7 +218,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
         root_id = "node:orch"
         add_node(
             node_id=root_id,
-            label="Frederick Orchestrator",
+            label="Overseer Orchestrator",
             kind="root",
             status="active",
             subtitle="Top-level orchestration",

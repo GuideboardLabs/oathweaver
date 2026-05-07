@@ -43,7 +43,14 @@ def bg_summarize(conversation_id: str, store: ConversationStore, root: Path) -> 
         messages = conv.get("messages", [])
         if len(messages) < 4:
             return
-        recent = messages[-12:]
+        def _is_disregarded(row: dict[str, Any]) -> bool:
+            feedback = row.get("feedback") if isinstance(row, dict) else {}
+            if isinstance(feedback, dict) and bool(feedback.get("disregard", False)):
+                return True
+            meta = row.get("meta") if isinstance(row, dict) else {}
+            return isinstance(meta, dict) and bool(meta.get("disregard_context", False))
+
+        recent = [m for m in messages if isinstance(m, dict) and not _is_disregarded(m)][-12:]
         lines = []
         for m in recent:
             role = str(m.get("role", "")).capitalize()

@@ -128,6 +128,7 @@ class JobManager:
                             "directive": str(agent_event.get("directive", "")).strip(),
                             "role": str(agent_event.get("role", "primary")).strip(),
                             "model": str(agent_event.get("model", "")).strip(),
+                            "started_at": row["updated_at"],
                         })
                 elif ae_stage == "research_agent_completed":
                     persona = str(agent_event.get("agent", "")).strip()
@@ -142,6 +143,7 @@ class JobManager:
                             "role": str(agent_event.get("role", "primary")).strip(),
                             "finding_preview": str(agent_event.get("finding_preview", "")).strip()[:400],
                             "confidence": int(agent_event.get("confidence", 0)),
+                            "completed_at": row["updated_at"],
                         })
                 # Build lane events — mirror of research events for the Build panel
                 elif ae_stage == "build_pool_started":
@@ -167,6 +169,7 @@ class JobManager:
                             "directive": str(agent_event.get("directive", "")).strip(),
                             "role": "primary",
                             "model": model,
+                            "started_at": row["updated_at"],
                         })
                 elif ae_stage == "build_agent_completed":
                     agent_name = str(agent_event.get("agent", "")).strip()
@@ -182,6 +185,7 @@ class JobManager:
                             "role": "primary",
                             "finding_preview": f"{output_chars:,} chars" if output_chars else str(agent_event.get("files", "")) + " files",
                             "confidence": 5 if not agent_event.get("failed") else 1,
+                            "completed_at": row["updated_at"],
                         })
                 elif ae_stage == "build_quality_gate_passed":
                     tracker["done"].append({
@@ -190,6 +194,7 @@ class JobManager:
                         "role": "primary",
                         "finding_preview": "All quality checks passed.",
                         "confidence": 5,
+                        "completed_at": row["updated_at"],
                     })
                 elif ae_stage == "build_quality_gate_failed":
                     issues = list(agent_event.get("issues", []))
@@ -199,6 +204,7 @@ class JobManager:
                         "role": "primary",
                         "finding_preview": "; ".join(issues)[:300],
                         "confidence": 2,
+                        "completed_at": row["updated_at"],
                     })
                 row["agent_tracker"] = tracker
             events = row.get("events", [])

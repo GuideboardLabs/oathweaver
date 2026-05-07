@@ -171,10 +171,10 @@ class DiscordBot(threading.Thread):
         try:
             from bots.bot_config import load_bot_config
             cfg = load_bot_config(self._repo_root).get("discord", {})
-            name = str(cfg.get("persona_name", "") or "").strip() or "Reynard"
+            name = str(cfg.get("persona_name", "") or "").strip() or "Weaver"
             notes = str(cfg.get("persona_notes", "") or "").strip()
         except Exception:
-            name = "Reynard"
+            name = "Weaver"
             notes = ""
         parts: list[str] = []
         parts.append(f"Your name is {name}. Respond to {name} as direct address.")

@@ -50,7 +50,7 @@ class ConversationReplyProjectBriefsTests(unittest.TestCase):
             watchtower=None,
         )
 
-        orch._reynard_layer_config = lambda: {
+        orch._chat_layer_config = lambda: {
             "model": "stub-model",
             "temperature": 0.2,
             "num_ctx": 4096,
@@ -60,7 +60,7 @@ class ConversationReplyProjectBriefsTests(unittest.TestCase):
             "fallback_models": [],
             "think": False,
         }
-        orch._reynard_persona_block = lambda: "Persona block"
+        orch._weaver_persona_block = lambda: "Persona block"
         orch._strip_oathweaver_vocative_prefix = lambda text: str(text)
         orch._is_oathweaver_self_query = lambda _text: False
         orch._capture_daymarker_reminder = lambda _text: ""

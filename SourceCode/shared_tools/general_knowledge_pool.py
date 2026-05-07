@@ -101,3 +101,28 @@ class GeneralKnowledgePool:
                 scored.append((score, summary))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [s for _, s in scored[:n]]
+
+    def remove_matching_summary(self, text: str, *, min_overlap: float = 0.58) -> int:
+        """Remove entries whose summaries closely match the provided text."""
+        needle = str(text or "").strip()
+        if not needle:
+            return 0
+        removed = 0
+        with self.lock:
+            entries = self._load()
+            kept: list[dict[str, Any]] = []
+            for entry in entries:
+                summary = str(entry.get("summary", "")).strip()
+                if not summary:
+                    continue
+                overlap = max(_token_overlap(needle, summary), _token_overlap(summary, needle))
+                if overlap >= min_overlap or summary in needle or needle in summary:
+                    removed += 1
+                    continue
+                kept.append(entry)
+            if removed:
+                try:
+                    _atomic_write(self.path, kept[-_MAX_ENTRIES:])
+                except Exception:
+                    return 0
+        return removed

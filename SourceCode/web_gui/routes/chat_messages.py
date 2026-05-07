@@ -4,9 +4,10 @@ import json as _json
 import logging
 import re
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import unquote
 
 from flask import Blueprint, abort, jsonify, request
 
@@ -46,6 +47,8 @@ _SETTING_ENTITY_RE = re.compile(
     re.IGNORECASE,
 )
 _TRAILING_ASSISTANT_RULE_RE = re.compile(r"(?:\n\s*\*\*\*\s*)+\Z", re.MULTILINE)
+_SUMMARY_LINK_RE = re.compile(r"/api/files/read\?path=([^\s)]+)", re.IGNORECASE)
+_SUMMARY_PATH_RE = re.compile(r"\bsummary(?:\s+written\s+to|\s*:\s+)(\S+)", re.IGNORECASE)
 
 
 def _strip_trailing_assistant_rule(text: str) -> str:
@@ -157,6 +160,7 @@ def _build_message_web_meta(
     web_stack: Any = None,
     web_details: Any = None,
     research_reply: Any = None,
+    think_stream: Any = None,
 ) -> dict[str, Any] | None:
     stack = dict(web_stack) if isinstance(web_stack, dict) else {}
     details = dict(web_details) if isinstance(web_details, dict) else {}
@@ -171,7 +175,8 @@ def _build_message_web_meta(
         stack["web_sources"] = _normalize_message_web_sources(stack.get("web_sources"))
     if not stack.get("web_sources"):
         stack.pop("web_sources", None)
-    if not stack and not research:
+    stream = dict(think_stream) if isinstance(think_stream, dict) else {}
+    if not stack and not research and not stream:
         return None
     payload: dict[str, Any] = {}
     if stack:
@@ -184,7 +189,55 @@ def _build_message_web_meta(
             "sentences": [dict(x) for x in (research.get("sentences") or []) if isinstance(x, dict)],
             "retrieved_chunks": [dict(x) for x in (research.get("retrieved_chunks") or []) if isinstance(x, dict)],
         }
+    if stream:
+        payload["think_stream"] = stream
     return payload
+
+
+def _build_message_think_stream(job_row: Any, *, expiry_hours: int = 48) -> dict[str, Any] | None:
+    row = dict(job_row) if isinstance(job_row, dict) else {}
+    events = row.get("events")
+    if not isinstance(events, list) or not events:
+        return None
+    clean_events: list[dict[str, str]] = []
+    for item in events[-48:]:
+        if not isinstance(item, dict):
+            continue
+        ts = str(item.get("ts", "")).strip()
+        stage = str(item.get("stage", "")).strip()
+        detail = str(item.get("detail", "")).strip()
+        if not ts and not stage and not detail:
+            continue
+        clean_events.append({
+            "ts": ts,
+            "stage": stage,
+            "detail": detail[:400],
+        })
+    if not clean_events:
+        return None
+    started_at = str(row.get("started_at", "")).strip() or clean_events[0].get("ts", "")
+    ended_at = str(row.get("updated_at", "")).strip() or clean_events[-1].get("ts", "")
+    started_ms = 0.0
+    ended_ms = 0.0
+    try:
+        if started_at:
+            started_ms = datetime.fromisoformat(started_at.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        started_ms = 0.0
+    try:
+        if ended_at:
+            ended_ms = datetime.fromisoformat(ended_at.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        ended_ms = 0.0
+    duration_sec = max(0.0, ended_ms - started_ms) if started_ms > 0 and ended_ms >= started_ms else 0.0
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=max(1, int(expiry_hours)))).isoformat()
+    return {
+        "events": clean_events,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "duration_sec": float(f"{duration_sec:.3f}"),
+        "expires_at": expires_at,
+    }
 
 
 def _read_optional_text(path_text: str, *, repo_root: Path) -> str:
@@ -291,6 +344,70 @@ def _seed_artifact_text_for_extension(orch: Any, project_slug: str, extends_requ
     if raw_clean:
         seed_lines.extend(["", "--- raw output ---", "", raw_clean])
     return "\n".join(seed_lines).strip()
+
+
+def _message_summary_path(message: dict[str, Any], *, repo_root: Path) -> str:
+    if not isinstance(message, dict):
+        return ""
+
+    direct_path = str(message.get("summary_path", "")).strip()
+    if direct_path:
+        return direct_path
+
+    meta = message.get("meta") if isinstance(message.get("meta"), dict) else {}
+    research_meta = meta.get("research_reply") if isinstance(meta, dict) and isinstance(meta.get("research_reply"), dict) else {}
+    research_meta_path = str(research_meta.get("summary_path", "")).strip()
+    if research_meta_path:
+        return research_meta_path
+
+    content = str(message.get("content", "") or "")
+    for match in _SUMMARY_LINK_RE.finditer(content):
+        rel = unquote(str(match.group(1) or "").strip())
+        if not rel:
+            continue
+        candidate = Path(rel)
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        if str(candidate).lower().endswith(".md"):
+            return str(candidate)
+    text_match = _SUMMARY_PATH_RE.search(content)
+    if text_match:
+        candidate_text = str(text_match.group(1) or "").strip().strip("`'\"),.;")
+        if candidate_text:
+            return candidate_text
+    return ""
+
+
+def _resolve_reply_target(
+    convo: dict[str, Any],
+    reply_to: dict[str, Any] | None,
+    *,
+    repo_root: Path,
+) -> dict[str, Any] | None:
+    if not isinstance(reply_to, dict):
+        return None
+    target_id = str(reply_to.get("id", "")).strip()
+    if not target_id:
+        return None
+    messages = convo.get("messages")
+    if not isinstance(messages, list):
+        return None
+    for row in messages:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("id", "")).strip() != target_id:
+            continue
+        content = str(row.get("content", "") or "")
+        summary_path = _message_summary_path(row, repo_root=repo_root)
+        return {
+            "id": str(row.get("id", "")).strip(),
+            "role": str(row.get("role", "")).strip(),
+            "mode": str(row.get("mode", "")).strip(),
+            "content": content[:6000],
+            "excerpt": str(reply_to.get("excerpt", "")).strip() or content[:300].strip(),
+            "summary_path": summary_path,
+        }
+    return None
 
 
 def _is_simple_image_prompt(prompt: str) -> bool:
@@ -1095,6 +1212,18 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
             extends_request_id = str(request.form.get("extends_request_id", "")).strip()
             request_id = str(request.form.get("request_id", "")).strip()
             attachments, upload_errors = ctx.save_uploaded_images(profile, conversation_id)
+            form_reply_to = request.form.get("reply_to")
+            if form_reply_to:
+                try:
+                    _rt = _json.loads(str(form_reply_to))
+                except Exception:
+                    _rt = {}
+                if isinstance(_rt, dict) and str(_rt.get("id", "")).strip():
+                    reply_to_data = {
+                        "id": str(_rt.get("id", "")).strip(),
+                        "role": str(_rt.get("role", "")).strip(),
+                        "excerpt": str(_rt.get("excerpt", ""))[:300].strip(),
+                    }
             if "image_style" in request.form:
                 incoming_image_style = str(request.form.get("image_style", "")).strip().lower()
             if "selected_loras" in request.form:
@@ -1165,6 +1294,11 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
             mode=user_mode,
             user_text=stored_user_content,
         )
+        reply_target_full = _resolve_reply_target(
+            convo if isinstance(convo, dict) else {},
+            reply_to_data,
+            repo_root=ctx.repo_root_for_profile(profile),
+        )
         if is_make_lane_request and not requested_make_type and raw_content and not raw_content.startswith("/"):
             reply_text = "I would love to do that for you, but you forgot to pick a mode!"
             store.add_message(conversation_id, "assistant", reply_text, mode=user_mode, request_id=request_id)
@@ -1190,6 +1324,7 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
             if extends_request_id:
                 request_project_mode["extends_request_id"] = extends_request_id
         convo_topic_id = str(convo.get("topic_id", "")).strip()
+        convo_topic_context = ""
         if convo_topic_id and convo_topic_id != "general":
             try:
                 topic_row = ctx.get_topic_engine().get_topic(convo_topic_id)
@@ -1210,6 +1345,19 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                         )
                     except Exception:
                         pass
+            if isinstance(topic_row, dict):
+                _topic_name = str(topic_row.get("name", "")).strip()
+                _topic_desc = str(topic_row.get("description", "")).strip()
+                _topic_seed = str(topic_row.get("seed_question", "")).strip()
+                _topic_type = resolved_conversation_topic_type.replace("_", " ")
+                _parts = []
+                if _topic_name:
+                    _parts.append(f"Domain: {_topic_name}" + (f" ({_topic_type})" if _topic_type else ""))
+                if _topic_desc:
+                    _parts.append(f"Context: {_topic_desc}")
+                if _topic_seed:
+                    _parts.append(f"Initial focus: {_topic_seed}")
+                convo_topic_context = "\n".join(_parts)
         resolved_topic_type = (
             str(request_project_mode.get("topic_type", "general")).strip().lower() or "general"
         )
@@ -1475,6 +1623,8 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                         cancel_checker=_cancel_requested,
                         details_sink=talk_details,
                         progress_callback=_pool_progress,
+                        topic_context=convo_topic_context,
+                        reply_to=reply_target_full,
                     )
                     if _cancel_requested():
                         reply_text = _cancel_reply()
@@ -1528,6 +1678,8 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                     thread_id=conversation_id,
                     details_sink=talk_details,
                     progress_callback=_pool_progress,
+                    topic_context=convo_topic_context,
+                    reply_to=reply_target_full,
                 )
                 _progress("foraging_run_done", "Foraging orchestrator returned final reply.")
         except Exception as exc:
@@ -1576,10 +1728,12 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
 
         job_row = ctx.job_manager.get(profile, request_id) or {}
         web_stack = job_row.get("web_stack") if isinstance(job_row.get("web_stack"), dict) else {}
+        think_stream = _build_message_think_stream(job_row)
         msg_meta = _build_message_web_meta(
             web_stack=web_stack,
             web_details=talk_details.get("web_details"),
             research_reply=talk_details.get("research_reply"),
+            think_stream=think_stream,
         )
         assistant_msg = store.add_message(
             conversation_id,
@@ -1705,6 +1859,59 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                 LOGGER.exception("Failed to record building completion for %s.", request_id)
 
         return {"conversation": updated, "assistant_message": assistant_msg, "request_id": request_id}, 200
+
+    @bp.route("/api/conversations/<conversation_id>/messages/<message_id>/feedback", methods=["POST"])
+    def set_message_feedback(conversation_id: str, message_id: str) -> tuple[dict, int]:
+        profile = ctx.require_profile()
+        store = ctx.conversation_store_for(profile)
+        convo = store.get(conversation_id)
+        if convo is None:
+            abort(404, description="Conversation not found")
+
+        payload = request.get_json(silent=True) or {}
+        rating_raw = str(payload.get("rating", "")).strip().lower()
+        if rating_raw in {"none", "clear"}:
+            rating_raw = ""
+        if rating_raw not in {"", "up", "down"}:
+            return {"error": "rating must be one of: up, down, none"}, 400
+
+        if "disregard" in payload:
+            disregard = bool(payload.get("disregard"))
+        else:
+            disregard = rating_raw == "down"
+
+        updated = store.set_message_feedback(
+            conversation_id,
+            message_id,
+            rating=rating_raw,
+            disregard=disregard,
+        )
+        if updated is None:
+            abort(404, description="Message not found")
+
+        try:
+            if disregard and str(updated.get("role", "")).strip().lower() == "assistant":
+                content = str(updated.get("content", "")).strip()
+                if content:
+                    orch = ctx.new_orch(profile)
+                    convo_project = _normalize_project_slug(str(convo.get("project", "")).strip())
+                    if orch.project_slug != convo_project:
+                        orch.set_project(convo_project)
+                    orch._infra.general_pool.remove_matching_summary(content, min_overlap=0.56)
+        except Exception:
+            LOGGER.exception("Failed to prune general knowledge memory for disregarded message %s.", message_id)
+
+        try:
+            threading.Thread(target=bg_summarize, args=(conversation_id, store, ctx.root), daemon=True).start()
+        except Exception:
+            pass
+
+        refreshed = store.get(conversation_id)
+        return {
+            "ok": True,
+            "message": updated,
+            "conversation": refreshed,
+        }, 200
 
     @bp.route("/api/conversations/<conversation_id>/image-tool/generate", methods=["POST"])
     def image_tool_generate(conversation_id: str) -> tuple[dict, int]:

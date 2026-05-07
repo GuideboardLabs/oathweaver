@@ -5,7 +5,9 @@ from __future__ import annotations
 import re
 
 OATHWEAVER_ALIASES: tuple[str, ...] = (
-    "reynard",
+    "weaver",
+    "weavers",
+    "overseer",
     "oathweaver",
 )
 
@@ -20,9 +22,10 @@ OATHWEAVER_IDENTITY_CUES: tuple[str, ...] = (
     "what are you",
     "what is oathweaver",
     "what's oathweaver",
-    "who is reynard",
-    "what is reynard",
-    "what's reynard",
+    "who are the weavers",
+    "what are the weavers",
+    "what is the overseer",
+    "who is the overseer",
     "about oathweaver",
     "about yourself",
     "what do you do",
@@ -57,7 +60,7 @@ def strip_oathweaver_vocative_prefix(text: str) -> str:
         return ""
     pattern = re.compile(
         r"^\s*(?:(?:hey|hi|yo|ok|okay)\s+)?"
-        r"(?P<alias>reynard|oathweaver)\b"
+        r"(?P<alias>weaver|weavers|overseer|oathweaver)\b"
         r"(?P<sep>\s*[,:\-!]\s*|\s+)"
         r"(?P<rest>.+)$",
         flags=re.IGNORECASE,

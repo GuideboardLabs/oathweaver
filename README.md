@@ -199,9 +199,9 @@ The optional **Web research stack** (SearXNG + Crawl4AI, Docker) provides live w
 
 ---
 
-## Conversation Surface (Reynard Layer)
+## Conversation Surface (Chat Layer)
 
-User-facing messaging is mediated by the **Reynard layer** (`dolphin3:8b`, configured under `reynard_layer` in `model_routing.json`). Reynard is *not* the orchestrator — it sits above the kernel and dispatches into pipelines.
+User-facing messaging is mediated by the **chat layer** (`dolphin3:8b`, configured under `chat_layer` in `model_routing.json`). The chat layer is *not* the orchestrator — it sits above the kernel and dispatches into pipelines.
 
 **Two-stage routing gate.** Every incoming request is first scored by a semantic-router layer (embedding lookup against known web vs. no-web exemplars, ~20ms) and only falls through to the `gemma3:4b` intent confirmer for genuinely ambiguous messages. A second `qwen3:4b` context gate validates the routing decision against full conversation history before a research pipeline fires.
 
@@ -247,7 +247,7 @@ Optional bot adapters in [SourceCode/bots/](SourceCode/bots/) wrap the kernel fo
 
 | Task | Model | Context |
 |---|---|---|
-| Reynard layer (user-facing) | dolphin3:8b | 8,192 |
+| Chat layer (user-facing weavers) | dolphin3:8b | 8,192 |
 | Orchestration / reasoning | deepseek-r1:8b (`think=true`) | 12,288 |
 | Research & synthesis | qwen3:8b | 12,288 |
 | Creative writing | qwen3:8b | 12,288 |
@@ -284,7 +284,7 @@ The inference router auto-falls back to Ollama if a configured llama.cpp server 
                   └──────────────┬──────────────────────────┘
                                  │
                   ┌──────────────▼──────────────────────────┐
-                  │   Reynard Layer (dolphin3:8b)            │
+                  │   Chat Layer (dolphin3:8b)               │
                   │   semantic-router → intent (gemma3:4b)   │
                   │   → context gate (qwen3:4b)              │
                   └──────────────┬──────────────────────────┘
@@ -466,7 +466,7 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 
 Primary model and routing config:
 
-- `SourceCode/configs/model_routing.json` — model assignments per layer (reynard, orchestrator reasoning, research pool, etc.), llama.cpp server entries, premium-model list, context sizes.
+- `SourceCode/configs/model_routing.json` — model assignments per layer (chat, orchestrator reasoning, research pool, etc.), llama.cpp server entries, premium-model list, context sizes.
 
 Phase 0 environment flags:
 

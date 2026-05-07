@@ -60,6 +60,7 @@ def create_library_blueprint(ctx: AppContext) -> Blueprint:
         title_override = str(request.form.get("title", "")).strip()
         topic_id = str(request.form.get("topic_id", "")).strip()
         project_slug = str(request.form.get("project_slug", "")).strip()
+        domain = str(request.form.get("domain", "")).strip().lower()
         rows: list[dict[str, Any]] = []
         errors: list[str] = []
 
@@ -78,6 +79,7 @@ def create_library_blueprint(ctx: AppContext) -> Blueprint:
                     title=title_override if len(files) == 1 or idx == 0 else "",
                     topic_id=topic_id,
                     project_slug=project_slug,
+                    domain=domain,
                     source_origin="manual_upload",
                     conversation_id="",
                 )

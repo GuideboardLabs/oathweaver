@@ -476,7 +476,7 @@ def create_projects_blueprint(ctx: AppContext) -> Blueprint:
 
         target_path = ""
         if target_project != GENERAL_PROJECT and target_topic_id and target_topic_id != "general":
-            target_path = store._generate_path(target_project, str(source_conversation.get("title", "New Chat")))
+            target_path = store._generate_path(target_project, str(source_conversation.get("title", "New Thread")))
 
         repo_root = ctx.repo_root_for_profile(profile)
         target_project_dir = repo_root / "Projects" / target_project
@@ -524,7 +524,7 @@ def create_projects_blueprint(ctx: AppContext) -> Blueprint:
                 return {"ok": False, "error": "Source conversation not found."}, 404
             result_conversation = updated
         else:
-            title = str(source_conversation.get("title", "New Chat"))
+            title = str(source_conversation.get("title", "New Thread"))
             clone = store.create(
                 title=title,
                 project=target_project,

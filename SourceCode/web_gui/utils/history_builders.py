@@ -16,34 +16,50 @@ def extract_talk_text(raw: str) -> str | None:
     return None
 
 
+def _is_disregarded_message(row: dict[str, Any]) -> bool:
+    feedback = row.get("feedback") if isinstance(row, dict) else {}
+    if isinstance(feedback, dict) and bool(feedback.get("disregard", False)):
+        return True
+    meta = row.get("meta") if isinstance(row, dict) else {}
+    if isinstance(meta, dict) and bool(meta.get("disregard_context", False)):
+        return True
+    return False
+
+
 def build_talk_history(messages: list[dict[str, Any]], limit_turns: int = 16) -> list[dict[str, str]]:
-    """Build an LLM history list containing only talk-mode exchanges."""
-    rows = messages[-max(20, limit_turns * 4):]
+    """Build an LLM history list for follow-up talk turns across mixed lanes."""
+    rows = messages[-max(40, limit_turns * 4):]
     out: list[dict[str, str]] = []
-    expecting_assistant = False
     for row in rows:
+        if not isinstance(row, dict) or _is_disregarded_message(row):
+            continue
         role = str(row.get("role", "")).strip().lower()
         content = str(row.get("content", "")).strip()
         mode = str(row.get("mode", "")).strip().lower()
-
-        if role == "user":
-            talk_text = extract_talk_text(content)
-            if mode == "talk":
-                talk_text = content
-            if talk_text is None:
-                expecting_assistant = False
-                continue
-            if talk_text:
-                out.append({"role": "user", "content": talk_text})
-                expecting_assistant = True
-            else:
-                expecting_assistant = False
+        if role not in {"user", "assistant"} or not content:
             continue
 
-        if role == "assistant" and expecting_assistant:
-            if content:
-                out.append({"role": "assistant", "content": content})
-            expecting_assistant = False
+        if role == "user":
+            if mode == "talk":
+                talk_text = content
+            else:
+                talk_text = extract_talk_text(content)
+                if talk_text is None:
+                    low = content.lower()
+                    if low.startswith("/"):
+                        # Keep only explicit /talk payload from slash commands.
+                        continue
+                    talk_text = content
+            talk_text = str(talk_text or "").strip()
+            if not talk_text:
+                continue
+            out.append({"role": "user", "content": talk_text})
+            continue
+
+        # Always keep assistant replies across modes; they carry thread substance.
+        if len(content) > 3000:
+            content = content[:3000].rstrip() + "\n[...truncated]"
+        out.append({"role": "assistant", "content": content})
 
     max_messages = max(2, limit_turns * 2)
     return out[-max_messages:]
@@ -54,6 +70,8 @@ def build_command_history(messages: list[dict[str, Any]], limit_turns: int = 16)
     rows = messages[-max(24, limit_turns * 4):]
     out: list[dict[str, str]] = []
     for row in rows:
+        if not isinstance(row, dict) or _is_disregarded_message(row):
+            continue
         role = str(row.get("role", "")).strip().lower()
         content = str(row.get("content", "")).strip()
         mode = str(row.get("mode", "")).strip().lower()
@@ -79,6 +97,8 @@ def build_fact_history(messages: list[dict[str, Any]], limit_turns: int = 120) -
     rows = messages[-max(80, limit_turns * 4):]
     out: list[dict[str, str]] = []
     for row in rows:
+        if not isinstance(row, dict) or _is_disregarded_message(row):
+            continue
         role = str(row.get("role", "")).strip().lower()
         content = str(row.get("content", "")).strip()
         if role != "user" or not content:

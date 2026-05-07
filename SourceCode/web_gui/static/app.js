@@ -1116,6 +1116,7 @@ const app = window.Vue.createApp({
       activeProject: "general",
       activeApp: "home",
       homePhrase: "",
+      homeCurrentTime: "",
       homeWeatherExpanded: false,
       homeWeatherLocationDraft: "",
       homeWeather: {
@@ -1213,10 +1214,12 @@ const app = window.Vue.createApp({
       queuedByConversation: {},
       sendingJobStage: {},
       pendingJobEvents: {},
+      pendingJobAgentTracker: {},
+      completedThinkStreams: {},
+      expandedThinkTrees: {},
       assistantTypingByMessage: {},
       quickActionBusy: {},
       completedQuickActions: {},
-      forageCardSavedState: {},
       completedWaypointActions: {},
       chatMenuOpen: false,
       sidebarOpen: false,
@@ -1277,6 +1280,10 @@ const app = window.Vue.createApp({
       pendingLiveSources: {},
       sourceExpandedMsgs: {},
       lessonsUnreadCount: 0,
+      growthActiveTab: "postbag",
+      growthPostbagRows: [],
+      growthReflectionsRows: [],
+      growthLessonsRows: [],
       lessonsReadIds: {},
       lessonsUnreadCheckedAt: 0,
       reflectionsUnreadCount: 0,
@@ -1291,6 +1298,7 @@ const app = window.Vue.createApp({
       libraryIntakeFiles: [],
       libraryIntakeTitle: "",
       libraryIntakeSourceKind: "general",
+      libraryIntakeDomain: "",
       libraryIntakeTopicId: "",
       libraryIntakeProjectSlug: "",
       libraryIntakeError: "",
@@ -1558,6 +1566,8 @@ const app = window.Vue.createApp({
       _waypointPollTimer: null,
       _panelPollTimer: null,
       _homePhraseTimer: null,
+      _homeClockTimer: null,
+      _blobStopFns: [],
       _homeWeatherPollTimer: null,
       _thinkingTimer: null,
       _composerPlaceholderTimer: null,
@@ -1702,9 +1712,27 @@ const app = window.Vue.createApp({
       return s ? String(s.label || "") : "";
     },
     activeConversationPendingEvents() {
-      const events = this.pendingJobEvents[String(this.activeConversationId || "").trim()];
-      if (!Array.isArray(events)) return [];
-      return events.slice(-12);
+      const convoId = String(this.activeConversationId || "").trim();
+      const events = this.pendingJobEvents[convoId];
+      const tracker = this.pendingJobAgentTracker[convoId];
+      const rows = Array.isArray(events) ? events : [];
+      return this._mergePendingEventsWithTracker(rows, tracker);
+    },
+    activeConversationLiveEvents() {
+      const rows = Array.isArray(this.activeConversationPendingEvents)
+        ? this.activeConversationPendingEvents
+        : [];
+      if (rows.length) {
+        return rows;
+      }
+      const meta = this.conversationSendingMeta(this.activeConversationId);
+      const startedAt = Number(meta?.startedAt || Date.now());
+      const ts = new Date(Number.isFinite(startedAt) && startedAt > 0 ? startedAt : Date.now()).toISOString();
+      return [{
+        ts,
+        stage: "waiting_for_events",
+        detail: "Connecting to live stream...",
+      }];
     },
     activeConversationQueuedTurns() {
       const id = String(this.activeConversationId || "").trim();
@@ -1822,6 +1850,11 @@ const app = window.Vue.createApp({
       }
       return `${totalText} • ${reminders} open reminder${reminders === 1 ? "" : "s"}`;
     },
+    growthPanelBadgeCount() {
+      return (Number(this.panelStatus?.pending_actions || 0) +
+              Number(this.reflectionsUnreadCount || 0) +
+              Number(this.lessonsUnreadCount || 0));
+    },
     junctionPanelBadgeCount() {
       const values = [
         this.panelStatus?.pending_actions,
@@ -1893,13 +1926,20 @@ const app = window.Vue.createApp({
         if (!source || !target) {
           continue;
         }
+        const x1 = Number(source.x || 0), y1 = Number(source.y || 0);
+        const x2 = Number(target.x || 0), y2 = Number(target.y || 0);
+        const dx = x2 - x1, dy = y2 - y1;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const px = -dy / dist, py = dx / dist;
+        const sag = dist * 0.16;
+        const cpx = mx + px * sag * 0.3;
+        const cpy = my + py * sag * 0.3 + sag * 0.6;
         out.push({
           source: sourceId,
           target: targetId,
-          x1: Number(source.x || 0),
-          y1: Number(source.y || 0),
-          x2: Number(target.x || 0),
-          y2: Number(target.y || 0),
+          x1, y1, x2, y2,
+          d: `M ${x1} ${y1} Q ${cpx} ${cpy} ${x2} ${y2}`,
           label: String(edge?.label || "").trim(),
         });
       }
@@ -1955,14 +1995,7 @@ const app = window.Vue.createApp({
     },
     homeLastConversationUpdatedLabel() {
       const ts = String(this.homeLastConversation?.updated_at || "").trim();
-      if (!ts) {
-        return "Last active: just now";
-      }
-      const text = this.formatDate(ts);
-      if (!text) {
-        return "Last active: just now";
-      }
-      return `Last active: ${text}`;
+      return this.formatLastActiveLabel(ts);
     },
     homeWeatherLocationDisplay() {
       const label = String(this.homeWeather?.locationLabel || "").trim();
@@ -2098,6 +2131,14 @@ const app = window.Vue.createApp({
         return preferred;
       }
       return Array.isArray(this.topicPickerRows) ? this.topicPickerRows : [];
+    },
+    homeSortedTopics() {
+      const topics = Array.isArray(this.sidebarTopicRowsEffective) ? this.sidebarTopicRowsEffective : [];
+      return topics.slice().sort((a, b) => {
+        const at = String(a?.last_research || a?.updated_at || a?.created_at || "");
+        const bt = String(b?.last_research || b?.updated_at || b?.created_at || "");
+        return bt.localeCompare(at);
+      });
     },
     sidebarProjectHierarchy() {
       const projectRows = Array.isArray(this.sidebarProjectRows) ? this.sidebarProjectRows : [];
@@ -2465,6 +2506,9 @@ const app = window.Vue.createApp({
       return map;
     },
     panelTitle() {
+      if (this.panelKey === "growth") {
+        return "Growth";
+      }
       if (this.panelKey === "foraging") {
         return "Research Control";
       }
@@ -2484,10 +2528,10 @@ const app = window.Vue.createApp({
         return "Outbox";
       }
       if (this.panelKey === "projects") {
-        return "Domains";
+        return "Topics";
       }
       if (this.panelKey === "project_detail") {
-        return `Domain Detail: ${this.activeProject}`;
+        return `Topic Detail: ${this.activeProject}`;
       }
       if (this.panelKey === "content") {
         return `Content: ${this.activeProject}`;
@@ -2502,10 +2546,10 @@ const app = window.Vue.createApp({
         return this.libraryDetailItem ? `Library: ${this.libraryDetailItem.title || this.libraryDetailItem.source_name}` : "Library Detail";
       }
       if (this.panelKey === "topics") {
-        return "Domains";
+        return "Topics";
       }
       if (this.panelKey === "topic_detail") {
-        return this.topicDetailData ? `Domain: ${this.topicDetailData.name}` : "Domain Detail";
+        return this.topicDetailData ? `Topic: ${this.topicDetailData.name}` : "Topic Detail";
       }
       if (this.panelKey === "system") {
         return "Settings";
@@ -2513,6 +2557,9 @@ const app = window.Vue.createApp({
       return "Junction Panel";
     },
     panelSubtitle() {
+      if (this.panelKey === "growth") {
+        return "Postbag, Reflections, and Guidance in one place.";
+      }
       if (this.panelKey === "foraging") {
         return "Background Research jobs, progress checkpoints, and quick controls.";
       }
@@ -2555,10 +2602,10 @@ const app = window.Vue.createApp({
         return "Saved research cards from completed Research runs. Pin to keep.";
       }
       if (this.panelKey === "topics") {
-        return "Knowledge domains — artifact counts, last activity, and mode.";
+        return "Topics — artifact counts, last activity, and mode.";
       }
       if (this.panelKey === "topic_detail") {
-        return "Domain artifacts, sub-topics, and research history.";
+        return "Topic artifacts, sub-topics, and research history.";
       }
       if (this.panelKey === "system") {
         return "App preferences, global controls, and environment management.";
@@ -2891,6 +2938,17 @@ const app = window.Vue.createApp({
   watch: {
     "topicForm.type"(val) {
       this.topicFormUndergroundWarning = String(val || "").trim().toLowerCase() === "underground";
+    },
+    activeConversationSending(val) {
+      if (val) {
+        this.closeBlockingOverlaysForStreaming();
+      }
+    },
+    activeConversation: {
+      handler(val) {
+        this.syncCompletedThinkStreamsFromConversation(val);
+      },
+      deep: false,
     },
     sendingByConversation: {
       handler(val) {
@@ -3285,6 +3343,15 @@ const app = window.Vue.createApp({
         const nextStage = Object.assign({}, this.sendingJobStage);
         delete nextStage[id];
         this.sendingJobStage = nextStage;
+        const nextEvents = Object.assign({}, this.pendingJobEvents);
+        delete nextEvents[id];
+        this.pendingJobEvents = nextEvents;
+        const nextTracker = Object.assign({}, this.pendingJobAgentTracker);
+        delete nextTracker[id];
+        this.pendingJobAgentTracker = nextTracker;
+        const nextSources = Object.assign({}, this.pendingLiveSources);
+        delete nextSources[id];
+        this.pendingLiveSources = nextSources;
       }
       this.sendingByConversation = next;
     },
@@ -3878,6 +3945,7 @@ const app = window.Vue.createApp({
     },
 
     updateBodyClasses() {
+      this.enforceStreamingOverlayPolicy();
       const body = document.body;
       const mobile = this.isMobileLayout();
       const standaloneMode = Boolean(
@@ -4622,8 +4690,9 @@ const app = window.Vue.createApp({
     },
 
     conversationProjectTagText(conversation) {
-      const text = String(conversation?.path || conversation?.project || "").trim();
-      return text || "general";
+      const type = this.conversationTopicType(conversation);
+      const row = TOPIC_TYPES.find((x) => x.value === type);
+      return row ? row.label : "General Research";
     },
 
     projectTargetTitle(target) {
@@ -6194,27 +6263,55 @@ const app = window.Vue.createApp({
       const isTalkMsg = String(msg?.mode || "") === "talk" || (!msg?.mode && !msg?.foraging);
       if (isTalkMsg) {
         for (const seed of (targets.forageSeeds || [])) {
-          actions.push({ kind: "forage_hint", id: seed, label: "Dig Deeper", icon: "search", style: "accent" });
+          actions.push({
+            kind: "forage_hint",
+            id: seed,
+            label: "Dig Deeper",
+            title: "May need refreshed sources beyond model cutoff",
+            icon: "search",
+            style: "accent",
+          });
         }
         // Waypoint lane is retired in this build; assistant messages no longer expose add-* actions.
       }
 
-      if (Boolean(msg?.foraging)) {
-        const cardId = String(msg?.request_id || msg?.id || "").trim();
-        if (cardId) {
-          const saved = this.isForageCardSaved(cardId);
-          actions.push({
-            kind: "save_forage_card",
-            id: cardId,
-            label: saved ? "Unsave Research" : "Save Research",
-            icon: "pin",
-            style: saved ? "subtle" : "accent",
-          });
-        }
-      }
+      const feedback = this.messageFeedbackState(msg);
+      const isDown = feedback.rating === "down";
+      actions.push({
+        kind: "message_feedback",
+        id: "up",
+        rating: "up",
+        label: "",
+        title: "Helpful",
+        icon: "thumb_up",
+        style: feedback.rating === "up" ? "ok" : "subtle",
+        selected: feedback.rating === "up",
+      });
+      actions.push({
+        kind: "message_feedback",
+        id: "down",
+        rating: "down",
+        label: "",
+        title: isDown ? "Disregarded from context" : "Not helpful (disregard from context)",
+        icon: "thumb_down",
+        style: isDown ? "warn" : "subtle",
+        selected: isDown,
+      });
 
       actions.push({ kind: "reply_text", id: "", label: "Reply", icon: "reply", style: "subtle" });
       return actions;
+    },
+
+    messageFeedbackState(msg) {
+      const row = msg && typeof msg === "object" ? msg : {};
+      const feedback = row?.feedback && typeof row.feedback === "object" ? row.feedback : {};
+      const meta = row?.meta && typeof row.meta === "object" ? row.meta : {};
+      const rating = String(feedback?.rating || meta?.feedback_rating || "").trim().toLowerCase();
+      const disregard = Boolean(feedback?.disregard || meta?.disregard_context);
+      return {
+        rating: rating === "up" || rating === "down" ? rating : "",
+        disregard,
+      };
     },
 
     messageActionKey(msg, action) {
@@ -6255,28 +6352,6 @@ const app = window.Vue.createApp({
       this.completedQuickActions = next;
     },
 
-    isForageCardSaved(cardId) {
-      const key = String(cardId || "").trim();
-      if (!key) {
-        return false;
-      }
-      return Boolean(this.forageCardSavedState?.[key]);
-    },
-
-    setForageCardSaved(cardId, saved = true) {
-      const key = String(cardId || "").trim();
-      if (!key) {
-        return;
-      }
-      const next = Object.assign({}, this.forageCardSavedState || {});
-      if (saved) {
-        next[key] = true;
-      } else {
-        delete next[key];
-      }
-      this.forageCardSavedState = next;
-    },
-
     isMessageActionBusy(msg, action) {
       const key = this.messageActionKey(msg, action);
       return Boolean(this.quickActionBusy?.[key]);
@@ -6291,6 +6366,96 @@ const app = window.Vue.createApp({
         delete next[key];
       }
       this.quickActionBusy = next;
+    },
+
+    _normalizeThinkStreamPayload(raw) {
+      if (!raw || typeof raw !== "object") {
+        return null;
+      }
+      const expiresAt = String(raw.expires_at || "").trim();
+      const expiresMs = this._eventTimeMs(expiresAt);
+      if (expiresMs > 0 && expiresMs < Date.now()) {
+        return null;
+      }
+      const rows = Array.isArray(raw.events) ? raw.events : [];
+      const events = rows
+        .filter((row) => row && typeof row === "object")
+        .map((row) => ({
+          ts: String(row.ts || "").trim(),
+          stage: String(row.stage || "").trim(),
+          detail: String(row.detail || "").trim(),
+        }))
+        .filter((row) => row.ts || row.stage || row.detail)
+        .slice(-64);
+      if (!events.length) {
+        return null;
+      }
+      const firstTs = this._eventTimeMs(events[0]?.ts);
+      const lastTs = this._eventTimeMs(events[events.length - 1]?.ts);
+      const storedDuration = Number(raw.duration_sec || raw.durationSec || 0);
+      const durationSec = firstTs > 0 && lastTs >= firstTs
+        ? (lastTs - firstTs) / 1000
+        : (Number.isFinite(storedDuration) ? storedDuration : 0);
+      return {
+        events,
+        durationSec: Number.isFinite(durationSec) ? durationSec : 0,
+        started_at: String(raw.started_at || "").trim(),
+        ended_at: String(raw.ended_at || "").trim(),
+        expires_at: expiresAt,
+      };
+    },
+
+    syncCompletedThinkStreamsFromConversation(conversation) {
+      const next = Object.assign({}, this.completedThinkStreams || {});
+      for (const key of Object.keys(next)) {
+        const stream = next[key];
+        const expiresMs = this._eventTimeMs(stream?.expires_at);
+        if (expiresMs > 0 && expiresMs < Date.now()) {
+          delete next[key];
+        }
+      }
+      const convo = conversation && typeof conversation === "object" ? conversation : null;
+      const messages = Array.isArray(convo?.messages) ? convo.messages : [];
+      for (const msg of messages) {
+        const role = String(msg?.role || "").trim().toLowerCase();
+        const rid = String(msg?.request_id || "").trim();
+        if (role !== "assistant" || !rid) {
+          continue;
+        }
+        const payload = this._normalizeThinkStreamPayload(msg?.meta?.think_stream);
+        if (!payload) {
+          continue;
+        }
+        const existing = next[rid];
+        if (!existing || !Array.isArray(existing.events) || existing.events.length < payload.events.length) {
+          next[rid] = payload;
+        }
+      }
+      this.completedThinkStreams = next;
+    },
+
+    applyConversationMessageUpdate(conversationId, updatedMessage) {
+      const convoId = String(conversationId || "").trim();
+      const messageId = String(updatedMessage?.id || "").trim();
+      if (!convoId || !messageId) {
+        return;
+      }
+      const applyToConversation = (conversation) => {
+        if (!conversation || String(conversation.id || "").trim() !== convoId) {
+          return conversation;
+        }
+        const rows = Array.isArray(conversation.messages) ? conversation.messages.slice() : [];
+        const idx = rows.findIndex((row) => String(row?.id || "").trim() === messageId);
+        if (idx < 0) {
+          return conversation;
+        }
+        rows[idx] = Object.assign({}, rows[idx], updatedMessage);
+        return Object.assign({}, conversation, { messages: rows });
+      };
+      this.activeConversation = applyToConversation(this.activeConversation);
+      if (Array.isArray(this.conversations) && this.conversations.length) {
+        this.conversations = this.conversations.map((row) => applyToConversation(row));
+      }
     },
 
     seedReplyFromMessage(msg) {
@@ -6339,17 +6504,24 @@ const app = window.Vue.createApp({
         return;
       }
 
-      if (action.kind === "save_forage_card") {
-        const cardId = String(action.id || "").trim();
-        if (!cardId || this.isMessageActionBusy(msg, action)) {
+      if (action.kind === "message_feedback") {
+        const conversationId = String(this.activeConversationId || "").trim();
+        const messageId = String(msg?.id || "").trim();
+        const rating = String(action?.rating || "").trim().toLowerCase();
+        if (!conversationId || !messageId || !["up", "down"].includes(rating) || this.isMessageActionBusy(msg, action)) {
           return;
         }
         this.setMessageActionBusy(msg, action, true);
         try {
-          const payload = await this.apiPost(`/api/forage-cards/${encodeURIComponent(cardId)}/pin`, {});
-          const pinned = Number(payload?.card?.is_pinned || 0) > 0;
-          this.setForageCardSaved(cardId, pinned);
-          await this.refreshPanelBadges();
+          const current = this.messageFeedbackState(msg).rating;
+          const nextRating = current === rating ? "none" : rating;
+          const payload = await this.apiPost(
+            `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}/feedback`,
+            { rating: nextRating }
+          );
+          if (payload?.message && typeof payload.message === "object") {
+            this.applyConversationMessageUpdate(conversationId, payload.message);
+          }
         } catch (err) {
           window.alert(`Quick action failed: ${String(err.message || err)}`);
         } finally {
@@ -6437,6 +6609,25 @@ const app = window.Vue.createApp({
         return String(ts);
       }
       return date.toLocaleString();
+    },
+
+    formatMonthDay(ts) {
+      if (!ts) {
+        return "";
+      }
+      const date = new Date(ts);
+      if (Number.isNaN(date.getTime())) {
+        return "";
+      }
+      return `${date.getMonth() + 1}/${date.getDate()}`;
+    },
+
+    formatLastActiveLabel(ts) {
+      const text = this.formatMonthDay(ts);
+      if (!text) {
+        return "Last active: just now";
+      }
+      return `Last active: ${text}`;
     },
 
     formatFileSize(bytes) {
@@ -6935,91 +7126,82 @@ const app = window.Vue.createApp({
       this.homeWeatherExpanded = false;
     },
 
+    _updateHomeClock() {
+      const now = new Date();
+      const h = now.getHours();
+      const m = now.getMinutes();
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      this.homeCurrentTime = `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    },
+
     refreshHomePhrase() {
-      const pool = [
-        "Small, steady steps beat perfect plans.",
-        "A clear day starts with one clear next action.",
-        "Good systems feel quiet when they are working.",
-        "Progress compounds when follow-through is easy.",
-        "Stay practical. Keep moving. Adjust as needed.",
-        "Consistency is stronger than intensity over time.",
-        "Done today is better than ideal next week.",
-        "Momentum starts where friction gets removed.",
-        "A useful plan is one you can start in five minutes.",
-        "Simple routines survive busy days.",
-        "Clarity comes from action, not overthinking.",
-        "Build less, finish more, repeat.",
-        "Reliable beats flashy when the goal is progress.",
-        "Focus on what moves the needle before noon.",
-        "Good defaults save energy for real decisions.",
-        "Every system gets better when the next step is obvious.",
-        "Keep the bar realistic and the streak alive.",
-        "Tiny upgrades beat occasional reinventions.",
-        "One intentional hour can reset a whole day.",
-        "Direction matters more than speed at the start.",
-        "The best workflow is the one you actually use.",
-        "Start small enough that starting feels easy.",
-        "Stability first, optimization second.",
-        "Your calendar should protect your priorities.",
-        "Less context switching, better outcomes.",
-        "Today's wins are often yesterday's prep.",
-        "A clean backlog is a calm mind.",
-        "If it repeats, give it a home.",
-        "Good tools reduce decisions, not just clicks.",
-        "Measure what you can improve this week.",
-        "Small buffers prevent big stress.",
-        "Strong habits are quiet safeguards.",
-        "A lighter process leaves more room for thinking.",
-        "Pick one key outcome and support it.",
-        "Your future self likes clear notes.",
-        "Most breakthroughs start as boring consistency.",
-        "Define success before you begin.",
-        "Protect deep work like it is a meeting.",
-        "Make the first action impossible to miss.",
-        "Short feedback loops create steady gains.",
-        "Remove one blocker and momentum returns.",
-        "Order beats urgency when everything feels important.",
-        "Document once, reuse often.",
-        "The right checklist makes hard days manageable.",
-        "Less noise, sharper judgment.",
-        "Systems scale better than willpower.",
-        "A good reset is part of the workflow.",
-        "Get the basics right before adding complexity.",
-        "Clear ownership turns ideas into outcomes.",
-        "Your best process is understandable at a glance.",
-        "A trusted routine reduces decision fatigue.",
-        "Consistency turns effort into compounding value.",
-        "Ship the useful version, then refine.",
-        "Steady cadence beats occasional sprints.",
-        "Prepare once, benefit daily.",
-        "Progress is easier when priorities are visible.",
-        "Reduce drag and motivation lasts longer.",
-        "Useful constraints make better decisions.",
-        "When in doubt, simplify the next step.",
-        "Operational calm is a competitive advantage.",
-        "Good planning creates room for focus.",
-        "Capture ideas fast, sort them later.",
-        "Move from intention to schedule.",
-        "Build habits around your real day, not ideal days.",
-        "A clear workspace supports clear thinking.",
-        "Protect your mornings for meaningful work.",
-        "Short notes now save long searches later.",
-        "Default to progress you can sustain.",
-        "Reliable follow-up is a superpower.",
-        "Use reminders to protect attention, not steal it.",
-        "A focused day starts with a focused first hour.",
-        "Priorities become real when they get time blocks.",
-        "Better boundaries create better output.",
-        "Choose the smallest next milestone and finish it.",
-        "Keep your process kind to low-energy days.",
-        "Refine the path, not just the destination.",
-        "A working system is one you trust on busy weeks.",
-        "Leave fewer loose ends than you found.",
-        "Intentional pacing prevents reactive work.",
-      ];
-      const name = String(this.auth?.profile?.display_name || this.auth?.profile?.username || "owner").trim();
+      const pools = {
+        morning: [
+          "Morning. Let's make it count.",
+          "A clear start leads to a sharp day.",
+          "First hour sets the tone.",
+          "Good morning. What's the one thing today?",
+          "Start with intent, not inertia.",
+          "Protect your first hour for what matters.",
+          "Morning energy is finite. Use it well.",
+          "What's worth your best focus this morning?",
+          "Begin before distraction finds you.",
+          "The morning is yours. Plan before it isn't.",
+        ],
+        afternoon: [
+          "Midday checkpoint. How's the progress?",
+          "Afternoon slump is real — one next step.",
+          "Recalibrate. What still matters today?",
+          "Halfway through. Finish what counts.",
+          "Trim the list. Pick the two that matter.",
+          "Energy dips here — do the easy wins now.",
+          "Short sprint before the day softens.",
+          "Review, refocus, keep going.",
+          "Afternoon clarity often beats morning ambition.",
+          "What can still be finished before evening?",
+        ],
+        evening: [
+          "Good evening. Wind down with purpose.",
+          "Capture what worked today.",
+          "Evening is for closing loops.",
+          "What's worth a quick note before you stop?",
+          "Prep tomorrow while today is fresh.",
+          "Good progress deserves acknowledgment.",
+          "Reflect briefly, then disconnect.",
+          "Evening review: done, pending, tomorrow.",
+          "What's the one thing for tomorrow morning?",
+          "Close clean. Start fresh.",
+        ],
+        night: [
+          "Still up? Make it productive or make it restful.",
+          "Night mode: deep work or full rest.",
+          "Quiet hours are good for focus.",
+          "Late nights are fine. Just be intentional.",
+          "The list will still be there tomorrow.",
+          "Night owls ship too.",
+          "Dark outside. Good time to think.",
+          "Capture the thought and get some sleep.",
+          "Late focus is underrated.",
+          "Whatever you're working on — make it worth the late hour.",
+        ],
+        day: [
+          "Good systems feel quiet when they are working.",
+          "Consistency is stronger than intensity over time.",
+          "Done today is better than ideal next week.",
+          "Clarity comes from action, not overthinking.",
+          "Build less, finish more, repeat.",
+          "Priorities become real when they get time blocks.",
+          "Leave fewer loose ends than you found.",
+          "Systems scale better than willpower.",
+          "Ship the useful version, then refine.",
+          "Default to progress you can sustain.",
+        ],
+      };
       const now = new Date();
       const windowKey = homePhraseWindowKey(now);
+      const pool = pools[windowKey] || pools.day;
+      const name = String(this.auth?.profile?.display_name || this.auth?.profile?.username || "owner").trim();
       const seedText = `${name}:${toDateKey(now)}:${windowKey}`;
       let seed = 0;
       for (let i = 0; i < seedText.length; i += 1) {
@@ -7245,6 +7427,11 @@ const app = window.Vue.createApp({
               next[convoId] = job.events;
               this.pendingJobEvents = next;
             }
+            if (job.agent_tracker && typeof job.agent_tracker === "object") {
+              const nextTracker = Object.assign({}, this.pendingJobAgentTracker);
+              nextTracker[convoId] = job.agent_tracker;
+              this.pendingJobAgentTracker = nextTracker;
+            }
             const nextStage = Object.assign({}, this.sendingJobStage);
             nextStage[convoId] = { stage: job.stage || "", label: this._humanizeJobStage(job) };
             this.sendingJobStage = nextStage;
@@ -7267,9 +7454,27 @@ const app = window.Vue.createApp({
                   this.pendingLiveSources = next;
                 }
                 if (this.pendingJobEvents[convoId]) {
+                  const events = this.pendingJobEvents[convoId];
+                  if (Array.isArray(events) && events.length && rid) {
+                    const tracker = this.pendingJobAgentTracker[convoId];
+                    const mergedEvents = this._mergePendingEventsWithTracker(events, tracker);
+                    const streams = Object.assign({}, this.completedThinkStreams);
+                    const keys = Object.keys(streams);
+                    if (keys.length > 30) delete streams[keys[0]];
+                    const startTs = mergedEvents[0]?.ts ? new Date(mergedEvents[0].ts).getTime() : 0;
+                    const endTs = mergedEvents[mergedEvents.length - 1]?.ts ? new Date(mergedEvents[mergedEvents.length - 1].ts).getTime() : 0;
+                    const durationSec = startTs && endTs ? ((endTs - startTs) / 1000).toFixed(1) : null;
+                    streams[rid] = { events: mergedEvents, durationSec };
+                    this.completedThinkStreams = streams;
+                  }
                   const next = Object.assign({}, this.pendingJobEvents);
                   delete next[convoId];
                   this.pendingJobEvents = next;
+                }
+                if (this.pendingJobAgentTracker[convoId]) {
+                  const nextTracker = Object.assign({}, this.pendingJobAgentTracker);
+                  delete nextTracker[convoId];
+                  this.pendingJobAgentTracker = nextTracker;
                 }
                 if (String(this.activeConversationId || "").trim() === convoId) {
                   this.activeConversation = convo;
@@ -7294,7 +7499,392 @@ const app = window.Vue.createApp({
       return false;
     },
 
-    _labelForEvent(event) {
+    isErrorEvent(event) {
+      const stage = String(event?.stage || "").toLowerCase();
+      return stage === "pipeline_error" || stage === "build_quality_gate_failed" || stage === "research_cancelled";
+    },
+
+    relativeEventTime(event, firstEvent) {
+      try {
+        const t0 = new Date(firstEvent?.ts || event?.ts).getTime();
+        const t1 = new Date(event?.ts).getTime();
+        const diff = (t1 - t0) / 1000;
+        if (!isFinite(diff) || diff < 0) return "";
+        return `+${this.formatDuration(diff, { alwaysHms: false })}`;
+      } catch (_) { return ""; }
+    },
+
+    formatDuration(totalSeconds, opts = {}) {
+      const alwaysHms = Boolean(opts?.alwaysHms);
+      const raw = Number(totalSeconds);
+      if (!Number.isFinite(raw) || raw < 0) {
+        return "0s";
+      }
+      if (!alwaysHms && raw < 60) {
+        return `${raw.toFixed(raw < 10 ? 1 : 0)}s`;
+      }
+      const whole = Math.floor(raw);
+      const hours = Math.floor(whole / 3600);
+      const minutes = Math.floor((whole % 3600) / 60);
+      const seconds = whole % 60;
+      if (hours > 0) {
+        return `${hours}h ${minutes}m ${seconds}s`;
+      }
+      return `${minutes}m ${seconds}s`;
+    },
+
+    completedStreamDurationLabel(requestId) {
+      const key = String(requestId || "").trim();
+      if (!key) {
+        return "0s";
+      }
+      const stream = this.completedThinkStreams?.[key];
+      const events = Array.isArray(stream?.events) ? stream.events : [];
+      const firstTs = this._eventTimeMs(events[0]?.ts);
+      const lastTs = this._eventTimeMs(events[events.length - 1]?.ts);
+      const fallbackSec = Number(stream?.durationSec || 0);
+      const diffSec = firstTs > 0 && lastTs >= firstTs ? (lastTs - firstTs) / 1000 : fallbackSec;
+      return this.formatDuration(diffSec, { alwaysHms: true });
+    },
+
+    _eventTimeMs(ts) {
+      const value = new Date(ts || "").getTime();
+      return Number.isFinite(value) && value > 0 ? value : 0;
+    },
+
+    _agentPersonaLabel(agent) {
+      const raw = typeof agent === "object" ? String(agent?.persona || "") : String(agent || "");
+      const text = raw.trim();
+      if (!text) return "Agent";
+      return text.replace(/_gap_fill$/i, " (gap fill)").replace(/_/g, " ");
+    },
+
+    _agentTrackerToEvents(tracker) {
+      if (!tracker || typeof tracker !== "object") {
+        return [];
+      }
+      const total = Number(tracker.total || 0);
+      if (!Number.isFinite(total) || total <= 0) {
+        return [];
+      }
+      const allAgents = Array.isArray(tracker.all_agents) ? tracker.all_agents : [];
+      const active = Array.isArray(tracker.active) ? tracker.active : [];
+      const done = Array.isArray(tracker.done) ? tracker.done : [];
+      const activeCount = active.length;
+      const doneCount = done.length;
+      const pendingCount = Math.max(0, total - activeCount - doneCount);
+      const allTimes = []
+        .concat(active.map((row) => this._eventTimeMs(row?.started_at)))
+        .concat(done.map((row) => this._eventTimeMs(row?.completed_at)))
+        .filter((value) => value > 0);
+      const firstTs = allTimes.length ? new Date(Math.min(...allTimes)).toISOString() : new Date().toISOString();
+      const modeLabel = String(tracker.profile || "").trim().toLowerCase().includes("make") ? "Build" : "Research";
+      const rows = [{
+        ts: firstTs,
+        stage: "agent_tracker_summary",
+        detail: `${modeLabel} agents: ${doneCount}/${total} complete${activeCount ? ` · ${activeCount} active` : ""}${pendingCount ? ` · ${pendingCount} queued` : ""}`,
+      }];
+
+      const byNewestStart = active
+        .slice()
+        .sort((a, b) => this._eventTimeMs(a?.started_at) - this._eventTimeMs(b?.started_at));
+      for (const row of byNewestStart) {
+        const persona = this._agentPersonaLabel(row);
+        const directive = String(row?.directive || "").trim().replace(/\s+/g, " ");
+        const model = String(row?.model || "").trim();
+        const detail = `${persona} running${directive ? ` — ${directive.slice(0, 100)}` : ""}${model ? ` (${model})` : ""}`;
+        rows.push({
+          ts: String(row?.started_at || firstTs),
+          stage: "agent_tracker_active",
+          detail,
+        });
+      }
+
+      const byNewestDone = done
+        .slice()
+        .sort((a, b) => this._eventTimeMs(a?.completed_at) - this._eventTimeMs(b?.completed_at));
+      for (const row of byNewestDone.slice(-6)) {
+        const persona = this._agentPersonaLabel(row);
+        const finding = String(row?.finding_preview || "").trim().replace(/\s+/g, " ");
+        const state = row?.failed ? "failed" : "done";
+        rows.push({
+          ts: String(row?.completed_at || firstTs),
+          stage: row?.failed ? "agent_tracker_done_failed" : "agent_tracker_done",
+          detail: `${persona} ${state}${finding ? ` — ${finding.slice(0, 140)}` : ""}`,
+        });
+      }
+
+      if (pendingCount > 0 && allAgents.length > 0) {
+        const activeSet = new Set(
+          active.map((row) => String((typeof row === "object" ? row?.persona : row) || "").trim()).filter(Boolean)
+        );
+        const doneSet = new Set(
+          done.map((row) => String((typeof row === "object" ? row?.persona : row) || "").trim()).filter(Boolean)
+        );
+        const pendingNames = allAgents
+          .map((row) => String((typeof row === "object" ? row?.persona : row) || "").trim())
+          .filter((name) => name && !activeSet.has(name) && !doneSet.has(name))
+          .slice(0, 2)
+          .map((name) => this._agentPersonaLabel({ persona: name }));
+        if (pendingNames.length) {
+          const hidden = Math.max(0, pendingCount - pendingNames.length);
+          rows.push({
+            ts: firstTs,
+            stage: "agent_tracker_pending",
+            detail: `Queued next: ${pendingNames.join(", ")}${hidden ? ` (+${hidden})` : ""}`,
+          });
+        }
+      }
+      return rows;
+    },
+
+    _mergePendingEventsWithTracker(events, tracker) {
+      const base = Array.isArray(events) ? events.filter((row) => row && typeof row === "object") : [];
+      const trackerRows = this._agentTrackerToEvents(tracker);
+      if (!trackerRows.length) {
+        return base;
+      }
+      const merged = base.concat(trackerRows).map((row, idx) => ({
+        idx,
+        row,
+        time: this._eventTimeMs(row.ts),
+      }));
+      merged.sort((a, b) => {
+        if (a.time !== b.time) {
+          return a.time - b.time;
+        }
+        return a.idx - b.idx;
+      });
+      const out = [];
+      const seen = new Set();
+      for (const item of merged) {
+        const row = item.row;
+        const key = `${String(row.ts || "")}|${String(row.stage || "")}|${String(row.detail || "")}`;
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        out.push(row);
+      }
+      return out.slice(-24);
+    },
+
+    _eventBranchKey(stage) {
+      const s = String(stage || "").trim().toLowerCase();
+      if (!s) return "processing";
+      if (s.startsWith("message_") || s.startsWith("orchestrator_") || s === "lane_routed" || s === "talk_mode") return "routing";
+      if (s.startsWith("web_")) return "web";
+      if (s.includes("pool_started") || s.includes("foraging") || s.includes("building")) return "pool";
+      if (s.includes("agent_")) return "agents";
+      if (s.includes("synthesis") || s.includes("skeptic") || s.includes("gap_fill")) return "synthesis";
+      if (s.includes("quality_gate") || s === "completed" || s === "done" || s.includes("cancel")) return "final";
+      return "processing";
+    },
+
+    _eventBranchLabel(branch) {
+      const map = {
+        routing: "Routing",
+        web: "Web Context",
+        pool: "Pool Setup",
+        agents: "Agent Steps",
+        synthesis: "Synthesis",
+        final: "Finalize",
+        processing: "Processing",
+      };
+      return map[String(branch || "")] || "Processing";
+    },
+
+    _eventTreeDepth(stage) {
+      const s = String(stage || "").trim().toLowerCase();
+      if (!s) return 1;
+      if (s.includes("agent_")) return 2;
+      if (s.includes("quality_gate")) return 2;
+      if (s.startsWith("web_source_")) return 2;
+      return 1;
+    },
+
+    thinkTreeRows(requestId) {
+      const key = String(requestId || "").trim();
+      if (!key) return [];
+      const stream = this.completedThinkStreams?.[key];
+      const events = Array.isArray(stream?.events) ? stream.events : [];
+      if (!events.length) return [];
+      const rows = [];
+      let lastBranch = "";
+      for (const ev of events) {
+        if (!ev || typeof ev !== "object") continue;
+        const branch = this._eventBranchKey(ev.stage);
+        if (branch !== lastBranch) {
+          rows.push({
+            kind: "branch",
+            ts: ev.ts,
+            stage: `branch_${branch}`,
+            detail: this._eventBranchLabel(branch),
+            depth: 0,
+          });
+          lastBranch = branch;
+        }
+        rows.push({
+          kind: "event",
+          ts: ev.ts,
+          stage: ev.stage,
+          detail: ev.detail,
+          depth: this._eventTreeDepth(ev.stage),
+        });
+      }
+      return rows;
+    },
+
+    toggleThinkTree(rid) {
+      const key = String(rid || "").trim();
+      if (!key) return;
+      const next = Object.assign({}, this.expandedThinkTrees);
+      next[key] = !next[key];
+      this.expandedThinkTrees = next;
+    },
+
+    _startBlobAnimation(canvas) {
+      if (!canvas || typeof canvas.getContext !== "function") return () => {};
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return () => {};
+
+      // Large blobs: rough positional anchors matching the CSS gradient blobs
+      const LARGE = [
+        { nx: 0.10, ny: 0.10, svx:  1.6, svy:  1.3, r: 0.32, c: [15, 162, 148], ph: 0.0 },
+        { nx: 0.90, ny: 0.08, svx: -1.4, svy:  1.7, r: 0.28, c: [70, 178, 158], ph: 1.8 },
+        { nx: 0.86, ny: 0.90, svx: -1.5, svy: -1.2, r: 0.30, c: [15, 155, 140], ph: 3.5 },
+        { nx: 0.14, ny: 0.84, svx:  1.7, svy: -1.4, r: 0.25, c: [40, 168, 150], ph: 5.2 },
+      ];
+      // Small blobs: slightly cooler/brighter seafoam tones
+      const SMALL = [
+        { nx: 0.50, ny: 0.28, svx:  2.2, svy:  1.9, r: 0.09, c: [100, 210, 188], ph: 0.7 },
+        { nx: 0.28, ny: 0.58, svx: -1.9, svy:  2.1, r: 0.07, c: [ 55, 200, 174], ph: 2.1 },
+        { nx: 0.70, ny: 0.44, svx:  1.6, svy: -2.2, r: 0.08, c: [125, 215, 194], ph: 3.8 },
+        { nx: 0.20, ny: 0.44, svx:  2.4, svy:  1.7, r: 0.06, c: [ 78, 204, 180], ph: 0.4 },
+        { nx: 0.74, ny: 0.70, svx: -2.0, svy:  1.6, r: 0.07, c: [ 92, 200, 184], ph: 4.5 },
+      ];
+
+      let blobs = [];
+      let animId = null;
+      let lastT = 0;
+
+      const resize = () => {
+        const p = canvas.parentElement;
+        if (!p) return;
+        canvas.width  = p.clientWidth  || 800;
+        canvas.height = p.clientHeight || 600;
+        const w = canvas.width, h = canvas.height;
+        const scale = Math.min(w, h);
+        const spd = scale * 0.000028;
+        blobs = [
+          ...LARGE.map(d => ({ x: d.nx * w, y: d.ny * h, vx: d.svx * spd, vy: d.svy * spd, r: d.r, c: d.c, ph: d.ph, big: true  })),
+          ...SMALL.map(d => ({ x: d.nx * w, y: d.ny * h, vx: d.svx * spd * 1.35, vy: d.svy * spd * 1.35, r: d.r, c: d.c, ph: d.ph, big: false })),
+        ];
+      };
+
+      const drawBlob = (b, alpha) => {
+        const s = Math.min(canvas.width, canvas.height);
+        const rad = b.r * s;
+        const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rad);
+        g.addColorStop(0, `rgba(${b.c[0]},${b.c[1]},${b.c[2]},${alpha})`);
+        g.addColorStop(0.5, `rgba(${b.c[0]},${b.c[1]},${b.c[2]},${alpha * 0.35})`);
+        g.addColorStop(1, `rgba(${b.c[0]},${b.c[1]},${b.c[2]},0)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, rad, 0, Math.PI * 2);
+        ctx.fill();
+      };
+
+      const drawThread = (x1, y1, x2, y2, t, ph) => {
+        const dx = x2 - x1, dy = y2 - y1;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < 4) return;
+        // Perpendicular unit vector (rotated 90°)
+        const px = -dy / dist, py = dx / dist;
+        // Sag: hangs under gravity, breathes with time
+        const sag = dist * 0.22 * (1 + 0.14 * Math.sin(t * 0.00072 + ph));
+        // Control point: midpoint shifted by sag perpendicular + gravity bias downward
+        const cpx = (x1 + x2) * 0.5 + px * sag * 0.38;
+        const cpy = (y1 + y2) * 0.5 + py * sag * 0.38 + sag * 0.55;
+        // Taper: fade near endpoints
+        const opacity = 0.18;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.quadraticCurveTo(cpx, cpy, x2, y2);
+        ctx.strokeStyle = `rgba(15, 178, 158, ${opacity})`;
+        ctx.lineWidth = 0.85;
+        ctx.stroke();
+        // Second fiber strand — very slight offset for woven look
+        const off = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(x1 + py * off, y1 - px * off);
+        ctx.quadraticCurveTo(cpx + py * off - 1, cpy - px * off + 1, x2 + py * off, y2 - px * off);
+        ctx.strokeStyle = `rgba(80, 200, 178, ${opacity * 0.55})`;
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      };
+
+      const frame = (t) => {
+        const dt = lastT ? Math.min(t - lastT, 48) : 16;
+        lastT = t;
+        const w = canvas.width, h = canvas.height;
+        const s = Math.min(w, h);
+        ctx.clearRect(0, 0, w, h);
+
+        // Update positions
+        for (const b of blobs) {
+          b.x += b.vx * dt;
+          b.y += b.vy * dt;
+          const margin = b.r * s * 0.28;
+          if (b.x < margin)     { b.x = margin;     b.vx =  Math.abs(b.vx); }
+          if (b.x > w - margin) { b.x = w - margin; b.vx = -Math.abs(b.vx); }
+          if (b.y < margin)     { b.y = margin;     b.vy =  Math.abs(b.vy); }
+          if (b.y > h - margin) { b.y = h - margin; b.vy = -Math.abs(b.vy); }
+        }
+
+        const large = blobs.filter(b => b.big);
+        const small = blobs.filter(b => !b.big);
+
+        // Draw large blobs
+        for (const b of large) drawBlob(b, 0.15);
+
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+
+        // Threads from each small blob to its nearest large blob
+        for (const sb of small) {
+          let nearest = large[0], nearD2 = Infinity;
+          for (const lb of large) {
+            const d2 = (sb.x - lb.x) ** 2 + (sb.y - lb.y) ** 2;
+            if (d2 < nearD2) { nearD2 = d2; nearest = lb; }
+          }
+          const maxD = Math.min(w, h) * 0.85;
+          if (Math.sqrt(nearD2) < maxD) {
+            drawThread(sb.x, sb.y, nearest.x, nearest.y, t, sb.ph);
+          }
+        }
+
+        ctx.restore();
+
+        // Draw small blobs on top
+        for (const b of small) drawBlob(b, 0.20);
+
+        animId = requestAnimationFrame(frame);
+      };
+
+      resize();
+      animId = requestAnimationFrame(frame);
+
+      const ro = new ResizeObserver(() => { resize(); });
+      if (canvas.parentElement) ro.observe(canvas.parentElement);
+
+      return () => {
+        if (animId) cancelAnimationFrame(animId);
+        ro.disconnect();
+      };
+    },
+
+    labelForEvent(event) {
       const detail = String(event?.detail || "").trim();
       if (detail) return detail;
       const stage = String(event?.stage || "").trim().toLowerCase();
@@ -7669,26 +8259,115 @@ const app = window.Vue.createApp({
       if (this.isMobileLayout()) {
         this.waypointChatExpanded = false;
       }
+      this.closePostbagItem();
+      this.closeLightbox();
       this.closeActionsOverlay();
       this.closeSystemPanel();
       this.closeMarkdownOverlay();
       this.closeTaskReminderDialog();
       this.closeImageToolPromptModal();
       this.closeImageToolStyleModal();
+      this.closeVideoTool();
       this.closeAgentGraphModal();
       this.closeFamilyProfileModal();
       this.closeWebPushSettingsModal();
       this.closeEmailSettingsModal();
+      this.closeMorningDigestModal();
+      this.closeBotSettingsModal();
       this.closeProjectPickerModal();
       this.closeProjectBranchModal();
       this.closeProjectBuildTargetModal();
+      this.closeProjectTopicTypeModal();
       this.closeLibraryIntakeModal();
       this.closeWaypointMemberEditor();
       this.closeTopicPickerModal();
+      this.cancelUndergroundWarning();
       this.closeResetModal();
       this.closeWaypointEntryModals();
       this.makeTypeModalOpen = false;
       this.closeMakeOutputEditModal();
+    },
+
+    enforceStreamingOverlayPolicy() {
+      if (!this.activeConversationSending) {
+        return;
+      }
+      const anyOpen = Boolean(
+        this.mdOverlayOpen ||
+        this.actionsOverlayOpen ||
+        this.panelOverlayOpen ||
+        this.agentGraphModalOpen ||
+        this.imageToolStyleModalOpen ||
+        this.imageToolPromptModalOpen ||
+        this.videoToolOpen ||
+        this.projectPickerOpen ||
+        this.projectBranchModalOpen ||
+        this.projectTargetModalOpen ||
+        this.projectTopicTypeModalOpen ||
+        this.libraryIntakeOpen ||
+        this.topicPickerOpen ||
+        this.familyProfileModalOpen ||
+        this.waypointMemberEditorOpen ||
+        this.waypointTaskModalOpen ||
+        this.waypointEventModalOpen ||
+        this.waypointShoppingModalOpen ||
+        this.waypointContactModalOpen ||
+        this.webPushModalOpen ||
+        this.emailSettingsModalOpen ||
+        this.morningDigestModalOpen ||
+        this.botSettingsModalOpen ||
+        this.resetModalOpen ||
+        this.undergroundWarningOpen ||
+        this.postbagItemOpen ||
+        this.lightboxOpen ||
+        this.makeTypeModalOpen ||
+        this.makeOutputEditModalOpen
+      );
+      if (!anyOpen) {
+        return;
+      }
+      this.chatMenuOpen = false;
+      this.homeWeatherExpanded = false;
+      this.composerAddMenuOpen = false;
+      this.mdOverlayOpen = false;
+      this.actionsOverlayOpen = false;
+      this.panelOverlayOpen = false;
+      this.agentGraphModalOpen = false;
+      this.imageToolStyleModalOpen = false;
+      this.imageToolPromptModalOpen = false;
+      this.videoToolOpen = false;
+      this.projectPickerOpen = false;
+      this.projectBranchModalOpen = false;
+      this.projectTargetModalOpen = false;
+      this.projectTopicTypeModalOpen = false;
+      this.libraryIntakeOpen = false;
+      this.topicPickerOpen = false;
+      this.familyProfileModalOpen = false;
+      this.waypointMemberEditorOpen = false;
+      this.waypointTaskModalOpen = false;
+      this.waypointEventModalOpen = false;
+      this.waypointShoppingModalOpen = false;
+      this.waypointContactModalOpen = false;
+      this.webPushModalOpen = false;
+      this.emailSettingsModalOpen = false;
+      this.morningDigestModalOpen = false;
+      this.botSettingsModalOpen = false;
+      this.resetModalOpen = false;
+      this.undergroundWarningOpen = false;
+      this.undergroundWarningPendingTopic = null;
+      this.postbagItemOpen = false;
+      this.postbagItemData = null;
+      this.lightboxOpen = false;
+      this.lightboxUrl = "";
+      this.lightboxName = "";
+      this.makeTypeModalOpen = false;
+      this.makeOutputEditModalOpen = false;
+    },
+
+    closeBlockingOverlaysForStreaming() {
+      this.closeAllOverlays();
+      this.enforceStreamingOverlayPolicy();
+      this.updateBodyClasses();
     },
 
     isWorkspacePatchProposal(prop) {
@@ -7869,6 +8548,9 @@ const app = window.Vue.createApp({
       await this.refreshPanelBadges();
     },
     async openPendingActions() {
+      if (this.activeConversationSending) {
+        return;
+      }
       this.chatMenuOpen = false;
       this.panelOverlayOpen = false;
       this.setActiveApp("chat");
@@ -8091,7 +8773,43 @@ const app = window.Vue.createApp({
       }
     },
 
+    async openGrowthPanel() {
+      if (this.activeConversationSending) {
+        return;
+      }
+      this.chatMenuOpen = false;
+      this.actionsOverlayOpen = false;
+      this.setActiveApp("chat");
+      this.panelKey = "growth";
+      this.panelOverlayOpen = true;
+      this.updateBodyClasses();
+      if (this.isMobileLayout()) this.closeSidebar();
+      try {
+        const [postbagPayload, reflectionsPayload, lessonsPayload] = await Promise.all([
+          this.apiGet("/api/pending-actions?limit=50"),
+          this.apiGet("/api/panel/reflections-history?limit=60"),
+          this.apiGet("/api/panel/lessons?limit=40&sort=newest"),
+        ]);
+        this.growthPostbagRows = Array.isArray(postbagPayload?.actions) ? postbagPayload.actions : [];
+        this.growthReflectionsRows = Array.isArray(reflectionsPayload?.reflections) ? reflectionsPayload.reflections : [];
+        this.growthLessonsRows = Array.isArray(lessonsPayload?.lessons) ? lessonsPayload.lessons : [];
+        this.markReflectionsAsRead(this.growthReflectionsRows);
+        this.markLessonsAsRead(this.growthLessonsRows);
+      } catch (_err) {
+        this.growthPostbagRows = [];
+        this.growthReflectionsRows = [];
+        this.growthLessonsRows = [];
+      }
+    },
+
+    switchGrowthTab(tab) {
+      this.growthActiveTab = tab;
+    },
+
     async openSystemPanel(panelKey) {
+      if (this.activeConversationSending) {
+        return;
+      }
       let key = String(panelKey || "").trim().toLowerCase();
       if (!["foraging", "building", "reflections", "lessons", "handoffs", "outbox", "projects", "project_detail", "content", "watchtower", "library", "library_detail", "forage-cards", "topics", "topic_detail", "system"].includes(key)) {
         return;
@@ -8126,6 +8844,7 @@ const app = window.Vue.createApp({
       this.libraryIntakeFiles = [];
       this.libraryIntakeTitle = "";
       this.libraryIntakeSourceKind = "general";
+      this.libraryIntakeDomain = "";
       this.libraryIntakeTopicId = String(this.activeTopicId || "").trim() === "general" ? "" : String(this.activeTopicId || "").trim();
       this.libraryIntakeProjectSlug = normalizeProjectSlug(this.activeProject) === "general" ? "" : normalizeProjectSlug(this.activeProject);
       this.updateBodyClasses();
@@ -8164,6 +8883,9 @@ const app = window.Vue.createApp({
         formData.append("source_kind", String(this.libraryIntakeSourceKind || "general").trim() || "general");
         if (String(this.libraryIntakeTitle || "").trim()) {
           formData.append("title", String(this.libraryIntakeTitle || "").trim());
+        }
+        if (String(this.libraryIntakeDomain || "").trim()) {
+          formData.append("domain", String(this.libraryIntakeDomain || "").trim());
         }
         if (String(this.libraryIntakeTopicId || "").trim()) {
           formData.append("topic_id", String(this.libraryIntakeTopicId || "").trim());
@@ -8246,6 +8968,9 @@ const app = window.Vue.createApp({
     },
 
     async openLibraryMarkdown(row = null) {
+      if (this.activeConversationSending) {
+        return;
+      }
       const itemId = String((row || this.libraryDetailItem)?.id || "").trim();
       if (!itemId) {
         return;
@@ -8414,6 +9139,7 @@ const app = window.Vue.createApp({
         this.loadLessonReadState();
         this.loadReflectionReadState();
         this.refreshHomePhrase();
+        this._updateHomeClock();
       }
       if (this.authSetup.required) {
         if (!this.authSetup.username) {
@@ -8432,6 +9158,7 @@ const app = window.Vue.createApp({
         this.reflectionsReadIds = {};
         this.reflectionsUnreadCount = 0;
         this.refreshHomePhrase();
+        this._updateHomeClock();
       }
       await this.refreshWebPushSettings();
     },
@@ -8479,6 +9206,7 @@ const app = window.Vue.createApp({
       this.authShowForm = false;
       this.waypointDayPanelExpanded = true;
       this.refreshHomePhrase();
+      this._updateHomeClock();
       await this.bootstrapConversations({ activateApp: false });
       try {
         await this.refreshWaypointState();
@@ -8673,7 +9401,7 @@ const app = window.Vue.createApp({
       if (!this.activeConversationId) {
         return;
       }
-      const currentTitle = String(this.activeConversation?.title || "New Chat");
+      const currentTitle = String(this.activeConversation?.title || "New Thread");
       const value = window.prompt("Rename this conversation:", currentTitle);
       if (!value || !value.trim()) {
         return;
@@ -9930,6 +10658,7 @@ const app = window.Vue.createApp({
       if (!conversationId) {
         return false;
       }
+      this.closeBlockingOverlaysForStreaming();
       if (!fromQueue && this.isConversationSending(conversationId)) {
         return this.queueComposerMessage();
       }
@@ -9974,6 +10703,40 @@ const app = window.Vue.createApp({
         foraging: likelyForagingRequest,
         renderJob: likelyRenderRequest,
       });
+
+      // Start parallel event-poll so the think stream updates while the POST is in-flight.
+      let _streamPollActive = true;
+      (async () => {
+        await this.waitMs(500);
+        while (_streamPollActive) {
+          try {
+            const jp = await this.apiGet(`/api/jobs/${encodeURIComponent(requestId)}`, { timeoutMs: 3500 });
+            if (jp?.job) {
+              const job = jp.job;
+              if (Array.isArray(job.events) && job.events.length > 0) {
+                const ne = Object.assign({}, this.pendingJobEvents);
+                ne[conversationId] = job.events;
+                this.pendingJobEvents = ne;
+              }
+              if (job.agent_tracker && typeof job.agent_tracker === "object") {
+                const nt = Object.assign({}, this.pendingJobAgentTracker);
+                nt[conversationId] = job.agent_tracker;
+                this.pendingJobAgentTracker = nt;
+              }
+              if (Array.isArray(job.live_sources) && job.live_sources.length > 0) {
+                const nl = Object.assign({}, this.pendingLiveSources);
+                nl[conversationId] = job.live_sources;
+                this.pendingLiveSources = nl;
+              }
+              const ns = Object.assign({}, this.sendingJobStage);
+              ns[conversationId] = { stage: job.stage || "", label: this._humanizeJobStage(job) };
+              this.sendingJobStage = ns;
+            }
+          } catch (_pollErr) {}
+          if (_streamPollActive) await this.waitMs(1500);
+        }
+      })();
+
       if (sendMode === "forage" || sendMode === "make") {
         // Reset globally to Talk as soon as a Discovery/Make request is sent.
         // This avoids accidentally sending subsequent turns in the wrong mode.
@@ -10080,6 +10843,7 @@ const app = window.Vue.createApp({
             } catch (_e) {}
           }
         }
+        _streamPollActive = false;
         sentSuccessfully = true;
         if (sendMode === "make" && extendsRequestId) {
           this.clearPendingMakeOutputExtension();
@@ -10099,6 +10863,7 @@ const app = window.Vue.createApp({
           console.warn("Post-send panel refresh failed:", refreshErr);
         }
       } catch (err) {
+        _streamPollActive = false;
         let recovered = false;
         if (this.isLikelyNetworkDropError(err)) {
           recovered = await this.recoverMessageRequest(conversationId, requestId, likelyForagingRequest);
@@ -10134,6 +10899,7 @@ const app = window.Vue.createApp({
           }
         }
       } finally {
+        _streamPollActive = false;
         if (sentSuccessfully) {
           for (const row of imageRows) {
             if (row?.previewUrl) {
@@ -12557,6 +13323,9 @@ const app = window.Vue.createApp({
     },
 
     async loadFileOverlay(path) {
+      if (this.activeConversationSending) {
+        return;
+      }
       this.mdTitle = "Loading file...";
       this.mdPath = path;
       this.mdHtml = '<p class="md-loading">Loading file preview...</p>';
@@ -12792,6 +13561,10 @@ const app = window.Vue.createApp({
       this.refreshHomePhrase();
     }, 60000);
 
+    this._homeClockTimer = window.setInterval(() => {
+      this._updateHomeClock();
+    }, 30000);
+
     this._composerPlaceholderTimer = window.setInterval(() => {
       this.composerPlaceholderFading = true;
       setTimeout(() => {
@@ -12818,6 +13591,12 @@ const app = window.Vue.createApp({
     this._thinkingTimer = window.setInterval(() => {
       this.thinkingNowTs = Date.now();
     }, 1000);
+
+    await this.$nextTick();
+    this._blobStopFns = [
+      this._startBlobAnimation(this.$refs.chatBlobCanvas),
+      this._startBlobAnimation(this.$refs.homeBlobCanvas),
+    ];
   },
 
   beforeUnmount() {
@@ -12865,6 +13644,14 @@ const app = window.Vue.createApp({
       window.clearInterval(this._homePhraseTimer);
       this._homePhraseTimer = null;
     }
+    if (this._homeClockTimer) {
+      window.clearInterval(this._homeClockTimer);
+      this._homeClockTimer = null;
+    }
+    for (const stop of (this._blobStopFns || [])) {
+      try { stop(); } catch (_) {}
+    }
+    this._blobStopFns = [];
     if (this._homeWeatherPollTimer) {
       window.clearInterval(this._homeWeatherPollTimer);
       this._homeWeatherPollTimer = null;

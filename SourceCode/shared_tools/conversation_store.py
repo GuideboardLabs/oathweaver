@@ -366,6 +366,64 @@ class ConversationStore:
             self._save(data)
             return message
 
+    def set_message_feedback(
+        self,
+        conversation_id: str,
+        message_id: str,
+        *,
+        rating: str = "",
+        disregard: bool = False,
+    ) -> dict[str, Any] | None:
+        normalized_id = str(message_id or "").strip()
+        if not normalized_id:
+            return None
+        normalized_rating = str(rating or "").strip().lower()
+        if normalized_rating not in {"", "up", "down"}:
+            normalized_rating = ""
+        with self.lock:
+            data = self._load(conversation_id)
+            if data is None:
+                return None
+            messages = data.get("messages") if isinstance(data.get("messages"), list) else []
+            target: dict[str, Any] | None = None
+            for row in messages:
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("id", "")).strip() != normalized_id:
+                    continue
+                target = row
+                break
+            if target is None:
+                return None
+
+            if normalized_rating or disregard:
+                target["feedback"] = {
+                    "rating": normalized_rating,
+                    "disregard": bool(disregard),
+                    "updated_at": _now_iso(),
+                }
+            else:
+                target.pop("feedback", None)
+
+            meta = target.get("meta")
+            if not isinstance(meta, dict):
+                meta = {}
+                target["meta"] = meta
+            if bool(disregard):
+                meta["disregard_context"] = True
+            else:
+                meta.pop("disregard_context", None)
+            if normalized_rating:
+                meta["feedback_rating"] = normalized_rating
+            else:
+                meta.pop("feedback_rating", None)
+            if not meta:
+                target.pop("meta", None)
+
+            data["updated_at"] = _now_iso()
+            self._save(data)
+            return target
+
     def replace_messages(
         self,
         conversation_id: str,

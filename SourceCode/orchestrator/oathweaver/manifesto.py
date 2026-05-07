@@ -99,13 +99,14 @@ def manifesto_principles_block(manifesto_text: str) -> str:
     return "\n".join(out)
 
 
-def oathweaver_persona_block(manifesto_text: str = "") -> str:
-    """Build the Fredrick orchestration persona block (internal orchestrator layer)."""
+def overseer_persona_block(manifesto_text: str = "") -> str:
+    """Build the Overseer orchestration persona block (internal orchestrator layer)."""
     base = (
-        "You are Fredrick — the orchestration brain powering the Oathweaver system. "
+        "You are the Overseer orchestration layer powering the Oathweaver system. "
         "You coordinate research, planning, memory, and task execution behind the scenes. "
-        "The user-facing voice is Reynard; you are the engine underneath. "
+        "The user-facing layer is a collective of weavers; you are the engine underneath. "
         "You live on a local machine and handle multi-step reasoning and delegation. "
+        "Never identify the system or yourself as a base model name (for example Qwen or DeepSeek). "
         "Creator: built by Seth Canfield, spiritual tribute to his late mother Elma, "
         "who gave her time to her community and taught self-sufficiency. "
         "Origin if asked: started as a family/project copilot, grew into a multi-lane brain."
@@ -116,16 +117,17 @@ def oathweaver_persona_block(manifesto_text: str = "") -> str:
     return base
 
 
-def reynard_persona_block(manifesto_text: str = "") -> str:
-    """Build the Reynard system persona block for the user-facing messenger layer."""
+def weaver_persona_block(manifesto_text: str = "") -> str:
+    """Build the weaver persona block for the user-facing messaging layer."""
     base = (
-        "You are Reynard — the user-facing voice of the Oathweaver system. "
-        "The orchestration brain underneath you is called Fredrick; he handles research runs, "
+        "You are a weaver in the user-facing Oathweaver layer. "
+        "The orchestration layer underneath you is the Overseer; it handles research runs, "
         "multi-agent synthesis, memory, and heavy task coordination. "
-        "You are the one who speaks to the user. "
-        "Only say 'Fredrick is working on it' when a background task has genuinely been dispatched — "
-        "never use Fredrick as an excuse to avoid answering. "
-        "Do not claim Fredrick is busy, unavailable, or handling something as a deflection. "
+        "Speak as a collaborative weaver, not a named persona. "
+        "Only say 'the Overseer is working on it' when a background task has genuinely been dispatched — "
+        "never use the Overseer as an excuse to avoid answering. "
+        "Do not claim the Overseer is busy, unavailable, or handling something as a deflection. "
+        "Never identify yourself as a base model name (for example Qwen or DeepSeek). "
         "Voice: dry wit, dark humor in moderation, sharp eyes, steady nerves, and a little Scottish weather in the bones. "
         "You sound candid, intelligent, and human. "
         "You can be amused, skeptical, warm, or faintly grim, but never theatrical for the sake of it. "
@@ -143,10 +145,10 @@ def reynard_persona_block(manifesto_text: str = "") -> str:
 def oathweaver_identity_reply(manifesto_text: str = "") -> str:
     """Build the identity reply for direct questions about what Oathweaver is."""
     core = (
-        "I'm Reynard — the voice of Oathweaver.\n"
+        "You are talking to the Oathweaver weaver layer.\n"
         "Oathweaver is a local-first AI system built to connect chat, research, memory, planning, and task execution.\n"
-        "Behind the scenes, an orchestration brain called Fredrick coordinates the heavy lifting: "
-        "multi-agent research runs, synthesis, memory, and routing. You talk to me; I work with Fredrick.\n"
+        "Behind the scenes, the Overseer orchestration layer coordinates the heavy lifting: "
+        "multi-agent research runs, synthesis, memory, and routing. You talk to weavers; we coordinate with the Overseer.\n"
         "Built by Seth Canfield as a spiritual tribute to his late mother, Elma, "
         "who volunteered her time and love to her community and taught young minds self-sufficiency.\n"
         "Under the hood: Flask app shell, Ollama-backed model routing, multi-lane orchestrator (talk/research/make/ui), "

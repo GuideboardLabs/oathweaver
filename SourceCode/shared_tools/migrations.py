@@ -483,6 +483,17 @@ def _migration_018_web_cache_chunks(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_019_library_domain(conn: sqlite3.Connection) -> None:
+    try:
+        conn.execute("ALTER TABLE library_items ADD COLUMN domain TEXT NOT NULL DEFAULT '';")
+    except Exception:
+        pass
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_library_items_domain "
+        "ON library_items(domain, updated_at DESC);"
+    )
+
+
 MIGRATIONS: Sequence[Migration] = (
     Migration(version=1, name="baseline_app_meta", apply=_migration_001_baseline),
     Migration(version=2, name="lessons_table", apply=_migration_002_lessons),
@@ -499,6 +510,7 @@ MIGRATIONS: Sequence[Migration] = (
     Migration(version=16, name="bot_user_mappings_table", apply=_migration_016_bot_user_mappings),
     Migration(version=17, name="library_tables", apply=_migration_017_library_tables),
     Migration(version=18, name="web_cache_chunks", apply=_migration_018_web_cache_chunks),
+    Migration(version=19, name="library_domain_column", apply=_migration_019_library_domain),
 )
 
 

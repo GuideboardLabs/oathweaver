@@ -18,7 +18,7 @@
     "qwen3:30b-a3b-q4_K_M"
   ],
 
-  "reynard_layer": {
+  "chat_layer": {
     "purpose": "User-facing messenger layer above the internal orchestrator",
     "provider": "ollama",
     "model": "qwen3:8b",

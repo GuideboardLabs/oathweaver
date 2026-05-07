@@ -11,7 +11,8 @@ from .identity import (
 from .manifesto import (
     load_manifesto_text,
     manifesto_principles_block,
-    oathweaver_persona_block,
+    overseer_persona_block,
+    weaver_persona_block,
     oathweaver_identity_reply,
 )
 
@@ -24,6 +25,7 @@ __all__ = [
     "is_oathweaver_self_query",
     "load_manifesto_text",
     "manifesto_principles_block",
-    "oathweaver_persona_block",
+    "overseer_persona_block",
+    "weaver_persona_block",
     "oathweaver_identity_reply",
 ]

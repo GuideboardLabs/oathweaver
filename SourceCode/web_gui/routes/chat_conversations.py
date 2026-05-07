@@ -110,7 +110,7 @@ def register_conversation_routes(bp: Blueprint, ctx: AppContext) -> None:
         profile = ctx.require_profile()
         store = ctx.conversation_store_for(profile)
         payload = request.get_json(silent=True) or {}
-        title = str(payload.get("title", "New Chat"))
+        title = str(payload.get("title", "New Thread"))
         kind = str(payload.get("kind", "")).strip().lower()
         topic_id = str(payload.get("topic_id", "")).strip()
         project = _normalize_project_slug(payload.get("project")) if "project" in payload else GENERAL_PROJECT
@@ -119,8 +119,8 @@ def register_conversation_routes(bp: Blueprint, ctx: AppContext) -> None:
             topic_id = "general"
         if not topic_id and project == GENERAL_PROJECT:
             topic_id = "general"
-        if project == GENERAL_PROJECT and title.strip() == "New Chat" and kind == "general":
-            title = "General Chat"
+        if project == GENERAL_PROJECT and title.strip() in {"New Thread", "New Chat"} and kind == "general":
+            title = "General Thread"
         path = ""
         if topic_id and topic_id != "general" and project != GENERAL_PROJECT:
             path = store._generate_path(project, title)

@@ -240,7 +240,7 @@ class ResearchService:
             sources=sources,
             conflict_summary=web_details.get("conflict_summary", {}),
         )
-        reply = host._reynard_relay(
+        reply = host._weaver_relay(
             user_text=text,
             lane=lane,
             internal_reply=reply,
@@ -456,7 +456,7 @@ class ResearchService:
         if web_note:
             fallback = f"{fallback}\n{web_note}"
         internal_reply = host._orchestrator_finalize(text, lane, out, fallback)
-        reply = host._reynard_relay(
+        reply = host._weaver_relay(
             user_text=text,
             lane=lane,
             internal_reply=internal_reply,

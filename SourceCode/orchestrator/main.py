@@ -83,8 +83,8 @@ from orchestrator.oathweaver.identity import (
 from orchestrator.oathweaver.manifesto import (
     load_manifesto_text as _load_manifesto,
     manifesto_principles_block as _manifesto_principles,
-    reynard_persona_block as _reynard_persona_block,
-    oathweaver_persona_block as _gb_persona_block,
+    weaver_persona_block as _weaver_persona_block,
+    overseer_persona_block as _gb_persona_block,
     oathweaver_identity_reply as _gb_identity_reply,
 )
 from orchestrator.learning import lesson_manager as _lesson_mgr
@@ -1321,14 +1321,14 @@ class OathweaverOrchestrator:
     def _oathweaver_persona_block(self) -> str:
         return _gb_persona_block(self._load_manifesto_text(max_chars=14000))
 
-    def _reynard_persona_block(self) -> str:
-        return _reynard_persona_block(self._load_manifesto_text(max_chars=14000))
+    def _weaver_persona_block(self) -> str:
+        return _weaver_persona_block(self._load_manifesto_text(max_chars=14000))
 
     def _oathweaver_identity_reply(self) -> str:
         return _gb_identity_reply(self._load_manifesto_text(max_chars=14000))
 
-    def _reynard_layer_config(self) -> dict[str, Any]:
-        cfg = lane_model_config(self.repo_root, "reynard_layer")
+    def _chat_layer_config(self) -> dict[str, Any]:
+        cfg = lane_model_config(self.repo_root, "chat_layer")
         if cfg:
             return cfg
         return lane_model_config(self.repo_root, "conversation_layer")
@@ -1618,6 +1618,37 @@ class OathweaverOrchestrator:
         self._project_research_brief_cache[cache_key] = dict(payload)
         return payload
 
+    def _reply_to_research_summary_context(
+        self,
+        reply_to: dict[str, Any] | None,
+        *,
+        max_chars: int = 4000,
+    ) -> str:
+        if not isinstance(reply_to, dict):
+            return ""
+        role = str(reply_to.get("role", "")).strip().lower()
+        mode = str(reply_to.get("mode", "")).strip().lower()
+        if role != "assistant":
+            return ""
+        if mode not in {"command", "forage", "research"}:
+            return ""
+        summary_path = str(reply_to.get("summary_path", "")).strip()
+        if not summary_path:
+            return ""
+        summary_text, _mtime = self._read_activity_text(summary_path, max_chars=max_chars)
+        if not summary_text:
+            return ""
+        display_path = summary_path
+        try:
+            display_path = str(Path(summary_path).relative_to(self.repo_root))
+        except Exception:
+            pass
+        return (
+            "Research summary tied to the replied-to message:\n"
+            f"Path: {display_path}\n"
+            f"{summary_text}"
+        ).strip()
+
     def _project_make_brief(
         self,
         project_slug: str,
@@ -1765,7 +1796,7 @@ class OathweaverOrchestrator:
 
     @staticmethod
     def _is_casual_conversation_turn(text: str) -> bool:
-        """Return True for ordinary back-and-forth that should stay with Reynard."""
+        """Return True for ordinary back-and-forth that should stay with weaver layer."""
         clean = " ".join(str(text or "").strip().lower().split())
         if not clean:
             return False
@@ -1794,14 +1825,21 @@ class OathweaverOrchestrator:
         progress_callback=None,
         details_sink: dict[str, Any] | None = None,
         cancel_checker=None,
+        topic_context: str = "",
+        reply_to: dict[str, Any] | None = None,
     ) -> str:
-        cfg = self._reynard_layer_config()
+        cfg = self._chat_layer_config()
         model = cfg.get("model", "")
         if not model:
-            return "No reynard_layer model configured."
+            return "No chat layer model configured."
         incoming_text = str(text or "").strip()
         normalized_text = self._strip_oathweaver_vocative_prefix(incoming_text)
         text = normalized_text or incoming_text
+        reply_target = dict(reply_to) if isinstance(reply_to, dict) else {}
+        reply_target_content = str(
+            reply_target.get("content", "") or reply_target.get("excerpt", "")
+        ).strip()
+        has_reply_target = bool(reply_target_content)
         project_slug = (project or self.project_slug or "").strip() or "general"
         if self._is_oathweaver_self_query(incoming_text):
             return self._oathweaver_identity_reply()
@@ -1828,10 +1866,11 @@ class OathweaverOrchestrator:
             return self._append_daymarker_note(event_note, reminder_note)
 
         # ── Lightweight social path: skip heavy context for short acknowledgments ──
-        if self._is_lightweight_social(text):
+        # Skip when topic_context is set — user is asking about their domain.
+        if not topic_context.strip() and not has_reply_target and self._is_lightweight_social(text):
             prior_messages = history[-24:] if isinstance(history, list) else []
             _social_sys = (
-                (persona_override or self._reynard_persona_block())
+                (persona_override or self._weaver_persona_block())
                 + "\n\nThis is ordinary conversation. Reply naturally, keep it light, and don't over-explain."
             )
             try:
@@ -1852,10 +1891,10 @@ class OathweaverOrchestrator:
             except Exception:
                 return ""
 
-        if self._is_casual_conversation_turn(text) and not self._is_recency_sensitive(text) and not self._is_evolving_topic(text):
+        if not topic_context.strip() and not has_reply_target and self._is_casual_conversation_turn(text) and not self._is_recency_sensitive(text) and not self._is_evolving_topic(text):
             prior_messages = history[-24:] if isinstance(history, list) else []
             _casual_sys = (
-                (persona_override or self._reynard_persona_block())
+                (persona_override or self._weaver_persona_block())
                 + "\n\nThis is ordinary conversation, not a work handoff. "
                 "Answer directly in a relaxed, natural voice. "
                 "No tool-talk, no project-manager phrasing, and no unnecessary scaffolding."
@@ -1897,51 +1936,15 @@ class OathweaverOrchestrator:
         must_verify_live = self._requires_live_verification(live_query_text, web_topic_type)
         if must_verify_live:
             recency_sensitive = True
-        # Context gate: for keyword-triggered (non-forced) web paths, verify the routing
-        # makes sense given the full conversation — suppresses false positives like "source"
-        # used to mean "source of the problem" rather than "fetch web sources".
-        _web_gate_cleared = True
-        if not must_verify_live and self._should_offer_web(text, "project"):
-            _trigger_reason = (
-                "recency_sensitive" if recency_sensitive
-                else "evolving_topic" if evolving_topic
-                else "factual_lookup"
-            )
-            if recency_sensitive:
-                try:
-                    from orchestrator.services.chat_routing_gate import first_force_web_match
-                    matched_phrase = str(first_force_web_match(text) or "").strip()
-                    if matched_phrase:
-                        _trigger_reason = f"recency_phrase:{matched_phrase[:80]}"
-                except Exception:
-                    pass
-            _web_gate_cleared = self._routing_context_gate(text, prior_messages, trigger_reason=_trigger_reason)
+        # Basic chat must never auto-trigger live web research. We rely on
+        # model freshness notes + [FORAGE] hints so the user can choose Dig Deeper.
         web_note = ""
         web_context = ""
         web_details: dict[str, Any] = {}
-        if _web_gate_cleared:
-            try:
-                # Talk mode stays conversational, but recency/source-sensitive prompts
-                # can still get live web grounding before final response generation.
-                web_note, web_context, web_details = self._prepare_web_context(
-                    text=live_query_text if must_verify_live else text,
-                    lane="project",
-                    topic_type=web_topic_type,
-                    force=must_verify_live,
-                    quick=True,
-                    progress_callback=progress_callback,
-                )
-            except Exception:
-                pass
         if isinstance(details_sink, dict):
             details_sink["web_note"] = web_note
             details_sink["web_context"] = web_context
-            details_sink["web_details"] = web_details if isinstance(web_details, dict) else {}
-        if isinstance(web_details, dict) and web_details.get("requested") and callable(progress_callback):
-            try:
-                progress_callback("web_stack_ready", build_web_progress_payload(web_details))
-            except Exception:
-                pass
+            details_sink["web_details"] = {}
         if callable(cancel_checker):
             try:
                 if bool(cancel_checker()):
@@ -1953,10 +1956,24 @@ class OathweaverOrchestrator:
             household_chars=1100,
         )
         # ── user_prompt: inject web context with mode-appropriate framing ──
-        user_prompt = text
+        reply_role = str(reply_target.get("role", "assistant")).strip().lower() or "assistant"
+        reply_excerpt = self._clip_prompt_text(
+            reply_target.get("content", "") or reply_target.get("excerpt", ""),
+            2200,
+        )
+        if reply_excerpt:
+            user_prompt_base = (
+                f"[Replying to a previous {reply_role} message in this thread:]\n"
+                f"\"{reply_excerpt}\"\n\n"
+                "User's follow-up:\n"
+                f"{text}"
+            )
+        else:
+            user_prompt_base = text
+        user_prompt = user_prompt_base
         if must_verify_live and web_context.strip():
             user_prompt = (
-                f"{text}\n\n"
+                f"{user_prompt_base}\n\n"
                 "Live verification context:\n"
                 f"{web_context.strip()}\n\n"
                 "Use the live context above for all current facts. "
@@ -1966,7 +1983,7 @@ class OathweaverOrchestrator:
         elif evolving_topic and web_context.strip():
             # Mode B: Evolving Knowledge — blend training + web
             user_prompt = (
-                f"{text}\n\n"
+                f"{user_prompt_base}\n\n"
                 "Supplementary web context for freshness check:\n"
                 f"{web_context.strip()}\n\n"
                 "Answer this question from your own knowledge first. Then review the web context above "
@@ -1978,7 +1995,7 @@ class OathweaverOrchestrator:
         elif web_context.strip():
             # Mode A: Current Events — web replaces training
             user_prompt = (
-                f"{text}\n\n"
+                f"{user_prompt_base}\n\n"
                 "Live web context (extract news events/stories from this, not website descriptions):\n"
                 f"{web_context.strip()}\n\n"
                 "Report actual events and headlines found above. If the scraped text is only site navigation "
@@ -1987,28 +2004,26 @@ class OathweaverOrchestrator:
         elif evolving_topic:
             # Evolving topic but no web context arrived
             user_prompt = (
-                f"{text}\n\n"
-                "[System note: This question involves information that may change over time. "
-                "No live web source was retrieved. Answer from your training knowledge but note "
-                "your training cutoff (e.g. 'as of my last update...'). "
-                "Offer to run a live search to verify the answer is still current.]"
+                f"{user_prompt_base}\n\n"
+                "[System note: This topic evolves over time. Answer from training knowledge, clearly note your knowledge cutoff, "
+                "and include a short freshness note that newer sources may change details. "
+                "If confidence is limited, append one [FORAGE: \"...\"] hint so the UI can offer Dig Deeper.]"
             )
         elif must_verify_live:
-            response = (
-                "I can't verify that current information reliably from training data alone, so I won't guess.\n\n"
-                "I need live web sources to answer that safely. If you want, I can run a live forage/search and give you a sourced answer."
+            user_prompt = (
+                f"{user_prompt_base}\n\n"
+                "[System note: This request is likely recency-sensitive. Do not auto-browse. "
+                "Answer from your current knowledge with a clear cutoff caveat and add a brief note that fresh sources may be needed. "
+                "When appropriate, append one [FORAGE: \"...\"] hint so the UI can offer Dig Deeper.]"
             )
-            response = self._append_daymarker_note(response, web_note)
-            response = self._append_daymarker_note(response, event_note)
-            return self._append_daymarker_note(response, reminder_note)
         elif recency_sensitive:
             user_prompt = (
-                f"{text}\n\n"
-                "[System note: No live web source was retrieved for this query. "
+                f"{user_prompt_base}\n\n"
+                "[System note: Basic chat does not auto-retrieve live sources. "
                 "You may share what you know from training data, but frame it as knowledge from your training period "
                 "(e.g. 'as of early 2025...' or 'last I knew...'). "
                 "NEVER call this information 'fictional' — it is real but may be outdated. "
-                "After answering, briefly offer to run a live search for current information.]"
+                "Add one concise note that fresh sources may be needed.]"
             )
         # ── RECENCY / FRESHNESS rule injected into system prompt ──
         if must_verify_live and web_context.strip():
@@ -2068,15 +2083,20 @@ class OathweaverOrchestrator:
             pass
         _library_ctx = ""
         try:
+            _conv_mode = self.pipeline_store.get(project_slug) or {}
+            _conv_domain = str(_conv_mode.get("topic_type", "")).strip().lower()
             _library_ctx = self.library_service.context_text(
                 text,
                 project_slug=project_slug,
-                limit=2,
+                topic_id=str(_conv_mode.get("topic_id", "")).strip(),
+                domain=_conv_domain,
+                limit=5,
             )
         except Exception:
             pass
         _project_research_ctx = ""
         _project_research_raw_ctx = ""
+        _reply_research_ctx = ""
         try:
             research_bundle = self._project_research_brief(
                 project_slug,
@@ -2096,6 +2116,10 @@ class OathweaverOrchestrator:
                         f"Raw research excerpts for project {project_slug}:\n"
                         + "\n".join(raw_lines)
                     )
+            _reply_research_ctx = self._reply_to_research_summary_context(
+                reply_target,
+                max_chars=4000,
+            )
         except Exception:
             pass
         _project_make_ctx = ""
@@ -2122,7 +2146,7 @@ class OathweaverOrchestrator:
         # ── Tiered system prompt: core always, extended only for substantive turns ──
         _has_injected_context = bool(
             household_context.strip() or web_context.strip() or _recency_rule or _library_ctx.strip()
-            or _project_research_ctx.strip() or _project_research_raw_ctx.strip() or _project_make_ctx.strip()
+            or _project_research_ctx.strip() or _project_research_raw_ctx.strip() or _reply_research_ctx.strip() or _project_make_ctx.strip()
         )
         _is_short_query = len(text.split()) < 10
 
@@ -2131,6 +2155,7 @@ class OathweaverOrchestrator:
             "This is a normal back-and-forth. Answer directly and keep the exchange conversational. "
             "Stay with the user instead of drifting into project-manager mode unless they actually ask for work, planning, or research. "
             "Use prior chat only when it genuinely helps. Do not force callbacks or pretend to remember specifics you do not have. "
+            "Identify yourself as part of the Oathweaver weaver layer, never as a base model name like Qwen or DeepSeek. "
             "No canned disclaimers. No 'as an AI' framing. "
         )
         if _is_short_query and not _has_injected_context:
@@ -2177,6 +2202,12 @@ class OathweaverOrchestrator:
                 "or when no concrete action was mentioned by the user. "
                 "Use ADD_ROUTINE only when the user explicitly says something recurs on a schedule — never for one-time events."
             )
+        if has_reply_target:
+            _talk_sys = (
+                f"{_talk_sys}\n\n"
+                "Reply-target rule: The user is replying to a specific earlier message shown with their prompt. "
+                "Address that exact message content first, even if it falls outside the recent history window."
+            )
         # Build system prompt top-to-bottom: instructions first, time-sensitive context last.
         # This gives primacy attention to the persona/task definition and recency attention
         # to the watchtower research card context (which contains the most time-sensitive facts).
@@ -2192,7 +2223,11 @@ class OathweaverOrchestrator:
         except Exception:
             _stack_caps = ""
         _briefing_ctx = self._watchtower_context_for_query()
-        _sys_parts = [(persona_override or self._reynard_persona_block()) + "\n\n" + _talk_sys]
+        _sys_parts = [(persona_override or self._weaver_persona_block()) + "\n\n" + _talk_sys]
+        if topic_context.strip():
+            _sys_parts.append(topic_context.strip())
+        if _reply_research_ctx:
+            _sys_parts.append(_reply_research_ctx)
         if _stack_caps:
             _sys_parts.append(_stack_caps)
         if context_guidance:
@@ -2477,7 +2512,7 @@ class OathweaverOrchestrator:
                 compact["web_details"] = web_compact
         return compact
 
-    def _reynard_relay(
+    def _weaver_relay(
         self,
         *,
         user_text: str,
@@ -2486,7 +2521,7 @@ class OathweaverOrchestrator:
         worker_result: dict[str, Any] | None = None,
         topic_type: str = "general",
     ) -> str:
-        cfg = self._reynard_layer_config()
+        cfg = self._chat_layer_config()
         model = str(cfg.get("model", "")).strip()
         if not model:
             return internal_reply
@@ -2497,10 +2532,10 @@ class OathweaverOrchestrator:
             fallback_models = ["huihui_ai/qwen3-abliterated:8b-Q4_K_M"]
 
         system_prompt = (
-            self._reynard_persona_block()
+            self._weaver_persona_block()
             + "\n\n"
             + "You are relaying internal Oathweaver work back to the user. "
-            "Translate the internal summary into natural language in Reynard's voice. "
+            "Translate the internal summary into natural language in weaver layer's voice. "
             "Stay faithful to the internal summary and worker result. Do not invent outcomes, paths, or evidence. "
             "Do not claim you personally executed tools or worker jobs. "
             "If something failed or is partial, say so plainly. "
@@ -3896,6 +3931,8 @@ class OathweaverOrchestrator:
         force_make: bool = False,
         thread_id: str = "",
         details_sink: dict[str, Any] | None = None,
+        topic_context: str = "",
+        reply_to: dict[str, Any] | None = None,
     ) -> str:
         self.bus.emit("orchestrator", "message_received", {"project": self.project_slug})
         incoming_text = str(text or "").strip()
@@ -3982,6 +4019,8 @@ class OathweaverOrchestrator:
                 )
         self._maybe_auto_refresh_project_facts(history)
         project_context = self.project_memory.summary_text(self.project_slug, limit_chars=2600)
+        if topic_context.strip():
+            project_context = (topic_context.strip() + "\n\n" + project_context).strip()
         _context_analysis, household_context, context_guidance = self._context_bundle_for_query(
             text,
             household_chars=1300,
@@ -3994,7 +4033,15 @@ class OathweaverOrchestrator:
         if retrieved_context:
             project_context = (project_context + "\n\n" + retrieved_context).strip()
         try:
-            library_context = self.library_service.context_text(text, project_slug=self.project_slug, limit=2)
+            _active_mode = self.pipeline_store.get(self.project_slug) or {}
+            _active_domain = str(_active_mode.get("topic_type", "")).strip().lower()
+            library_context = self.library_service.context_text(
+                text,
+                project_slug=self.project_slug,
+                topic_id=str(_active_mode.get("topic_id", "")).strip(),
+                domain=_active_domain,
+                limit=5,
+            )
             if library_context:
                 project_context = (project_context + "\n\n" + library_context).strip()
         except Exception:
@@ -4031,7 +4078,12 @@ class OathweaverOrchestrator:
                         return reply
                 except Exception:
                     pass
-            return self.conversation_reply(text, history=history, project=self.project_slug)
+            return self.conversation_reply(
+                text,
+                history=history,
+                project=self.project_slug,
+                reply_to=reply_to,
+            )
 
         pipeline = project_mode if isinstance(project_mode, dict) else self.pipeline_store.get(self.project_slug)
         mode = str(pipeline.get("mode", "discovery")).strip().lower() or "discovery"
@@ -4166,7 +4218,12 @@ class OathweaverOrchestrator:
                         "turn_graph_fallback",
                         {"project": self.project_slug, "error": str(exc)[:220]},
                     )
-            return self.conversation_reply(text, history=history, project=self.project_slug)
+            return self.conversation_reply(
+                text,
+                history=history,
+                project=self.project_slug,
+                reply_to=reply_to,
+            )
 
         if lane == "research":
             if force_research:
@@ -4216,7 +4273,7 @@ class OathweaverOrchestrator:
             )
             fallback = f"{out.get('message', 'UI lane completed.')} Output: {out.get('path', '')}"
             internal_reply = self._orchestrator_finalize(text, lane, out, fallback, topic_type=topic_type)
-            reply = self._reynard_relay(
+            reply = self._weaver_relay(
                 user_text=text,
                 lane=lane,
                 internal_reply=internal_reply,

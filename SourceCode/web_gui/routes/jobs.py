@@ -49,7 +49,7 @@ def create_jobs_blueprint(ctx: AppContext) -> Blueprint:
             "summary_path": str(row.get("summary_path", "")).strip(),
             "raw_path": str(row.get("raw_path", "")).strip(),
             "web_stack": row.get("web_stack", {}) if isinstance(row.get("web_stack"), dict) else {},
-            "events": list(row.get("events", []))[-8:] if isinstance(row.get("events", []), list) else [],
+            "events": list(row.get("events", []))[-24:] if isinstance(row.get("events", []), list) else [],
             "live_sources": list(row.get("live_sources", []))[-8:] if isinstance(row.get("live_sources", []), list) else [],
             "agent_tracker": row.get("agent_tracker") if isinstance(row.get("agent_tracker"), dict) else None,
         }

@@ -16,7 +16,7 @@ class OrchestratorPersonaTests(unittest.TestCase):
         self.orch._manifesto_cache_text = ""
 
     def test_strip_alias_prefix_for_vocative_address(self) -> None:
-        text = self.orch._strip_oathweaver_vocative_prefix("Reynard, add a reminder for tomorrow")
+        text = self.orch._strip_oathweaver_vocative_prefix("Weaver, add a reminder for tomorrow")
         self.assertEqual(text, "add a reminder for tomorrow")
 
     def test_strip_oathweaver_prefix_for_vocative_address(self) -> None:
@@ -29,19 +29,20 @@ class OrchestratorPersonaTests(unittest.TestCase):
 
     def test_detects_self_query_with_alias(self) -> None:
         self.assertTrue(self.orch._is_oathweaver_self_query("Oathweaver, what is your tech stack?"))
-        self.assertTrue(self.orch._is_oathweaver_self_query("GB who are you?"))
+        self.assertTrue(self.orch._is_oathweaver_self_query("Weaver, who are you?"))
         self.assertFalse(self.orch._is_oathweaver_self_query("Oathweaver set a task for tomorrow"))
 
     def test_identity_reply_contains_alias_and_origin(self) -> None:
         reply = self.orch._oathweaver_identity_reply().lower()
         self.assertIn("oathweaver", reply)
-        self.assertIn("reynard", reply)
+        self.assertIn("weaver", reply)
+        self.assertIn("overseer", reply)
         self.assertIn("seth canfield", reply)
         self.assertIn("elma", reply)
 
     def test_persona_block_includes_manifesto_principles(self) -> None:
         persona = self.orch._oathweaver_persona_block().lower()
-        self.assertIn("fredrick", persona)
+        self.assertIn("overseer", persona)
         self.assertIn("orchestration", persona)
         self.assertNotIn("dark humor", persona)
         if self.orch.manifesto_path.exists():

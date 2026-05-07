@@ -62,6 +62,13 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise RuntimeError("Ollama returned non-JSON response") from exc
 
+    _REASONING_PREFIXES = ("deepseek-r1", "qwen3")
+
+    @staticmethod
+    def _is_reasoning_model(model_name: str) -> bool:
+        low = str(model_name or "").strip().lower().split(":")[0].split("/")[-1]
+        return any(low.startswith(p) for p in OllamaClient._REASONING_PREFIXES)
+
     def chat(
         self,
         model: str,
@@ -131,8 +138,11 @@ class OllamaClient:
                     "num_predict": predict,
                 },
             }
-            if think is not None:
-                payload["think"] = think
+            effective_think = think
+            if self._is_reasoning_model(model_name):
+                effective_think = True
+            if effective_think is not None:
+                payload["think"] = effective_think
 
             for attempt in range(1, attempts + 1):
                 try:

@@ -26,21 +26,24 @@
                     <div class="sidebar-title-wrap">
                         <h1>Oathweaver</h1>
                     </div>
+                    <button class="sidebar-hide-btn" type="button" title="Hide sidebar" @click="toggleSidebar" aria-label="Hide sidebar">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                    </button>
                 </div>
 
                 <div class="new-chat-actions">
-                    <button class="new-chat-btn new-general-btn" type="button" @click="beginProjectCreation()">+ Project</button>
+                    <button class="new-chat-btn new-general-btn" type="button" @click="beginProjectCreation()">Create Thread</button>
                 </div>
 
                 <section class="sidebar-chat-lane">
                     <header class="sidebar-section-head">
-                        <h2>Chats</h2>
+                        <h2>Threads</h2>
                         <span class="sidebar-section-count" v-if="conversations.length">[[ conversations.length ]]</span>
                     </header>
                     <div class="conversation-list">
                         <article v-for="conv in conversations" :key="conv.id" class="conv-item" :class="{ active: conv.id === activeConversationId }">
                             <button type="button" class="conv-open-btn" @click="openConversation(conv.id)">
-                  <h3 class="conv-title">[[ conv.title || 'New Chat' ]]</h3>
+                  <h3 class="conv-title">[[ conv.title || (conv.project && conv.project !== 'general' ? conv.project.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'New Thread') ]]</h3>
                   <span class="panel-badge" v-if="conv.id !== activeConversationId && panelBadgeValue(conv.unread_count)">[[ panelBadgeValue(conv.unread_count) ]]</span>
                   <div v-if="normalizeProjectSlug(conv.project || 'general') !== 'general'" class="conv-meta-row">
                     <span class="conv-project-badge topic-type-badge" :class="'is-' + conversationTopicType(conv)">[[ conversationProjectTagText(conv) ]]</span>
@@ -62,37 +65,15 @@
                     </div>
                     <div class="sidebar-dock-grid-wrap">
                         <div class="panel-grid">
-                            <button class="panel-btn panel-btn-pending" type="button" @click="openPendingActions">
+                            <button class="panel-btn panel-btn-growth" type="button" @click="openGrowthPanel">
               <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-postbag" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h12a2.5 2.5 0 0 1 2.5 2.5v9A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5v-9zm2.2-.5a.7.7 0 0 0-.7.7v.22l6.48 4.53a1.5 1.5 0 0 0 1.72 0L19.7 7.92V7.7a.7.7 0 0 0-.7-.7h-13.3zm14 2.76-5.45 3.82a3 3 0 0 1-3.44 0L5.3 9.76v6.74c0 .39.31.7.7.7h13c.39 0 .7-.31.7-.7V9.76z"/></svg>
+                <span class="junction-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" focusable="false"><path d="M17 8C8 10 5.9 16.17 3.82 21h1.89l1-2.3A4.49 4.49 0 0 0 8 19c8 0 10-8 10-8s-2 1-4 0c2 0 4-1 5-3-1 1-3 2-5 2 0-2 1-4 3-5z"/></svg>
                 </span>
-                <span class="panel-btn-label">Postbag</span>
+                <span class="panel-btn-label">Growth</span>
               </span>
-              <span class="panel-badge" v-if="panelBadgeValue(panelStatus.pending_actions)">
-                [[ panelBadgeValue(panelStatus.pending_actions) ]]
-              </span>
-            </button>
-                            <button class="panel-btn panel-btn-reflections" type="button" @click="openSystemPanel('reflections')">
-              <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-reflections" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M12 3.5a8.5 8.5 0 0 1 6.77 13.64l1.48 2.86-3.35-.83A8.5 8.5 0 1 1 12 3.5zm-.34 4.1c-2.09 0-3.66 1.3-3.66 3.02 0 1.23.73 2.17 1.93 2.7l-.71 2.17 2.39-1.47c.17.02.34.03.5.03 2.08 0 3.65-1.3 3.65-3.02S14.18 7.6 12.1 7.6h-.44z"/></svg>
-                </span>
-                <span class="panel-btn-label">Reflections</span>
-              </span>
-              <span class="panel-badge" v-if="panelBadgeValue(reflectionsUnreadCount)">
-                [[ panelBadgeValue(reflectionsUnreadCount) ]]
-              </span>
-            </button>
-                            <button class="panel-btn panel-btn-lessons" :class="{ 'is-unread': lessonsUnreadCount > 0 }" type="button" @click="openSystemPanel('lessons')">
-              <span class="panel-btn-main">
-                <span class="junction-icon junction-icon-guideposts" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" focusable="false"><path d="M8 3h8l3 4-3 4H8V3zm0 10h8l3 4-3 4H8v-8zM5 2h2v20H5z"/></svg>
-                </span>
-                <span class="panel-btn-label">Guidance</span>
-              </span>
-              <span class="panel-badge" v-if="panelBadgeValue(lessonsUnreadCount)">
-                [[ panelBadgeValue(lessonsUnreadCount) ]]
+              <span class="panel-badge" v-if="panelBadgeValue(growthPanelBadgeCount)">
+                [[ panelBadgeValue(growthPanelBadgeCount) ]]
               </span>
             </button>
                             <button class="panel-btn panel-btn-projects" type="button" @click="openSystemPanel('topics')">
@@ -100,7 +81,7 @@
                 <span class="junction-icon junction-icon-fieldbook" aria-hidden="true">
                   <svg viewBox="0 0 24 24" focusable="false"><path d="M6 4.5A2.5 2.5 0 0 1 8.5 2H18v18h-9.5A2.5 2.5 0 0 0 6 22V4.5zm12 13.7V3.8H8.5A.7.7 0 0 0 7.8 4.5v14.13c.24-.07.47-.1.7-.1H18zM9.8 7h5.8v1.7H9.8V7zm0 3.4h5.8v1.7H9.8v-1.7zm0 3.4h4.2v1.7H9.8v-1.7z"/></svg>
                 </span>
-                <span class="panel-btn-label">Domains</span>
+                <span class="panel-btn-label">Topics</span>
               </span>
               <span class="panel-badge" v-if="panelBadgeValue(panelStatus.topics_with_research)">
                 [[ panelBadgeValue(panelStatus.topics_with_research) ]]
@@ -155,15 +136,9 @@
 
             <main class="chat-main">
                 <section class="home-view app-view" :hidden="activeApp !== 'home'">
+                    <canvas ref="homeBlobCanvas" class="view-blob-canvas" aria-hidden="true"></canvas>
                     <section class="home-hero">
                         <div class="home-hero-left">
-                            <div class="home-hero-top">
-                                <button class="menu-toggle home-menu-toggle" type="button" aria-label="Open conversation menu" @click="toggleSidebar">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </button>
-                            </div>
                             <h1>Hello, [[ homeGreetingName ]]</h1>
                             <p class="home-hero-phrase">[[ homePhrase ]]</p>
                         </div>
@@ -175,6 +150,8 @@
                                 aria-label="Toggle weather panel"
                                 @click="toggleHomeWeatherExpanded"
                             >
+                                <span class="home-weather-chip-time">[[ homeCurrentTime ]]</span>
+                                <span class="home-weather-chip-sep">·</span>
                                 <span class="home-weather-chip-emoji">[[ homeWeatherEmoji ]]</span>
                                 <span class="home-weather-chip-temp">[[ homeWeatherCompactTemp ]]</span>
                                 <span class="home-weather-chip-label">Weather</span>
@@ -225,47 +202,53 @@
                     </section>
 
                     <section class="home-grid">
+                        <!-- Last conversation resume -->
+                        <div class="home-resume" v-if="homeLastConversation" @click="openLastConversationFromHome">
+                            <div class="home-resume-left">
+                                <span class="home-resume-label">Resume</span>
+                                <span class="home-resume-title">[[ homeLastConversation.title || (homeLastConversation.project && homeLastConversation.project !== 'general' ? homeLastConversation.project.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Last Conversation') ]]</span>
+                            </div>
+                            <span class="home-resume-time">[[ homeLastConversationUpdatedLabel ]]</span>
+                        </div>
+                        <div class="home-resume home-resume-empty" v-else @click="beginProjectCreation()">
+                            <span class="home-resume-label">Start</span>
+                            <span class="home-resume-title">Create your first thread</span>
+                        </div>
 
-                        <section class="home-row">
-                            <article class="home-card home-last-card">
-                                <header class="home-card-head">
-                                    <h3>Where You Left Off</h3>
-                                    <p>Last conversation activity.</p>
-                                </header>
-                                <div v-if="homeLastConversation" class="home-last-body">
-                                    <h4>[[ homeLastConversation.title || 'New Chat' ]]</h4>
-                                    <p>[[ homeLastConversation.last_preview || 'No recent message preview yet.' ]]</p>
-                                    <div class="home-last-meta">[[ homeLastConversationUpdatedLabel ]]</div>
-                                    <button class="home-last-open-btn" type="button" @click="openLastConversationFromHome">Resume Conversation</button>
+                        <!-- Domains list ordered by last used -->
+                        <div class="home-domains" v-if="homeSortedTopics.length">
+                            <div class="home-domains-head">Topics</div>
+                            <div class="home-domain-item"
+                                v-for="topic in homeSortedTopics"
+                                :key="topic.id"
+                                :class="{ 'is-active': activeTopicId === topic.id }"
+                                @click="confirmTopicSelection(topic)"
+                            >
+                                <span class="topic-type-badge" :class="'is-' + topic.type">[[ topicTypeLabel(topic.type) ]]</span>
+                                <div class="home-domain-main">
+                                    <span class="home-domain-name">[[ topic.name ]]</span>
+                                    <span class="home-domain-meta">[[ formatLastActiveLabel(topic.last_research || topic.updated_at || topic.created_at) ]]</span>
                                 </div>
-                                <div v-else class="home-last-body">
-                                    <h4>No conversations yet</h4>
-                                    <p>Start a new project and pick up from here anytime.</p>
-                                    <button class="home-last-open-btn" type="button" @click="createConversation()">Start Conversation</button>
-                                </div>
-                            </article>
-
-                            <article class="home-card home-chat-card">
-                                <button class="home-chat-launch" type="button" @click="openHomeChat" title="Open chat">
-                  <svg class="home-chat-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M4 5.5c0-1.38 1.12-2.5 2.5-2.5h11c1.38 0 2.5 1.12 2.5 2.5v8c0 1.38-1.12 2.5-2.5 2.5H10l-4.5 4v-4H6.5c-1.38 0-2.5-1.12-2.5-2.5v-8z"></path>
-                  </svg>
-                  <span>Open Chat</span>
-                </button>
-                            </article>
-
-                        </section>
+                            </div>
+                        </div>
+                        <div class="home-domains home-domains-empty" v-else>
+                            <div class="home-domains-head">Topics</div>
+                            <p class="home-domains-empty-msg">No topics yet. <button type="button" class="home-domains-create-btn" @click.stop="openSystemPanel('topics')">Create one →</button></p>
+                        </div>
                     </section>
                 </section>
 
                 <section class="chat-view app-view" :hidden="activeApp !== 'chat'">
+                    <canvas ref="chatBlobCanvas" class="view-blob-canvas" aria-hidden="true"></canvas>
                     <header class="chat-header">
                         <div class="chat-header-left">
-                            <button class="menu-toggle" type="button" aria-label="Open conversation menu" @click="toggleSidebar">
+                            <span class="mobile-only-btn">
+                                <button class="menu-toggle" type="button" aria-label="Open conversation menu" @click="toggleSidebar">
                 <span></span>
                 <span></span>
                 <span></span>
               </button>
+                            </span>
                         </div>
                         <div class="chat-header-right">
                             <div v-show="inputMode === 'make'" class="make-type-picker-wrap">
@@ -305,19 +288,18 @@
                                 <button class="chat-menu-btn" type="button" aria-label="Conversation actions" title="Conversation actions" @click="chatMenuOpen = !chatMenuOpen">...</button>
                                 <div class="chat-menu" :aria-hidden="chatMenuOpen ? 'false' : 'true'">
                                     <button class="chat-menu-item" type="button" @click="renameConversation">Rename Conversation</button>
-                                    <button class="chat-menu-item" type="button" @click="openProjectPickerModal">[[ activeConversationIsProject ? 'Change Project' : 'Assign Project' ]]</button>
+                                    <button class="chat-menu-item" type="button" @click="openProjectPickerModal">[[ activeConversationIsProject ? 'Change Topic' : 'Assign Topic' ]]</button>
                                     <button v-if="activeConversationIsProject" class="chat-menu-item" type="button" @click="openProjectBranchModal">Promote Branch to Project</button>
                                 </div>
                             </div>
                         </div>
                     </header>
 
-                    <section class="chat-project-welcome" v-if="activeConversationIsProject && !activeMessages.length">
-                        <h2>Project: [[ activeConversationProjectSlug ]]</h2>
-                        <p>Welcome to this project chat. Send a message to start.</p>
-                    </section>
-
                     <section id="messages" class="messages" ref="messages" @click="onMessagesClick">
+                        <section class="chat-project-welcome" v-if="activeConversationIsProject && !activeMessages.length">
+                            <h2>Thread: [[ activeConversationProjectSlug ]]</h2>
+                            <p>Welcome to this thread. Send a message to start.</p>
+                        </section>
                         <template v-for="(msg, idx) in activeMessagesWithDividers" :key="msg._isDayMarker ? ('day-' + msg.day) : (msg.id || msg.ts || idx)">
             <div v-if="msg._isDayMarker" class="msg-day-divider"><span>[[ msg.day ]]</span></div>
             <article
@@ -431,16 +413,21 @@
                   v-for="(action, actionIdx) in assistantMessageActions(msg)"
                   :key="`${msg.id || msg.ts || idx}:${action.kind}:${action.id || ''}:${actionIdx}`"
                   class="msg-action-btn"
-                  :class="`is-${action.style || 'subtle'}`"
+                  :class="[ `is-${action.style || 'subtle'}`, { 'is-selected': !!action.selected } ]"
                   type="button"
                   :disabled="isMessageActionBusy(msg, action) || action.completed"
+                  :title="action.title || action.label || ''"
+                  :aria-label="action.title || action.label || 'Message action'"
                   @click.stop="runAssistantAction(msg, action)"
                 >
                   <template v-if="!isMessageActionBusy(msg, action)">
                     <svg v-if="action.icon === 'reply'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
                     <svg v-else-if="action.icon === 'check'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
                     <svg v-else-if="action.icon === 'x'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
-                    [[ action.label ]]
+                    <svg v-else-if="action.icon === 'search'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15.5 14h-.79l-.28-.27A6.5 6.5 0 1 0 14 15.5l.27.28v.79L20 22l2-2-6.5-6zM10 15a5 5 0 1 1 0-10 5 5 0 0 1 0 10z"/></svg>
+                    <svg v-else-if="action.icon === 'thumb_up'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path v-if="action.selected" d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13 1 6.59 7.41C6.22 7.78 6 8.3 6 8.83V19c0 1.1.9 2 2 2h8c.82 0 1.52-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/><path v-else d="M2 21h4V9H2v12zm20-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L13 1 6.59 7.41C6.22 7.78 6 8.3 6 8.83V19c0 1.1.9 2 2 2h8c.82 0 1.52-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+                    <svg v-else-if="action.icon === 'thumb_down'" class="msg-action-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path v-if="action.selected" d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L11 23l6.41-6.41c.37-.37.59-.89.59-1.42V5c0-1.1-.9-2-2-2H8c-.82 0-1.52.5-1.84 1.22L3.14 11.27c-.09.23-.14.47-.14.73v2z"/><path v-else d="M22 3h-4v12h4V3zM2 14c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L11 23l6.41-6.41c.37-.37.59-.89.59-1.42V5c0-1.1-.9-2-2-2H8c-.82 0-1.52.5-1.84 1.22L3.14 11.27c-.09.23-.14.47-.14.73v2z" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>
+                    <span v-if="action.label">[[ action.label ]]</span>
                   </template>
                   <template v-else>...</template>
                 </button>
@@ -464,104 +451,63 @@
                   [[ msgCopiedId === (msg.id || msg.ts) ? '✓' : '⎘' ]]
                 </button>
               </div>
+              <!-- Completed think stream (collapsed by default) -->
+              <div v-if="msg.role === 'assistant' && msg.request_id && completedThinkStreams[msg.request_id]"
+                   class="think-stream-completed">
+                <button class="think-stream-toggle" type="button" @click.stop="toggleThinkTree(msg.request_id)">
+                  <svg class="think-toggle-caret" :class="{'is-open': expandedThinkTrees[msg.request_id]}" viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                  <span>Completed in [[ completedStreamDurationLabel(msg.request_id) ]]</span>
+                  <span class="think-stream-count">· [[ completedThinkStreams[msg.request_id].events.length ]] steps</span>
+                </button>
+                <div v-if="expandedThinkTrees[msg.request_id]" class="think-stream-body">
+                  <div v-for="(ev, i) in thinkTreeRows(msg.request_id)" :key="`${ev.stage || 'step'}:${ev.ts || ''}:${i}`"
+                       class="think-stream-row think-stream-tree-row"
+                       :class="[{ 'is-error': isErrorEvent(ev), 'is-branch': ev.kind === 'branch' }, `depth-${ev.depth || 0}`]">
+                    <span class="think-row-icon">
+                      <svg v-if="ev.kind === 'branch'" viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><circle cx="12" cy="12" r="4"/></svg>
+                      <svg v-else-if="isErrorEvent(ev)" viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                      <svg v-else viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                    </span>
+                    <span class="think-row-label">[[ labelForEvent(ev) ]]</span>
+                    <span class="think-row-time">[[ relativeEventTime(ev, completedThinkStreams[msg.request_id].events[0]) ]]</span>
+                  </div>
+                </div>
+              </div>
             </article>
             </template>
-                        <article v-if="activeConversationSending && !activeConversationSendingIsForaging" class="msg assistant pending">
-                            <div class="msg-content">
-                                <span class="thinking-loader" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </span>
-                                <span class="foraging-stage-label">
-                                    [[ activeConversationSendingLabel || activeConversationThinkingPhrase ]]
-                                </span>
-                                <span class="thinking-elapsed">
-                                    [[ activeConversationElapsedSec > 0 ? activeConversationElapsedSec + 's' : '' ]]
-                                </span>
-                                <div v-if="activeConversationPendingEvents.length" class="reasoning-flow">
-                                    <div v-for="(ev, i) in activeConversationPendingEvents" :key="ev.ts + i"
-                                         class="reasoning-step" :class="{ 'is-current': i === activeConversationPendingEvents.length - 1 }">
-                                        <span class="reasoning-step-dot"></span>
-                                        <span class="reasoning-step-label">[[ _labelForEvent(ev) ]]</span>
-                                    </div>
-                                </div>
-                                <div v-if="pendingLiveSources[activeConversationId] && pendingLiveSources[activeConversationId].length" class="msg-source-row pending-sources">
-                                    <span class="msg-source-label">Reading</span>
-                                    <div class="msg-source-stack" role="list" aria-label="Live sources being read">
-                                        <a
-                                            v-for="(src, srcIdx) in pendingLiveSources[activeConversationId].slice(0, 6)"
-                                            :key="`live_${src.domain}_${srcIdx}`"
-                                            class="msg-source-bubble live-discovery"
-                                            :style="sourceBubbleStyle(src, srcIdx)"
-                                            :href="src.url || ('https://' + src.domain)"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            :title="src.title || src.domain"
-                                            :aria-label="src.domain || 'Source site'"
-                                            @click.stop
-                                        >
-                                            <span class="msg-source-bubble-letter">[[ src.domain.slice(0,1).toUpperCase() ]]</span>
-                                            <img :src="'https://www.google.com/s2/favicons?sz=64&domain=' + encodeURIComponent(src.domain)" :alt="src.domain" :data-domain="src.domain" loading="lazy" @error="onSourceBubbleIconError" />
-                                        </a>
-                                        <span v-if="pendingLiveSources[activeConversationId].length > 6" class="msg-source-bubble is-more">
-                                            +[[ pendingLiveSources[activeConversationId].length - 6 ]]
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="msg-actions">
+                        <!-- Live think stream (unified for chat + foraging) -->
+                        <article v-if="activeConversationSending" class="msg assistant pending think-stream-live">
+                            <div class="think-stream-header">
+                                <span class="thinking-loader" aria-hidden="true"><span></span><span></span><span></span></span>
+                                <span class="think-stream-status">[[ activeConversationSendingLabel || (activeConversationSendingIsForaging ? activeConversationForagingPhrase : activeConversationThinkingPhrase) ]]</span>
+                                <span class="think-stream-elapsed" v-if="activeConversationElapsedSec > 0">[[ formatDuration(activeConversationElapsedSec) ]]</span>
                                 <button type="button" class="msg-cancel-btn" @click.stop="cancelActiveThinking" title="Stop">
                                     <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true" focusable="false"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
                                     Stop
                                 </button>
                             </div>
-                        </article>
-                        <article v-if="activeConversationSending && activeConversationSendingIsForaging" class="msg assistant pending">
-                            <div class="msg-content">
-                                <span class="thinking-loader" aria-hidden="true">
-                                    <span></span><span></span><span></span>
-                                </span>
-                                <span class="foraging-stage-label">
-                                    [[ activeConversationSendingLabel || activeConversationForagingPhrase ]]
-                                </span>
-                                <span class="thinking-elapsed">
-                                    [[ activeConversationElapsedSec > 0 ? activeConversationElapsedSec + 's' : '' ]]
-                                </span>
-                                <div v-if="activeConversationPendingEvents.length" class="reasoning-flow">
-                                    <div v-for="(ev, i) in activeConversationPendingEvents" :key="ev.ts + i"
-                                         class="reasoning-step" :class="{ 'is-current': i === activeConversationPendingEvents.length - 1 }">
-                                        <span class="reasoning-step-dot"></span>
-                                        <span class="reasoning-step-label">[[ _labelForEvent(ev) ]]</span>
-                                    </div>
-                                </div>
-                                <div v-if="pendingLiveSources[activeConversationId] && pendingLiveSources[activeConversationId].length" class="msg-source-row pending-sources">
-                                    <span class="msg-source-label">Reading</span>
-                                    <div class="msg-source-stack" role="list" aria-label="Live sources being read">
-                                        <a
-                                            v-for="(src, srcIdx) in pendingLiveSources[activeConversationId].slice(0, 6)"
-                                            :key="`live_${src.domain}_${srcIdx}`"
-                                            class="msg-source-bubble live-discovery"
-                                            :style="sourceBubbleStyle(src, srcIdx)"
-                                            :href="src.url || ('https://' + src.domain)"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            :title="src.title || src.domain"
-                                            :aria-label="src.domain || 'Source site'"
-                                            @click.stop
-                                        >
-                                            <span class="msg-source-bubble-letter">[[ src.domain.slice(0,1).toUpperCase() ]]</span>
-                                            <img :src="'https://www.google.com/s2/favicons?sz=64&domain=' + encodeURIComponent(src.domain)" :alt="src.domain" :data-domain="src.domain" loading="lazy" @error="onSourceBubbleIconError" />
-                                        </a>
-                                        <span v-if="pendingLiveSources[activeConversationId].length > 6" class="msg-source-bubble is-more">
-                                            +[[ pendingLiveSources[activeConversationId].length - 6 ]]
-                                        </span>
-                                    </div>
+                            <div class="think-stream-body think-stream-live-body">
+                                <div v-for="(ev, i) in activeConversationLiveEvents" :key="`${ev.stage || 'pending'}:${ev.ts || ''}:${i}`"
+                                     class="think-stream-row"
+                                     :class="{ 'is-active': i === activeConversationLiveEvents.length - 1, 'is-error': isErrorEvent(ev) }">
+                                    <span class="think-row-icon">
+                                        <svg v-if="i === activeConversationLiveEvents.length - 1" class="think-icon-spin" viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                                        <svg v-else-if="isErrorEvent(ev)" viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                                        <svg v-else viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    </span>
+                                    <span class="think-row-label">[[ labelForEvent(ev) ]]</span>
+                                    <span class="think-row-time">[[ relativeEventTime(ev, activeConversationLiveEvents[0]) ]]</span>
                                 </div>
                             </div>
-                            <div class="msg-actions">
-                                <button type="button" class="msg-cancel-btn" @click.stop="cancelActiveThinking" title="Stop">
-                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true" focusable="false"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
-                                    Stop
-                                </button>
+                            <div v-if="pendingLiveSources[activeConversationId] && pendingLiveSources[activeConversationId].length" class="msg-source-row pending-sources">
+                                <span class="msg-source-label">Reading</span>
+                                <div class="msg-source-stack" role="list" aria-label="Live sources being read">
+                                    <a v-for="(src, srcIdx) in pendingLiveSources[activeConversationId].slice(0, 6)" :key="`live_${src.domain}_${srcIdx}`" class="msg-source-bubble live-discovery" :style="sourceBubbleStyle(src, srcIdx)" :href="src.url || ('https://' + src.domain)" target="_blank" rel="noopener noreferrer" :title="src.title || src.domain" :aria-label="src.domain || 'Source site'" @click.stop>
+                                        <span class="msg-source-bubble-letter">[[ src.domain.slice(0,1).toUpperCase() ]]</span>
+                                        <img :src="'https://www.google.com/s2/favicons?sz=64&domain=' + encodeURIComponent(src.domain)" :alt="src.domain" :data-domain="src.domain" loading="lazy" @error="onSourceBubbleIconError" />
+                                    </a>
+                                    <span v-if="pendingLiveSources[activeConversationId].length > 6" class="msg-source-bubble is-more">+[[ pendingLiveSources[activeConversationId].length - 6 ]]</span>
+                                </div>
                             </div>
                         </article></section>
 
@@ -911,7 +857,7 @@
         <section class="modal-form-modal project-picker-modal" role="dialog" aria-modal="true" aria-label="Assign project">
             <header class="modal-form-header">
                 <div>
-                    <h3>Assign Project</h3>
+                    <h3>Assign Topic</h3>
                     <p>Attach this chat to an existing project or create a new one.</p>
                 </div>
                 <button type="button" class="modal-form-close" @click="closeProjectPickerModal">&times;</button>
@@ -957,7 +903,7 @@
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeProjectPickerModal">Cancel</button>
                     <button type="button" class="modal-form-btn" :disabled="projectPickerSubmitting" @click="submitProjectPickerUse">
-              [[ projectPickerSubmitting ? 'Working...' : 'Assign Project' ]]
+              [[ projectPickerSubmitting ? 'Working...' : 'Assign Topic' ]]
             </button>
                     <button type="button" class="modal-form-btn is-primary" :disabled="projectPickerSubmitting" @click="submitProjectPickerCreate">
               [[ projectPickerSubmitting ? 'Saving...' : 'Create / Save Project' ]]
@@ -1081,7 +1027,7 @@
         <section class="modal-form-modal" role="dialog" aria-modal="true" aria-label="Project topic type">
             <header class="modal-form-header">
                 <div>
-                    <h3>Set Domain</h3>
+                    <h3>Set Topic Domain</h3>
                     <p>Project: [[ activeProject ]]</p>
                 </div>
                 <button type="button" class="modal-form-close" @click="closeProjectTopicTypeModal">&times;</button>
@@ -1097,7 +1043,7 @@
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeProjectTopicTypeModal">Cancel</button>
                     <button type="button" class="modal-form-btn is-primary" :disabled="projectTopicTypeSubmitting" @click="submitProjectTopicTypeModal">
-                        [[ projectTopicTypeSubmitting ? 'Saving...' : 'Save Domain' ]]
+                        [[ projectTopicTypeSubmitting ? 'Saving...' : 'Assign Domain' ]]
                     </button>
                 </div>
             </section>
@@ -1107,29 +1053,29 @@
     <!-- Topic Picker Modal -->
     <div class="modal-form-overlay" :aria-hidden="topicPickerOpen ? 'false' : 'true'" v-show="topicPickerOpen">
         <div class="modal-form-backdrop" @click="closeTopicPickerModal"></div>
-        <section class="modal-form-modal topic-picker-modal" role="dialog" aria-modal="true" :aria-label="topicPickerMode === 'create' ? 'Create Project' : 'Set Domain'">
+        <section class="modal-form-modal topic-picker-modal" role="dialog" aria-modal="true" :aria-label="topicPickerMode === 'create' ? 'Create Thread' : 'Set Topic'">
             <header class="modal-form-header">
                 <div>
-                    <h3>[[ topicPickerMode === "create" ? "Create Project" : "Set Domain" ]]</h3>
-                    <p>[[ topicPickerMode === "create" ? "Choose a domain for the new conversation." : "Select a named knowledge domain for this conversation." ]]</p>
+                    <h3>[[ topicPickerMode === "create" ? "Create Thread" : "Set Topic" ]]</h3>
+                    <p>[[ topicPickerMode === "create" ? "Choose a topic for the new thread." : "Select a topic for this thread." ]]</p>
                 </div>
                 <button type="button" class="modal-form-close" @click="closeTopicPickerModal">&times;</button>
             </header>
             <section class="modal-form-body modal-form project-picker-body">
                 <label class="modal-form-field modal-form-field-full">
-                    <input v-model="topicPickerSearch" type="text" placeholder="Search domains..." />
+                    <input v-model="topicPickerSearch" type="text" placeholder="Search topics..." />
                 </label>
                 <div class="topic-picker-list" v-if="topicPickerRows.length">
                     <div v-for="topic in filteredTopicPickerRows" :key="topic.id" class="topic-picker-item" :class="{ 'is-active': activeTopicId === topic.id }" @click="confirmTopicSelection(topic)">
                         <span class="topic-type-badge" :class="'is-' + topic.type">[[ topicTypeLabel(topic.type) ]]</span>
                         <span class="topic-picker-name">[[ topic.name ]]</span>
                     </div>
-                    <div v-if="!filteredTopicPickerRows.length" class="modal-empty">No matching domains.</div>
+                    <div v-if="!filteredTopicPickerRows.length" class="modal-empty">No matching topics.</div>
                 </div>
-                <div v-else class="modal-empty">No domains yet.</div>
+                <div v-else class="modal-empty">No topics yet.</div>
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeTopicPickerModal">Cancel</button>
-                    <button type="button" class="modal-form-btn" @click="goToTopicsPanel">Create New Domain &rarr;</button>
+                    <button type="button" class="modal-form-btn" @click="goToTopicsPanel">Create New Topic &rarr;</button>
                 </div>
             </section>
         </section>
@@ -1172,19 +1118,27 @@
                     </select>
                 </label>
                 <label class="modal-form-field modal-form-field-full">
-                    <span class="modal-form-label">Topic link (optional)</span>
+                    <span class="modal-form-label">Scope — Domain (broad category)</span>
+                    <select v-model="libraryIntakeDomain">
+                        <option value="">Any domain</option>
+                        <option v-for="opt in topicTypeOptions" :key="'lib_domain_' + opt.value" :value="opt.value">[[ opt.label ]]</option>
+                    </select>
+                </label>
+                <label class="modal-form-field modal-form-field-full">
+                    <span class="modal-form-label">Scope — Topic (specific area)</span>
                     <select v-model="libraryIntakeTopicId">
-                        <option value="">No topic link</option>
+                        <option value="">Any topic</option>
                         <option v-for="topic in libraryTopicOptions" :key="'library_topic_' + topic.id" :value="topic.id">[[ topic.name ]]</option>
                     </select>
                 </label>
                 <label class="modal-form-field modal-form-field-full">
-                    <span class="modal-form-label">Project link (optional)</span>
+                    <span class="modal-form-label">Scope — Thread (specific project)</span>
                     <select v-model="libraryIntakeProjectSlug">
-                        <option value="">No project link</option>
+                        <option value="">Any thread</option>
                         <option v-for="project in libraryProjectOptions" :key="'library_project_' + project" :value="project">[[ project ]]</option>
                     </select>
                 </label>
+                <p class="modal-form-hint">Narrower scope = higher retrieval priority. Leave all blank to make available everywhere.</p>
                 <p v-if="libraryIntakeError" class="danger-zone-modal-warning">[[ libraryIntakeError ]]</p>
                 <div class="modal-form-actions">
                     <button type="button" class="modal-form-btn" @click="closeLibraryIntakeModal">Cancel</button>
@@ -1235,22 +1189,50 @@
                         @wheel.prevent="onAgentGraphCanvasWheel"
                     >
                         <defs>
-                            <marker id="agentGraphArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-                                <path d="M 0 0 L 10 5 L 0 10 z" />
+                            <marker id="agentGraphArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                                <path d="M 0 1 L 9 5 L 0 9 z" fill="rgba(15,160,145,0.55)" />
                             </marker>
+                            <radialGradient id="ag-fill-root" cx="50%" cy="35%" r="65%">
+                                <stop offset="0%" stop-color="rgba(244,180,0,0.38)"/>
+                                <stop offset="100%" stop-color="rgba(244,180,0,0.06)"/>
+                            </radialGradient>
+                            <radialGradient id="ag-fill-lane" cx="50%" cy="35%" r="65%">
+                                <stop offset="0%" stop-color="rgba(66,133,244,0.38)"/>
+                                <stop offset="100%" stop-color="rgba(66,133,244,0.06)"/>
+                            </radialGradient>
+                            <radialGradient id="ag-fill-job" cx="50%" cy="35%" r="65%">
+                                <stop offset="0%" stop-color="rgba(52,168,83,0.42)"/>
+                                <stop offset="100%" stop-color="rgba(52,168,83,0.06)"/>
+                            </radialGradient>
+                            <radialGradient id="ag-fill-agent" cx="50%" cy="35%" r="65%">
+                                <stop offset="0%" stop-color="rgba(15,160,145,0.44)"/>
+                                <stop offset="100%" stop-color="rgba(15,160,145,0.06)"/>
+                            </radialGradient>
+                            <radialGradient id="ag-fill-idle" cx="50%" cy="35%" r="65%">
+                                <stop offset="0%" stop-color="rgba(148,163,184,0.22)"/>
+                                <stop offset="100%" stop-color="rgba(148,163,184,0.04)"/>
+                            </radialGradient>
+                            <filter id="ag-glow" x="-40%" y="-40%" width="180%" height="180%">
+                                <feGaussianBlur in="SourceGraphic" stdDeviation="7" result="blur"/>
+                                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                            </filter>
+                            <filter id="ag-glow-sm" x="-30%" y="-30%" width="160%" height="160%">
+                                <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+                                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                            </filter>
                         </defs>
                         <rect x="0" y="0" width="1400" height="840" class="agent-graph-canvas-bg" />
                         <g :transform="agentGraphTransform">
-                            <line
+                            <!-- Thread edges -->
+                            <path
                                 v-for="(edge, idx) in agentGraphEdgeSegments"
                                 :key="'edge_' + idx + '_' + edge.source + '_' + edge.target"
                                 class="agent-graph-edge"
-                                :x1="edge.x1"
-                                :y1="edge.y1"
-                                :x2="edge.x2"
-                                :y2="edge.y2"
+                                :d="edge.d"
+                                fill="none"
                                 marker-end="url(#agentGraphArrow)"
                             />
+                            <!-- Blob nodes -->
                             <g
                                 v-for="node in agentGraphNodes"
                                 :key="node.id"
@@ -1264,16 +1246,27 @@
                                 @pointerdown.stop="startAgentGraphNodeDrag($event, node.id)"
                                 @click.stop="selectAgentGraphNode(node.id)"
                             >
+                                <!-- Soft glow aura -->
+                                <rect
+                                    :x="-(agentGraphNodeSize(node).width / 2 + 14)"
+                                    :y="-(agentGraphNodeSize(node).height / 2 + 14)"
+                                    :width="agentGraphNodeSize(node).width + 28"
+                                    :height="agentGraphNodeSize(node).height + 28"
+                                    :rx="(agentGraphNodeSize(node).height / 2 + 14)"
+                                    class="agent-graph-node-aura"
+                                    filter="url(#ag-glow)"
+                                />
+                                <!-- Main pill body -->
                                 <rect
                                     :x="-(agentGraphNodeSize(node).width / 2)"
                                     :y="-(agentGraphNodeSize(node).height / 2)"
                                     :width="agentGraphNodeSize(node).width"
                                     :height="agentGraphNodeSize(node).height"
-                                    rx="12"
-                                    ry="12"
+                                    :rx="agentGraphNodeSize(node).height / 2"
+                                    class="agent-graph-node-body"
                                 />
-                                <text class="agent-graph-node-label" x="0" y="-5" text-anchor="middle">[[ node.label ]]</text>
-                                <text class="agent-graph-node-subtitle" x="0" y="15" text-anchor="middle">[[ node.subtitle || node.status || node.kind ]]</text>
+                                <text class="agent-graph-node-label" x="0" y="-4" text-anchor="middle">[[ node.label ]]</text>
+                                <text class="agent-graph-node-subtitle" x="0" y="14" text-anchor="middle">[[ node.subtitle || node.status || node.kind ]]</text>
                             </g>
                         </g>
                     </svg>
@@ -1868,10 +1861,10 @@
                   <div v-else-if="libraryDetailItem" class="panel-empty">Summary not ready yet for this Library item.</div>
                   <div v-else class="panel-empty">Library detail unavailable.</div>
                 </template><template v-else-if="panelKey === 'topics'">
-                  <!-- Create Domain Form -->
+                  <!-- Create Topic Form -->
                   <div class="topic-create-form">
-                    <h4 class="panel-section-title">New Domain</h4>
-                    <input v-model="topicForm.name" class="watch-input" type="text" placeholder="Domain name" />
+                    <h4 class="panel-section-title">New Topic</h4>
+                    <input v-model="topicForm.name" class="watch-input" type="text" placeholder="Topic name" />
                     <select v-model="topicForm.type" class="watch-input">
                       <option value="">-- Select type --</option>
                       <option v-for="opt in topicTypeOptions" :key="'topic_form_' + opt.value" :value="opt.value">[[ opt.label ]]</option>
@@ -1880,7 +1873,7 @@
                     <textarea v-model="topicForm.description" class="watch-input" rows="3" placeholder="Description (min 50 characters)" style="width:100%;resize:vertical;"></textarea>
                     <span class="char-count" :class="{ warn: topicDescriptionCharCount < 50 }">[[ topicDescriptionCharCount ]] / 50 min</span>
                     <textarea v-model="topicForm.seed_question" class="watch-input" rows="2" placeholder="Seed question — what do you want to learn first?" style="width:100%;resize:vertical;"></textarea>
-                    <button class="panel-action-btn" type="button" :disabled="!topicFormValid" @click="createTopic">Create Domain</button>
+                    <button class="panel-action-btn" type="button" :disabled="!topicFormValid" @click="createTopic">Create Topic</button>
                   </div>
                   <!-- Domain List -->
                   <div v-if="panelData && panelData.topics && panelData.topics.length">
@@ -1903,11 +1896,11 @@
                       </div>
                     </div>
                   </div>
-                  <div v-else class="panel-empty">No domains yet. Create one above.</div>
+                  <div v-else class="panel-empty">No topics yet. Create one above.</div>
                 </template>
 
                 <template v-else-if="panelKey === 'topic_detail'">
-                  <button class="panel-action-btn is-small" type="button" style="margin-bottom:12px;" @click="openSystemPanel('topics')">&larr; All Domains</button>
+                  <button class="panel-action-btn is-small" type="button" style="margin-bottom:12px;" @click="openSystemPanel('topics')">&larr; All Topics</button>
                   <div v-if="topicDetailData">
                     <div class="topic-card">
                       <div class="topic-card-head">
@@ -1942,7 +1935,7 @@
                     </div>
                     <div v-else class="panel-empty">No artifacts yet for this topic.</div>
                   </div>
-                  <div v-else class="panel-empty">Domain detail unavailable.</div>
+                  <div v-else class="panel-empty">Topic detail unavailable.</div>
                 </template>
 
                 <template v-else-if="panelKey === 'system'">
@@ -2046,9 +2039,67 @@
                   </div>
                 </template>
 
-                <div v-else-if="Array.isArray(panelData) ? panelRows.length === 0 : !(panelData || []).length" class="panel-empty">No items found for this panel.</div>
+                <!-- Growth panel: Postbag + Reflections + Guidance combined -->
+                <template v-if="panelKey === 'growth'">
+                  <div class="growth-tabs">
+                    <button class="growth-tab" :class="{'is-active': growthActiveTab === 'postbag'}" type="button" @click="growthActiveTab = 'postbag'">
+                      Postbag <span class="growth-tab-badge" v-if="panelBadgeValue(panelStatus.pending_actions)">[[ panelBadgeValue(panelStatus.pending_actions) ]]</span>
+                    </button>
+                    <button class="growth-tab" :class="{'is-active': growthActiveTab === 'reflections'}" type="button" @click="switchGrowthTab('reflections')">
+                      Reflections <span class="growth-tab-badge" v-if="panelBadgeValue(reflectionsUnreadCount)">[[ panelBadgeValue(reflectionsUnreadCount) ]]</span>
+                    </button>
+                    <button class="growth-tab" :class="{'is-active': growthActiveTab === 'guidance'}" type="button" @click="switchGrowthTab('guidance')">
+                      Guidance <span class="growth-tab-badge" v-if="panelBadgeValue(lessonsUnreadCount)">[[ panelBadgeValue(lessonsUnreadCount) ]]</span>
+                    </button>
+                  </div>
+                  <!-- Postbag tab -->
+                  <div v-if="growthActiveTab === 'postbag'" class="growth-tab-body">
+                    <div v-if="growthPostbagRows.length" class="growth-section">
+                      <div v-for="item in growthPostbagRows" :key="item.id" class="panel-card growth-postbag-row" @click="openPostbagItem(item)" style="cursor:pointer">
+                        <div class="panel-card-head">
+                          <h4>[[ pendingActionTitle(item) ]]</h4>
+                          <p class="panel-card-timestamp">[[ formatDate(item.created_at) ]]</p>
+                        </div>
+                        <p class="panel-card-preview">[[ item.summary || item.project || '' ]]</p>
+                      </div>
+                    </div>
+                    <div v-else class="panel-empty">No pending actions.</div>
+                  </div>
+                  <!-- Reflections tab -->
+                  <div v-else-if="growthActiveTab === 'reflections'" class="growth-tab-body">
+                    <div class="growth-tab-controls" v-if="reflectionsUnreadCount > 0">
+                      <button class="panel-refresh-btn" type="button" @click="markReflectionsAsRead(growthReflectionsRows)">Mark All Read</button>
+                    </div>
+                    <div v-if="growthReflectionsRows.length">
+                      <article v-for="(row, idx) in growthReflectionsRows" :key="row.id || idx" class="panel-card" :class="{ 'is-unread': !reflectionIsRead(row) }">
+                        <header class="panel-card-head"><h4>[[ reflectionMomentTitle(row) ]]</h4><p>[[ formatDate(row.created_at) ]]</p></header>
+                        <div class="panel-card-meta"><span>id: [[ row.id || '' ]]</span></div>
+                        <p>[[ row.summary || row.content || '' ]]</p>
+                      </article>
+                    </div>
+                    <div v-else class="panel-empty">No reflections yet.</div>
+                  </div>
+                  <!-- Guidance tab -->
+                  <div v-else-if="growthActiveTab === 'guidance'" class="growth-tab-body">
+                    <div class="growth-tab-controls" v-if="lessonsUnreadCount > 0">
+                      <button class="panel-refresh-btn" type="button" @click="markLessonsAsRead(growthLessonsRows)">Mark All Read</button>
+                    </div>
+                    <div v-if="growthLessonsRows.length">
+                      <article v-for="(row, idx) in growthLessonsRows" :key="row.id || idx" class="panel-card">
+                        <header class="panel-card-head panel-card-head--stacked"><h4>[[ lessonSummary(row) ]]</h4><p class="panel-card-timestamp">[[ formatDate(row.updated_at || row.created_at) ]]</p></header>
+                        <ul class="lesson-guidance-list" v-if="lessonGuidanceLines(row).length">
+                          <li class="lesson-guidance-item" v-for="(line, li) in lessonGuidanceLines(row)" :key="li">[[ line ]]</li>
+                        </ul>
+                        <p v-else class="lesson-main-copy">[[ row.guidance || row.summary || '' ]]</p>
+                      </article>
+                    </div>
+                    <div v-else class="panel-empty">No guidance entries yet.</div>
+                  </div>
+                </template>
 
-                <template v-if="!['watchtower','library','library_detail','topics','topic_detail','system'].includes(panelKey)">
+                <div v-else-if="panelKey !== 'growth' && (Array.isArray(panelData) ? panelRows.length === 0 : !(panelData || []).length)" class="panel-empty">No items found for this panel.</div>
+
+                <template v-if="!['watchtower','library','library_detail','topics','topic_detail','system','growth'].includes(panelKey)">
                 <article v-for="(row, idx) in panelRows" :key="row.id || row.created_at || idx" class="panel-card" :class="{ 'is-unread': panelKey === 'reflections' && !reflectionIsRead(row) }">
                     <template v-if="panelKey === 'reflections'">
               <header class="panel-card-head">
