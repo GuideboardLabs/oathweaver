@@ -5,6 +5,7 @@ import json
 import uuid
 from pathlib import Path
 from typing import Any
+from orchestrator.services.policy import _resolve_domain
 
 _LANGGRAPH_AVAILABLE = False
 try:  # pragma: no cover - optional dependency
@@ -187,13 +188,16 @@ def compile_chat_turn_graph(
         intent = str(state.get("intent", "chat")).strip().lower()
         lane_hint = str(state.get("lane_hint", "conversation")).strip().lower() or "conversation"
         lane = lane_hint
+        gate_decision = state.get("gate_decision", {}) if isinstance(state.get("gate_decision", {}), dict) else {}
+        make_type = str(gate_decision.get("suggested_type", "")).strip().lower()
+        domain = _resolve_domain(make_type, str(state.get("domain", "general_research")).strip())
         if intent == "forage":
             lane = "research"
         elif intent == "make":
             lane = "ui"
         if lane in {"project", "personal"}:
             lane = "conversation"
-        return _assert_serializable({"lane": lane}, "lane_route")
+        return _assert_serializable({"lane": lane, "domain": domain, "make_type": make_type}, "lane_route")
 
     def context_gate(state: dict[str, Any]) -> dict[str, Any]:
         text_value = str(state.get("text", "")).strip()

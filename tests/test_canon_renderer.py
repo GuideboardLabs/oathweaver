@@ -15,16 +15,16 @@ class CanonRendererTests(unittest.TestCase):
             copy_scaffold("web_app_v1", target)
 
             marker = (target / ".canon-version").read_text(encoding="utf-8").strip()
-            self.assertEqual(marker, "web_app_v1")
+            self.assertEqual(marker, "web_app_v1.1")
 
             slots = list_slots(target)
             app_slots = slots.get(target / "app.py", [])
             self.assertIn("routes-feature", app_slots)
             self.assertIn("imports-feature", app_slots)
 
-            write_slot(target / "schema.sql", "tables", "CREATE TABLE example (id INTEGER PRIMARY KEY);")
+            write_slot(target / "schema.sql", "tables", "CREATE TABLE IF NOT EXISTS example (id INTEGER PRIMARY KEY);")
             tables = read_slot(target / "schema.sql", "tables")
-            self.assertIn("CREATE TABLE example", tables)
+            self.assertIn("CREATE TABLE IF NOT EXISTS example", tables)
 
             self.assertEqual(verify_plumbing_intact(target, "web_app_v1"), [])
 

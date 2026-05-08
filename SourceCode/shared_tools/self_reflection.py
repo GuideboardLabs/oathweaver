@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
+import threading
 from typing import Any
 
 from shared_tools.feedback_learning import (
@@ -354,6 +355,9 @@ class SelfReflectionEngine:
             cycle["answer"] = answer
             cycle["answered_at"] = _now_iso()
             cycle["updated_at"] = _now_iso()
+            cycle["learning_status"] = "queued"
+            cycle["learning_error"] = ""
+            cycle["answer_lesson_ids"] = []
             rows[idx] = cycle
             self._save(rows)
 
@@ -366,28 +370,60 @@ class SelfReflectionEngine:
                 f"Next experiment: {cycle.get('next_experiment','')}",
             ]
         ).strip()
-        learned = self.learning_engine.ingest_feedback_text(
-            feedback_text=lesson_payload,
-            source="self_reflection_user",
-            lane_hint=str(cycle.get("lane", "project")),
-            project=str(cycle.get("project", "reflection_feedback")),
-            source_file=f"reflection:user:{cycle_id}",
-            origin_type=ORIGIN_REFLECTION,
-        )
+        self._ingest_answer_lessons_async(cycle_id=cycle_id, cycle=cycle, lesson_payload=lesson_payload)
+        return cycle
 
+    def _ingest_answer_lessons_async(self, *, cycle_id: str, cycle: dict[str, Any], lesson_payload: str) -> None:
+        lane = str(cycle.get("lane", "project"))
+        project = str(cycle.get("project", "reflection_feedback"))
+
+        def _worker() -> None:
+            self._set_learning_status(cycle_id, status="running", error="", lesson_ids=[])
+            try:
+                learned = self.learning_engine.ingest_feedback_text(
+                    feedback_text=lesson_payload,
+                    source="self_reflection_user",
+                    lane_hint=lane,
+                    project=project,
+                    source_file=f"reflection:user:{cycle_id}",
+                    origin_type=ORIGIN_REFLECTION,
+                )
+                lesson_ids = learned.get("lesson_ids", []) if isinstance(learned, dict) else []
+                self._set_learning_status(cycle_id, status="completed", error="", lesson_ids=lesson_ids)
+            except Exception as exc:
+                self._set_learning_status(
+                    cycle_id,
+                    status="failed",
+                    error=str(exc).strip()[:500],
+                    lesson_ids=[],
+                )
+
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name=f"reflection-learn-{cycle_id[:8]}",
+        ).start()
+
+    def _set_learning_status(
+        self,
+        cycle_id: str,
+        *,
+        status: str,
+        error: str,
+        lesson_ids: list[str],
+    ) -> None:
         with self.lock:
             rows = self._load()
             for i, row in enumerate(rows):
                 if str(row.get("id", "")) != cycle_id:
                     continue
-                row["answer_lesson_ids"] = learned.get("lesson_ids", [])
+                row["learning_status"] = str(status).strip()
+                row["learning_error"] = str(error or "").strip()
+                row["answer_lesson_ids"] = list(lesson_ids or [])
                 row["updated_at"] = _now_iso()
                 rows[i] = row
-                cycle = row
                 break
             self._save(rows)
-
-        return cycle
 
     def auto_answer(self, cycle_id: str) -> dict[str, Any] | None:
         """Auto-answer an open reflection cycle using the model.

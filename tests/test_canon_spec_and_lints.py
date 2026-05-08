@@ -37,7 +37,7 @@ class CanonSpecAndLintsTests(unittest.TestCase):
         route_violations = lint_route_naming(app_py, spec)
         envelope_violations = lint_envelope_conformance(app_py)
         self.assertTrue(any("Missing expected route path" in row["message"] for row in route_violations))
-        self.assertTrue(any(row["rule"] == "envelope" for row in envelope_violations))
+        self.assertTrue(any(row["rule"] == "envelope_conformance" for row in envelope_violations))
 
     def test_css_and_comment_policy_lints(self) -> None:
         css_violations = lint_css_tokens_only(".x { color: #fff; }\n.y { background: red; }")

@@ -379,7 +379,7 @@ Powers the Research pipeline's live web research. Requires Docker.
 Linux:
 
 ```bash
-docker start searxng crawl4ai
+./start_web_foraging_stack.sh
 ```
 
 Windows:
@@ -453,7 +453,10 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 | `SourceCode/policies/` | Action policy and personal safety policy |
 | `SourceCode/legacy/` | Phase 0 quarantine notes |
 | `SourceCode/bots/` | Discord, Slack, Telegram bot adapters |
+| `SourceCode/benchmark/` | Benchmark runner: fires research-pool questions and reports output quality metrics |
+| `SourceCode/benchmarks/` | Hardware profiles and CAG benchmark adapter |
 | `SourceCode/configs/model_routing.json` | Model assignments, inference servers, fallback config |
+| `scripts/` | ML training scripts for the SetFit make-type classifier and low-confidence flagging |
 | `tests/` | Test suite |
 | `docs/` | Architecture notes, changelogs, planning artifacts |
 | `tools/` | Utility scripts: health checks, developer tooling |
@@ -501,7 +504,17 @@ Run checks individually:
 python3 smoke_test.py
 python3 run_integration_tests.py
 python3 tools/ui_phase_smoke.py
+python3 tools/browser_headless_smoke.py
 python3 tools/repo_health_check.py
+```
+
+Maintenance utilities:
+
+```bash
+python3 tools/refresh_requirements_lock.py   # regenerate requirements.lock
+python3 tools/reset_environment.py           # reset local dev environment
+python3 scripts/train_make_classifier.py     # retrain the SetFit make-type classifier
+python3 scripts/flag_low_confidence.py       # flag low-confidence classifier predictions
 ```
 
 Optional feature installs:
@@ -568,6 +581,11 @@ groups $USER
 # If render/video groups missing:
 sudo usermod -aG render,video $USER
 # Log out and back in
+```
+
+If you need to build Ollama with GFX1010 support (RX 5000 series):
+```bash
+bash tools/build_ollama_gfx1010.sh
 ```
 
 NVIDIA (Linux):

@@ -6,6 +6,7 @@ import os
 import sys
 import re
 import threading
+import time
 import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -62,6 +63,7 @@ from orchestrator.pipelines import (
 from orchestrator.services import OrchestratorInfraRuntime, ResearchService, TurnPlanner, WorkerResult
 from orchestrator.services.agent_contracts import AgentTask
 from orchestrator.services.agent_registry import build_default_agent_registry
+from orchestrator.services.policy import _resolve_domain
 from orchestrator.text_processing.text_analysis import (
     RECENCY_TERMS,
     is_recency_sensitive,
@@ -172,6 +174,74 @@ def _make_lane_for_target(target: str) -> str:
     return lane_for_type(target)
 
 
+def _ingest_canon_seed_files(repo_root: Path, store: CAGMemoryStore) -> None:
+    """Idempotently ingest all canon seed JSON files into CAG memory."""
+    seeds_dir = repo_root / "SourceCode" / "agents_make" / "canon" / "seeds"
+    if not seeds_dir.exists():
+        return
+
+    existing = store.list_rows(project="general", include_expired=True, include_superseded=True, limit=4000)
+    existing_tags: set[str] = set()
+    for row in existing:
+        for tag in row.get("tags", []) if isinstance(row.get("tags", []), list) else []:
+            token = str(tag).strip().lower()
+            if token:
+                existing_tags.add(token)
+
+    for seed_path in sorted(seeds_dir.glob("*.json")):
+        seed_key = f"canon_seed_{seed_path.stem}".lower()
+        if seed_key in existing_tags:
+            continue
+        try:
+            payload = json.loads(seed_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+
+        scope = payload.get("scope", {}) if isinstance(payload.get("scope", {}), dict) else {}
+        domain = str(scope.get("domain", "computer_science_programming")).strip() or "computer_science_programming"
+        topic = str(scope.get("topic", "web_app")).strip() or "web_app"
+        make_type = str(scope.get("make_type", "web_app")).strip() or "web_app"
+        content = str(payload.get("content", "")).strip()
+        if not content:
+            continue
+
+        tags = [str(x).strip().lower() for x in payload.get("tags", []) if str(x).strip()]
+        if seed_key not in tags:
+            tags.append(seed_key)
+        if make_type and make_type not in tags:
+            tags.append(make_type)
+
+        store.add_row(
+            {
+                "text": content,
+                "scope": f"domain:{domain}",
+                "scope_level": "domain",
+                "domain": domain,
+                "topic": topic,
+                "thread": "thread_general",
+                "project": "general",
+                "run": f"seed_{seed_path.stem}",
+                "type": "constraint",
+                "status": "accepted",
+                "human_status": "accepted",
+                "evidence": [{"kind": "seed_file", "value": str(seed_path)}],
+                "confidence": 0.98,
+                "tags": tags,
+                "promoted_terms": ["flask", "vue", "sqlite", "login", "crud"],
+                "source": f"canon_seed:{seed_path.stem}",
+                "validation": {
+                    "task_metadata": True,
+                    "has_citation": True,
+                    "auditor_approved": True,
+                    "user_accepted": True,
+                },
+            }
+        )
+        existing_tags.add(seed_key)
+
+
 class OathweaverOrchestrator:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = repo_root
@@ -212,6 +282,7 @@ class OathweaverOrchestrator:
         self.auditor_engine = AuditorEngine(benchmark_import=self.benchmark_import)
         self.regression_reporter = RegressionReporter(repo_root)
         self.cag_memory_store = CAGMemoryStore(repo_root)
+        _ingest_canon_seed_files(repo_root, self.cag_memory_store)
         self.cag_selector = ScopedSelector()
         self.cag_promotion_gate = PromotionGate()
         self.cag_contradiction_detector = ContradictionDetector()
@@ -314,6 +385,179 @@ class OathweaverOrchestrator:
             return dict(result.payload)
         return result.as_dict()
 
+    @staticmethod
+    def _resolved_pipeline_domain(turn_plan: Any) -> str:
+        return _resolve_domain(
+            str(getattr(turn_plan, "make_type", "") or ""),
+            str(getattr(turn_plan, "domain", "") or ""),
+        )
+
+    @staticmethod
+    def _select_context_memory_rows(
+        selector: ScopedSelector,
+        *,
+        payload: dict[str, Any],
+        project_rows: list[dict[str, Any]],
+        domain_rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        candidate_rows = list(project_rows) + list(domain_rows)
+        deduped_rows: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for row in candidate_rows:
+            memory_id = str(row.get("memory_id", "")).strip()
+            if memory_id and memory_id in seen_ids:
+                continue
+            if memory_id:
+                seen_ids.add(memory_id)
+            deduped_rows.append(row)
+        domain_tag = str(payload.get("domain", "general_research")).strip() or "general_research"
+        make_type_tag = str(payload.get("target", "")).strip().lower()
+        return selector.retrieve_scoped(
+            task={
+                "title": str(payload.get("text", "")),
+                "prompt": str(payload.get("text", "")),
+                "tags": [token for token in (domain_tag, make_type_tag) if token],
+                "continuity_terms": [],
+                "domain": domain_tag,
+            },
+            rows=deduped_rows,
+            k=40,
+        )
+
+    @staticmethod
+    def _parse_json_object(raw: str) -> dict[str, Any]:
+        text = str(raw or "").strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+        match = re.search(r"\{[\s\S]*\}", text)
+        if not match:
+            return {}
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    def _stage_llm_json_call(
+        self,
+        *,
+        label: str,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        cfg = lane_model_config(self.repo_root, "orchestrator_reasoning")
+        model = str(cfg.get("model", "")).strip()
+        started = time.monotonic()
+        if not model:
+            detail = {"label": label, "ok": False, "error": "no_model_configured", "latency_ms": 0}
+            self.bus.emit("orchestrator", "stage_llm_no_model", {"label": label})
+            return {}, detail
+        try:
+            raw = self.ollama.chat(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                prior_messages=[],
+                temperature=float(cfg.get("temperature", 0.1)),
+                num_ctx=int(cfg.get("num_ctx", 12288)),
+                think=bool(cfg.get("think", False)),
+                timeout=int(cfg.get("timeout_sec", 120) or 120),
+                retry_attempts=int(cfg.get("retry_attempts", 2)),
+                retry_backoff_sec=float(cfg.get("retry_backoff_sec", 1.0)),
+                fallback_models=cfg.get("fallback_models", []) if isinstance(cfg.get("fallback_models", []), list) else [],
+            )
+            latency_ms = int((time.monotonic() - started) * 1000)
+            parsed = self._parse_json_object(str(raw or ""))
+            detail = {
+                "label": label,
+                "ok": bool(parsed),
+                "latency_ms": latency_ms,
+                "response_tokens": max(0, len(str(raw or "").split())),
+            }
+            if not parsed:
+                detail["error"] = "empty_or_unparseable_json"
+            return parsed, detail
+        except Exception as exc:
+            detail = {
+                "label": label,
+                "ok": False,
+                "error": str(exc)[:220],
+                "latency_ms": int((time.monotonic() - started) * 1000),
+            }
+            self.bus.emit("orchestrator", "build_stage_llm_failed", {"label": label, "error": str(exc)[:220]})
+            return {}, detail
+
+    def _llm_extract_requirements(self, *, text: str, topic_type: str, target: str, lane: str) -> dict[str, Any]:
+        system_prompt = (
+            "Extract concrete build requirements. Return JSON only with keys: "
+            "entities (list[str]), actions (list[str]), constraints (list[str]). "
+            "Keep each item short and concrete."
+        )
+        user_prompt = (
+            f"Request:\n{text.strip()}\n\n"
+            f"Topic type: {topic_type}\nTarget: {target}\nLane: {lane}\n"
+        )
+        parsed, call_meta = self._stage_llm_json_call(
+            label="requirements", system_prompt=system_prompt, user_prompt=user_prompt
+        )
+        entities = [str(x).strip() for x in parsed.get("entities", []) if str(x).strip()] if isinstance(parsed.get("entities", []), list) else []
+        actions = [str(x).strip() for x in parsed.get("actions", []) if str(x).strip()] if isinstance(parsed.get("actions", []), list) else []
+        constraints = [str(x).strip() for x in parsed.get("constraints", []) if str(x).strip()] if isinstance(parsed.get("constraints", []), list) else []
+        return {
+            "entities": entities[:20],
+            "actions": actions[:30],
+            "constraints": constraints[:30],
+            "llm_sub_calls": [call_meta],
+        }
+
+    def _llm_propose_architecture(self, *, request: str, make_type: str, requirements: dict[str, Any]) -> dict[str, Any]:
+        system_prompt = (
+            "Propose a concise architecture outline. Return JSON only with keys: "
+            "stack_summary (str), modules (list[object with name and responsibility])."
+        )
+        user_prompt = (
+            f"Request:\n{request.strip()}\n\n"
+            f"Make type: {make_type}\n"
+            f"Requirements JSON:\n{json.dumps(requirements, ensure_ascii=True)[:3000]}"
+        )
+        parsed, call_meta = self._stage_llm_json_call(
+            label="architecture", system_prompt=system_prompt, user_prompt=user_prompt
+        )
+        modules_raw = parsed.get("modules", [])
+        modules: list[dict[str, str]] = []
+        if isinstance(modules_raw, list):
+            for item in modules_raw[:20]:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name", "")).strip()
+                responsibility = str(item.get("responsibility", "")).strip()
+                if name:
+                    modules.append({"name": name, "responsibility": responsibility})
+        stack_summary = str(parsed.get("stack_summary", "")).strip()
+        return {"stack_summary": stack_summary, "modules": modules, "llm_sub_calls": [call_meta]}
+
+    def _llm_propose_implementation_plan(self, *, request: str, architecture: dict[str, Any]) -> dict[str, Any]:
+        system_prompt = (
+            "Create an ordered implementation plan. Return JSON only with keys: "
+            "steps (list[str]), files (list[str])."
+        )
+        user_prompt = (
+            f"Request:\n{request.strip()}\n\n"
+            f"Architecture JSON:\n{json.dumps(architecture, ensure_ascii=True)[:3500]}"
+        )
+        parsed, call_meta = self._stage_llm_json_call(
+            label="implementation_plan", system_prompt=system_prompt, user_prompt=user_prompt
+        )
+        steps = [str(x).strip() for x in parsed.get("steps", []) if str(x).strip()] if isinstance(parsed.get("steps", []), list) else []
+        files = [str(x).strip() for x in parsed.get("files", []) if str(x).strip()] if isinstance(parsed.get("files", []), list) else []
+        return {"steps": steps[:40], "files": files[:40], "llm_sub_calls": [call_meta]}
+
     def _select_pipeline_for_lane(self, lane: str, query_mode: str = "") -> str:
         lane_key = str(lane or "").strip().lower()
         if lane_key in {"research", "project"}:
@@ -360,7 +604,7 @@ class OathweaverOrchestrator:
         pipeline_context: dict[str, Any] = {
             "text": text,
             "project_slug": self.project_slug,
-            "domain": str(getattr(turn_plan, "domain", "") or "general_research"),
+            "domain": self._resolved_pipeline_domain(turn_plan),
             "pipeline": pipeline_name,
             "topic_type": topic_type,
             "lane": lane_key,
@@ -557,30 +801,55 @@ class OathweaverOrchestrator:
 
             if pipeline_name == "build_pipeline":
                 if stage == "requirements":
+                    extracted = self._llm_extract_requirements(
+                        text=payload["text"],
+                        topic_type=str(payload.get("topic_type", "general")),
+                        target=str(payload.get("target", "")),
+                        lane=str(payload.get("lane", "")),
+                    )
                     return {
                         "requirements": {
                             "request": payload["text"],
                             "target": payload["target"],
                             "lane": payload["lane"],
-                        }
+                            "extracted_entities": list(extracted.get("entities", [])),
+                            "extracted_actions": list(extracted.get("actions", [])),
+                            "extracted_constraints": list(extracted.get("constraints", [])),
+                        },
+                        "llm_sub_calls": list(extracted.get("llm_sub_calls", [])),
                     }
                 if stage == "architecture":
                     kernel = self.project_kernel_store.snapshot(self.project_slug)
                     execution = kernel.get("execution_spine", {}) if isinstance(kernel.get("execution_spine", {}), dict) else {}
+                    architecture = self._llm_propose_architecture(
+                        request=payload["text"],
+                        make_type=str(execution.get("make_type", payload.get("target", "web_app"))),
+                        requirements=stage_state.get("requirements", {}),
+                    )
                     return {
                         "architecture_outline": {
                             "pipeline": str(execution.get("pipeline", "build_pipeline")).strip(),
                             "make_type": str(execution.get("make_type", "research_brief")).strip(),
                             "research_focus": str(execution.get("research_focus", "implementation_focused")).strip(),
-                        }
+                            "module_breakdown": list(architecture.get("modules", [])),
+                            "stack_summary": str(architecture.get("stack_summary", "")).strip(),
+                        },
+                        "llm_sub_calls": list(architecture.get("llm_sub_calls", [])),
                     }
                 if stage == "implementation_plan":
+                    implementation = self._llm_propose_implementation_plan(
+                        request=payload["text"],
+                        architecture=stage_state.get("architecture_outline", {}),
+                    )
                     return {
                         "implementation_plan": {
                             "route_lane": payload["lane"],
                             "target": payload["target"],
                             "mode": payload["mode"],
-                        }
+                            "ordered_steps": list(implementation.get("steps", [])),
+                            "deliverable_files": list(implementation.get("files", [])),
+                        },
+                        "llm_sub_calls": list(implementation.get("llm_sub_calls", [])),
                     }
                 if stage == "patch_artifact_generation":
                     self._last_project_mode = self.pipeline_store.get(self.project_slug)
@@ -592,6 +861,9 @@ class OathweaverOrchestrator:
                         target=payload["target"],
                         mode=payload["mode"],
                         seed_artifact_text="",
+                        upstream_requirements=stage_state.get("requirements", {}),
+                        upstream_architecture=stage_state.get("architecture_outline", {}),
+                        upstream_implementation_plan=stage_state.get("implementation_plan", {}),
                     )
                     scratch["worker_result"] = dict(out)
                     return {"worker_result": dict(out)}
@@ -662,11 +934,23 @@ class OathweaverOrchestrator:
             pipeline: str,
         ) -> dict[str, Any]:
             kernel = self.project_kernel_store.snapshot(self.project_slug)
-            memory_rows = self.cag_memory_store.list_rows(
+            project_rows = self.cag_memory_store.list_rows(
                 project=self.project_slug,
                 include_expired=False,
                 include_superseded=False,
                 limit=400,
+            )
+            domain_rows = self.cag_memory_store.list_rows(
+                project="general",
+                include_expired=False,
+                include_superseded=False,
+                limit=200,
+            )
+            memory_rows = self._select_context_memory_rows(
+                self.cag_selector,
+                payload=payload,
+                project_rows=project_rows,
+                domain_rows=domain_rows,
             )
             knowledge = kernel.get("knowledge_spine", {}) if isinstance(kernel.get("knowledge_spine", {}), dict) else {}
             thread = str(knowledge.get("thread", "")).strip()
@@ -3409,6 +3693,9 @@ class OathweaverOrchestrator:
         target: str,
         mode: str = "research",
         seed_artifact_text: str = "",
+        upstream_requirements: dict[str, Any] | None = None,
+        upstream_architecture: dict[str, Any] | None = None,
+        upstream_implementation_plan: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         current_mode = str(mode or "research").strip().lower()
         kind = self._infer_delivery_target(text, target, mode=current_mode)
@@ -3424,6 +3711,9 @@ class OathweaverOrchestrator:
                     text=text,
                     context={
                         "research_context": research_context,
+                        "upstream_requirements": dict(upstream_requirements or {}),
+                        "upstream_architecture": dict(upstream_architecture or {}),
+                        "upstream_implementation_plan": dict(upstream_implementation_plan or {}),
                     },
                     cancel_checker=getattr(self, "_last_cancel_checker", None),
                     progress_callback=getattr(self, "_last_progress_callback", None),

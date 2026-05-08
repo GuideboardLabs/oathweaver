@@ -1,0 +1,11 @@
+{
+  "scope": {
+    "domain": "computer_science_programming",
+    "topic": "web_app",
+    "make_type": "web_app",
+    "lifecycle": "domain"
+  },
+  "title": "Flask 3 + Vue 3 CDN + SQLite login and CRUD MVP",
+  "tags": ["pattern", "web_app", "login", "crud", "flask", "vue", "sqlite"],
+  "content": "Canonical pattern for an Oathweaver web_app build:\n\n- Flask 3 backend with envelope helpers ok_item, ok_items, and err.\n- SQLite with request-scoped get_db(), PRAGMA foreign_keys=ON, and journal_mode=WAL.\n- Schema uses CREATE TABLE IF NOT EXISTS and INTEGER PRIMARY KEY AUTOINCREMENT.\n- Auth uses werkzeug.security.generate_password_hash and check_password_hash.\n- Vue 3 CDN composition API with ref()/reactive() and apiFetch() that parses envelope responses.\n- Login UI uses real input fields and never hardcoded credentials in click handlers.\n- Mount guards avoid user-scoped fetches before authenticated state.\n- Feature styles use only var(--neu-*) tokens.\n- Required deliverables include requirements.txt, .gitignore, and .env.example."
+}

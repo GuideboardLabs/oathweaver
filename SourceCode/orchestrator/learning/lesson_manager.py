@@ -64,10 +64,17 @@ def reflection_answer(reflection_engine, bus, cycle_id: str, answer: str) -> str
         {"id": cycle_id, "lane": cycle.get("lane", ""), "project": cycle.get("project", "")},
     )
     lesson_ids = cycle.get("answer_lesson_ids", [])
+    learning_status = str(cycle.get("learning_status", "")).strip().lower()
     preview = ", ".join(lesson_ids[:6]) if lesson_ids else "none"
+    learning_note = ""
+    if learning_status in {"queued", "running"}:
+        learning_note = "\nLesson extraction is queued and will finish in the background."
+    elif learning_status == "failed":
+        learning_note = "\nLesson extraction hit a background error; reflection was still saved."
     return (
         f"Reflection answered and closed: {cycle_id}\n"
         f"New lesson IDs from your answer: {preview}"
+        f"{learning_note}"
     )
 
 

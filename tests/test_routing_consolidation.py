@@ -29,6 +29,16 @@ class RoutingConsolidationTests(unittest.TestCase):
         self.assertEqual(decision.lane_override, 'research')
         self.assertTrue(decision.meta['words'] >= 5)
 
+    def test_code_make_type_overrides_domain(self) -> None:
+        policy = RoutingPolicy(ROOT)
+        decision = policy.decide(
+            "Build me a recipe tracker web app with login",
+            project_slug="oathweaver",
+            topic_type="general",
+        )
+        self.assertEqual(decision.make_type, "web_app")
+        self.assertEqual(decision.domain, "computer_science_programming")
+
 
 if __name__ == '__main__':
     unittest.main()

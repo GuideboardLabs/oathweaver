@@ -8,6 +8,7 @@ from tests.common import ensure_runtime  # noqa: F401
 from cag.decision_ledger import DecisionLedger
 from cag.memory_store import CAGMemoryStore
 from core.context_compiler import ContextCompiler
+from core.context_compiler.profiles import profile_for_stage
 from core.context_pack import ContextPackStore
 from core.pipeline_engine import PipelineEngine, pipeline_spec_for_name
 from core.state_store import StateStore
@@ -166,6 +167,33 @@ class Phase4ContextCompilerTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(len(seen_stages), len(spec.stages))
         self.assertEqual(len(result.get("context_packs", {})), len(spec.stages))
+
+    def test_build_stage_profiles_allow_domain_scope(self) -> None:
+        for stage in ("requirements", "architecture", "implementation_plan", "patch_artifact_generation", "verification"):
+            profile = profile_for_stage(stage)
+            self.assertIn("domain", profile.preferred_scope_levels)
+
+    def test_compile_prefers_input_payload_domain_over_kernel_domain(self) -> None:
+        pack = self.compiler.compile(
+            run_id="run_domain_override",
+            pipeline="build_pipeline",
+            stage="requirements",
+            input_payload={
+                "project_slug": "proj",
+                "text": "Build a web app",
+                "topic_type": "general",
+                "domain": "computer_science_programming",
+                "lane": "make_app",
+            },
+            stage_state={},
+            project_kernel={"knowledge_spine": {"domain": "general_research", "topic": "general", "thread": "thread_proj"}},
+            memory_rows=[],
+            decision_rows=[],
+            benchmark_lessons=[],
+            output_contract="requirements",
+            hardware_token_budget=700,
+        )
+        self.assertEqual(pack.get("domain"), "computer_science_programming")
 
 
 if __name__ == "__main__":

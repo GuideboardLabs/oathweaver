@@ -30,6 +30,29 @@ _SIMPLE_PATTERNS = [
     re.compile(r"\bhow many\b", re.I),
 ]
 
+CODE_MAKE_TYPES = frozenset(
+    {
+        "web_app",
+        "desktop_app",
+        "cli_tool",
+        "developer_tool",
+        "ui_component",
+        "tui_app",
+        "library_sdk",
+        "backend_service",
+        "full_application",
+        "benchmark_suite",
+        "data_pipeline",
+        "model_runtime_system",
+    }
+)
+
+
+def _resolve_domain(make_type: str, inferred_domain: str) -> str:
+    if str(make_type or "").strip().lower() in CODE_MAKE_TYPES:
+        return "computer_science_programming"
+    return str(inferred_domain or "").strip() or "general_research"
+
 
 class IntentRouter:
     RESEARCH_TERMS = [
@@ -315,8 +338,11 @@ class RoutingPolicy:
         lane_override = recommend_lane_override(query_mode, lane or current_lane)
         should_forage = should_run_full_foraging(query_mode, complexity)
         pipeline = lane_to_pipeline(lane)
-        domain = normalize_domain(domain_for_topic_type(topic_type))
         make_type = infer_make_type(text=normalized, target="", lane=lane)
+        domain = _resolve_domain(
+            make_type,
+            normalize_domain(domain_for_topic_type(topic_type)),
+        )
         make_intent = query_mode
         research_focus = infer_research_focus(
             text=normalized,

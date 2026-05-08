@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,7 @@ def _method_not_allowed(_error: BaseException):
 @app.errorhandler(500)
 def _server_error(error: BaseException):
     """Handle uncaught server errors."""
-    return err("INTERNAL_ERROR", "Internal server error", status=500, details=str(error))
+    return err("INTERNAL_ERROR", "Internal server error", status=500)
 
 
 @app.get("/")
@@ -89,4 +90,7 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(
+        debug=os.environ.get("FLASK_DEBUG", "").strip() == "1",
+        port=int(os.environ.get("PORT", "5000")),
+    )

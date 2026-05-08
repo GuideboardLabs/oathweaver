@@ -58,6 +58,24 @@ def _canon_path(canon_version: str) -> Path:
     return path
 
 
+def _canon_relative(file_path: Path, canon_root: Path | None = None) -> str:
+    """Return canon-style relative path for slot validator lookup."""
+    path = Path(file_path)
+    if canon_root is not None:
+        try:
+            return str(path.relative_to(Path(canon_root))).replace("\\", "/")
+        except Exception:
+            pass
+    parts = path.parts
+    if len(parts) >= 2 and parts[-2:] == ("templates", "index.html"):
+        return "templates/index.html"
+    if len(parts) >= 2 and parts[-2:] == ("static", "app.js"):
+        return "static/app.js"
+    if len(parts) >= 2 and parts[-2:] == ("static", "styles.css"):
+        return "static/styles.css"
+    return path.name
+
+
 def copy_scaffold(canon_version: str, target_dir: Path) -> None:
     """Copy a scaffold directory into target_dir and pin canon version."""
     source = _canon_path(canon_version)
@@ -68,7 +86,14 @@ def copy_scaffold(canon_version: str, target_dir: Path) -> None:
         dirs_exist_ok=True,
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"),
     )
-    (target_dir / ".canon-version").write_text(str(canon_version).strip() + "\n", encoding="utf-8")
+    marker = str(canon_version).strip()
+    marker_path = source / ".canon-version"
+    if marker_path.exists():
+        try:
+            marker = marker_path.read_text(encoding="utf-8").strip() or marker
+        except Exception:
+            marker = marker
+    (target_dir / ".canon-version").write_text(marker + "\n", encoding="utf-8")
 
 
 def list_slots(target_dir: Path) -> dict[Path, list[str]]:
@@ -100,8 +125,23 @@ def read_slot(file_path: Path, slot_name: str) -> str:
     return match.group("body").strip("\n")
 
 
-def write_slot(file_path: Path, slot_name: str, content: str) -> None:
+def write_slot(
+    file_path: Path,
+    slot_name: str,
+    content: str,
+    *,
+    validate: bool = True,
+    canon_root: Path | None = None,
+) -> None:
     """Write content between region markers for one slot."""
+    if validate:
+        from .slot_validators import SlotValidationError, validate_slot
+
+        rel_path = _canon_relative(file_path, canon_root)
+        violations = validate_slot(rel_path, slot_name, str(content or ""))
+        if violations:
+            raise SlotValidationError(violations)
+
     text = file_path.read_text(encoding="utf-8")
     pattern = _slot_pattern(file_path, slot_name)
     match = pattern.search(text)

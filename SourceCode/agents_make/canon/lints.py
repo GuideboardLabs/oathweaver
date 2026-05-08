@@ -18,6 +18,35 @@ _COLOR_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 
+BLOCKING_RULES = frozenset(
+    {
+        "route_naming_missing",
+        "envelope_conformance",
+        "slot_data_literal",
+        "slot_syntax_error",
+        "runtime_route_failure",
+        "schema_postgres_syntax",
+        "schema_missing_if_not_exists",
+    }
+)
+
+
+def _with_severity(violation: dict[str, Any]) -> dict[str, Any]:
+    row = dict(violation)
+    rule = str(row.get("rule", "")).strip()
+    severity = "advisory"
+    if rule in BLOCKING_RULES:
+        severity = "blocking"
+    row["severity"] = severity
+    return row
+
+
+def _classify(violations: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    hydrated = [_with_severity(row) for row in violations]
+    blocking = [row for row in hydrated if str(row.get("severity", "")).strip().lower() == "blocking"]
+    advisory = [row for row in hydrated if str(row.get("severity", "")).strip().lower() != "blocking"]
+    return blocking, advisory
+
 
 def lint_route_naming(app_py: str, spec: AppSpec) -> list[dict[str, Any]]:
     """Check route paths against spec routes."""
@@ -36,7 +65,7 @@ def lint_route_naming(app_py: str, spec: AppSpec) -> list[dict[str, Any]]:
             {
                 "file": "app.py",
                 "line": 1,
-                "rule": "route_naming",
+                "rule": "route_naming_missing",
                 "message": f"Missing expected route path: {missing}",
             }
         )
@@ -45,7 +74,7 @@ def lint_route_naming(app_py: str, spec: AppSpec) -> list[dict[str, Any]]:
             {
                 "file": "app.py",
                 "line": 1,
-                "rule": "route_naming",
+                "rule": "route_naming_unexpected",
                 "message": f"Unexpected route path not declared in spec: {extra}",
             }
         )
@@ -69,7 +98,7 @@ def lint_envelope_conformance(app_py: str) -> list[dict[str, Any]]:
             {
                 "file": "app.py",
                 "line": idx,
-                "rule": "envelope",
+                "rule": "envelope_conformance",
                 "message": "Raw jsonify return detected outside canonical helper shape.",
             }
         )
@@ -229,4 +258,15 @@ def run_policy_lints(
     violations.extend(lint_envelope_conformance(app_py))
     violations.extend(lint_css_tokens_only(feature_styles))
     violations.extend(lint_comment_policy_strict(app_py, app_js))
-    return violations
+    return [_with_severity(row) for row in violations]
+
+
+__all__ = [
+    "BLOCKING_RULES",
+    "run_policy_lints",
+    "_classify",
+    "lint_route_naming",
+    "lint_envelope_conformance",
+    "lint_css_tokens_only",
+    "lint_comment_policy_strict",
+]

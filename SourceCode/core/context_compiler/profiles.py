@@ -21,11 +21,11 @@ _STAGE_PROFILES: dict[str, StageContextProfile] = {
     "synthesis": StageContextProfile("synthesizer", ("decision", "constraint", "lesson", "fact"), ("thread", "project", "topic")),
     "cag_promotion_gate": StageContextProfile("memory_critic", ("decision", "constraint", "lesson", "benchmark_implication"), ("thread", "project", "topic")),
     # build pipeline
-    "requirements": StageContextProfile("requirements_planner", ("constraint", "decision", "fact"), ("project", "thread", "topic")),
-    "architecture": StageContextProfile("runtime_architect", ("decision", "constraint", "lesson"), ("thread", "project", "topic")),
-    "implementation_plan": StageContextProfile("implementation_planner", ("decision", "lesson", "constraint"), ("project", "thread", "topic")),
-    "patch_artifact_generation": StageContextProfile("patch_writer", ("decision", "constraint", "fact"), ("project", "thread", "topic")),
-    "verification": StageContextProfile("verifier", ("benchmark_implication", "lesson", "constraint"), ("thread", "project", "topic")),
+    "requirements": StageContextProfile("requirements_planner", ("constraint", "decision", "fact"), ("project", "thread", "topic", "domain")),
+    "architecture": StageContextProfile("runtime_architect", ("decision", "constraint", "lesson"), ("thread", "project", "topic", "domain")),
+    "implementation_plan": StageContextProfile("implementation_planner", ("decision", "lesson", "constraint"), ("project", "thread", "topic", "domain")),
+    "patch_artifact_generation": StageContextProfile("patch_writer", ("decision", "constraint", "fact"), ("project", "thread", "topic", "domain")),
+    "verification": StageContextProfile("verifier", ("benchmark_implication", "lesson", "constraint"), ("thread", "project", "topic", "domain")),
     # code-fix pipeline
     "planner": StageContextProfile("code_planner", ("decision", "constraint", "fact"), ("project", "thread", "topic")),
     "code_localizer": StageContextProfile("code_localizer", ("decision", "constraint", "fact"), ("project", "thread", "topic")),

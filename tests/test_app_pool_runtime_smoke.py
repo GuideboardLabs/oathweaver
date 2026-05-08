@@ -16,14 +16,13 @@ class AppPoolRuntimeSmokeTests(unittest.TestCase):
             original = os.environ.get("OATHWEAVER_SKIP_RUNTIME_SMOKE")
             os.environ["OATHWEAVER_SKIP_RUNTIME_SMOKE"] = "1"
             try:
-                ok, err = _runtime_smoke_check(probe_dir, spec=None)
+                failures = _runtime_smoke_check(probe_dir, spec=None)
             finally:
                 if original is None:
                     os.environ.pop("OATHWEAVER_SKIP_RUNTIME_SMOKE", None)
                 else:
                     os.environ["OATHWEAVER_SKIP_RUNTIME_SMOKE"] = original
-            self.assertTrue(ok)
-            self.assertEqual(err, "")
+            self.assertEqual(failures, [])
 
 
 if __name__ == "__main__":

@@ -31,6 +31,7 @@ import time
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -38,9 +39,10 @@ from typing import Any, Callable
 from shared_tools.feedback_learning import FeedbackLearningEngine
 from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
-from agents_make.canon import copy_scaffold, read_slot, verify_plumbing_intact, write_slot
+from agents_make.canon import SlotValidationError, copy_scaffold, read_slot, verify_plumbing_intact, write_slot
 from agents_make.canon.app_spec import AppSpec, parse_spec_text, spec_to_json
-from agents_make.canon.lints import run_policy_lints
+from agents_make.canon import codegen
+from agents_make.canon.lints import _classify, run_policy_lints
 
 
 # ---------------------------------------------------------------------------
@@ -699,166 +701,194 @@ def _import_smoke_check(flask_code: str, db_py: str, schema_sql: str) -> tuple[b
         return False, str(exc)
 
 
-def _runtime_smoke_check(project_dir: Path, spec: AppSpec | None) -> tuple[bool, str]:
-    """Run a short Flask runtime smoke test against /api/health and one spec GET route."""
-    if os.environ.get("OATHWEAVER_SKIP_RUNTIME_SMOKE", "").strip() == "1":
-        return True, ""
+def _ephemeral_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
-    proc: subprocess.Popen[str] | None = None
-    fail_reason = ""
-    stderr_tail = ""
-    stdout_tail = ""
-    started = time.monotonic()
-    max_runtime_sec = 15.0
 
-    def _remaining() -> float:
-        return max(0.1, max_runtime_sec - (time.monotonic() - started))
-
-    def _get_json(url: str) -> tuple[int, Any, str]:
-        req = urllib.request.Request(url=url, method="GET")
-        with urllib.request.urlopen(req, timeout=min(3.0, _remaining())) as response:
-            status = int(getattr(response, "status", response.getcode()))
-            raw = response.read().decode("utf-8", errors="replace")
-        parsed: Any
+def _wait_for_health(port: int, timeout: float = 8.0) -> bool:
+    deadline = time.monotonic() + float(timeout)
+    while time.monotonic() < deadline:
         try:
-            parsed = json.loads(raw)
-        except Exception as exc:
-            raise ValueError(f"Invalid JSON response from {url}: {exc}. Body={raw[:800]}") from exc
-        return status, parsed, raw
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/health", timeout=0.6) as response:
+                status = int(getattr(response, "status", response.getcode()))
+                if status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.2)
+    return False
 
+
+def _route_probe_body(spec: AppSpec, entity_name: str | None) -> dict[str, Any]:
+    if not entity_name:
+        return {}
+    entity = next((row for row in spec.entities if row.name == entity_name), None)
+    if entity is None:
+        return {}
+    samples = {
+        "str": "test",
+        "int": 1,
+        "float": 1.0,
+        "bool": True,
+        "date": "2026-01-01",
+        "datetime": "2026-01-01T00:00:00",
+        "json": {},
+    }
+    payload: dict[str, Any] = {}
+    for field in entity.fields:
+        if field.name == "id":
+            continue
+        if not field.required and field.default is None:
+            continue
+        payload[field.name] = samples.get(field.type, "test")
+    return payload
+
+
+def _probe_route(
+    port: int,
+    route: Any,
+    spec: AppSpec,
+    entity_ids: dict[str, int],
+) -> list[dict[str, Any]]:
+    method = str(getattr(route, "method", "GET")).strip().upper()
+    path = str(getattr(route, "path", "")).strip()
+    entity = str(getattr(route, "entity", "")).strip() or None
+    probe_id = int(entity_ids.get(entity or "", 1))
+    url = f"http://127.0.0.1:{port}{path.replace('<int:id>', str(probe_id))}"
+    body = _route_probe_body(spec, entity) if method in {"POST", "PUT"} else None
+    request = urllib.request.Request(
+        url=url,
+        method=method,
+        data=json.dumps(body).encode("utf-8") if body is not None else None,
+        headers={"Content-Type": "application/json"} if body is not None else {},
+    )
     try:
-        if _remaining() <= 0:
-            fail_reason = "Runtime smoke timed out before startup."
-            return False, fail_reason
-
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = int(sock.getsockname()[1])
-
-        proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "flask",
-                "--app",
-                "app",
-                "run",
-                "--no-debugger",
-                "--no-reload",
-                "--port",
-                str(port),
-            ],
-            cwd=str(project_dir),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            env=os.environ.copy(),
-        )
-
-        ready = False
-        for _ in range(25):
-            if _remaining() <= 0:
-                break
-            if proc.poll() is not None:
-                break
-            try:
-                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
-                    ready = True
-                    break
-            except OSError:
-                time.sleep(0.2)
-
-        if not ready:
-            fail_reason = "Runtime smoke failed: Flask server did not become ready within 5s."
-        if not fail_reason:
-            health_url = f"http://127.0.0.1:{port}/api/health"
-            try:
-                status, payload, _raw = _get_json(health_url)
-            except urllib.error.HTTPError as exc:
-                body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
-                fail_reason = f"Runtime smoke failed: /api/health returned HTTP {exc.code}. Body={body[:800]}"
-            except Exception as exc:
-                fail_reason = f"Runtime smoke failed: /api/health request error: {exc}"
-
-            if not fail_reason and status != 200:
-                fail_reason = f"Runtime smoke failed: /api/health returned status {status}, expected 200."
-            if not fail_reason and not isinstance(payload, dict):
-                fail_reason = "Runtime smoke failed: /api/health payload is not a JSON object."
-            if not fail_reason and payload.get("item", {}).get("status") != "ok":
-                fail_reason = (
-                    "Runtime smoke failed: /api/health payload shape mismatch; "
-                    "expected {'item': {'status': 'ok'}}."
-                )
-
-        if not fail_reason:
-            spec_get_path = ""
-            if spec is not None:
-                for route in spec.routes:
-                    if str(route.method).upper() == "GET" and "<int:id>" not in str(route.path):
-                        spec_get_path = str(route.path).strip()
-                        if spec_get_path.startswith("/api/"):
-                            break
-                        spec_get_path = ""
-            if spec_get_path:
-                route_url = f"http://127.0.0.1:{port}{spec_get_path}"
+        with urllib.request.urlopen(request, timeout=3.0) as response:
+            status = int(getattr(response, "status", response.getcode()))
+            payload_raw = response.read().decode("utf-8", errors="replace")
+            if status >= 400:
+                return [{"route": path, "method": method, "status": status, "body": payload_raw[:800]}]
+            if method == "POST" and entity:
                 try:
-                    route_status, route_payload, _ = _get_json(route_url)
-                except urllib.error.HTTPError as exc:
-                    body = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
-                    fail_reason = (
-                        f"Runtime smoke failed: {spec_get_path} returned HTTP {exc.code}. "
-                        f"Body={body[:800]}"
-                    )
-                except Exception as exc:
-                    fail_reason = f"Runtime smoke failed: {spec_get_path} request error: {exc}"
+                    parsed = json.loads(payload_raw)
+                    new_id = int(((parsed.get("item", {}) if isinstance(parsed.get("item", {}), dict) else {}).get("id", 0)) or 0)
+                    if new_id > 0:
+                        entity_ids[entity] = new_id
+                except Exception:
+                    pass
+            return []
+    except urllib.error.HTTPError as exc:
+        if (
+            int(exc.code) == 404
+            and "<int:id>" in path
+            and method in {"GET", "PUT", "DELETE", "PATCH"}
+        ):
+            return []
+        body_text = exc.read().decode("utf-8", errors="replace") if hasattr(exc, "read") else ""
+        return [{"route": path, "method": method, "status": int(exc.code), "body": body_text[:800]}]
+    except Exception as exc:
+        return [{"route": path, "method": method, "status": "error", "error": str(exc)}]
 
-                if not fail_reason and route_status != 200:
-                    fail_reason = (
-                        f"Runtime smoke failed: {spec_get_path} returned status {route_status}, expected 200."
-                    )
-                if not fail_reason and not isinstance(route_payload, dict):
-                    fail_reason = f"Runtime smoke failed: {spec_get_path} payload is not a JSON object."
-                if not fail_reason and ("items" not in route_payload or "meta" not in route_payload):
-                    fail_reason = (
-                        f"Runtime smoke failed: {spec_get_path} payload shape mismatch; "
-                        "expected {'items': [...], 'meta': {...}}."
-                    )
-                if not fail_reason and not isinstance(route_payload.get("items"), list):
-                    fail_reason = f"Runtime smoke failed: {spec_get_path} 'items' is not a list."
-                if not fail_reason and not isinstance(route_payload.get("meta"), dict):
-                    fail_reason = f"Runtime smoke failed: {spec_get_path} 'meta' is not an object."
 
-        if not fail_reason and _remaining() <= 0:
-            fail_reason = "Runtime smoke failed: exceeded 15s runtime budget."
+def _runtime_smoke_check(project_dir: Path, spec: AppSpec | None) -> list[dict[str, Any]]:
+    """Spawn the generated app and probe health + spec routes."""
+    if os.environ.get("OATHWEAVER_SKIP_RUNTIME_SMOKE", "").strip() == "1":
+        return []
+    if spec is None:
+        return []
+
+    port = _ephemeral_port()
+    env = dict(os.environ)
+    env["PORT"] = str(port)
+    env["FLASK_DEBUG"] = "0"
+    proc = subprocess.Popen(
+        [sys.executable, str(project_dir / "app.py")],
+        cwd=str(project_dir),
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    failures: list[dict[str, Any]] = []
+    stderr_tail = ""
+    try:
+        if not _wait_for_health(port, timeout=8.0):
+            try:
+                stderr_tail = (proc.stderr.read(4096) if proc.stderr else "") or ""
+            except Exception:
+                stderr_tail = ""
+            if "No module named 'flask'" in stderr_tail:
+                return []
+            failures.append({"route": "/api/health", "status": "no_response", "stderr": stderr_tail[-1600:]})
+            return failures
+
+        entity_ids: dict[str, int] = {}
+        ordered_routes = [row for row in spec.routes if str(row.method).upper() != "DELETE"] + [
+            row for row in spec.routes if str(row.method).upper() == "DELETE"
+        ]
+        for route in ordered_routes:
+            method = str(route.method).upper()
+            if "<int:id>" in str(route.path) and route.entity and not entity_ids.get(route.entity):
+                create_route = next(
+                    (
+                        r
+                        for r in spec.routes
+                        if str(r.entity or "").strip() == str(route.entity).strip()
+                        and str(r.method).upper() == "POST"
+                        and "<int:id>" not in str(r.path)
+                    ),
+                    None,
+                )
+                if create_route is not None:
+                    _ = _probe_route(port, create_route, spec, entity_ids)
+            failures.extend(_probe_route(port, route, spec, entity_ids))
+
+        smoke_script = project_dir.parents[3] / "tools" / "browser_headless_smoke.py"
+        if smoke_script.exists() and os.environ.get("OATHWEAVER_ENABLE_HEADLESS_SMOKE", "").strip() == "1":
+            try:
+                probe = subprocess.run(
+                    [sys.executable, str(smoke_script), f"http://127.0.0.1:{port}/"],
+                    cwd=str(project_dir.parents[3]),
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                if int(probe.returncode) != 0:
+                    failures.append(
+                        {
+                            "route": "/",
+                            "method": "GET",
+                            "status": "headless_failed",
+                            "stderr": (probe.stderr or probe.stdout or "")[-1000:],
+                        }
+                    )
+            except Exception:
+                pass
     finally:
-        if proc is not None:
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                proc.wait(timeout=3)
+        except Exception:
             try:
-                if proc.poll() is None:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=2)
-                    except Exception:
-                        proc.kill()
-                out, err = proc.communicate(timeout=1)
-                stdout_tail = str(out or "")[-3000:]
-                stderr_tail = str(err or "")[-4000:]
+                proc.kill()
             except Exception:
                 pass
-            try:
-                if proc.poll() is None:
-                    proc.kill()
-            except Exception:
-                pass
-
-    if fail_reason and stderr_tail:
-        fail_reason = f"{fail_reason}\n\n[flask stderr]\n{stderr_tail}"
-    elif fail_reason and stdout_tail:
-        fail_reason = f"{fail_reason}\n\n[flask stdout]\n{stdout_tail}"
-
-    if fail_reason and "No module named 'flask'" in fail_reason:
-        # Environment-level missing dependency (handled by dependency checks).
-        return (True, "")
-    return (not fail_reason), fail_reason
+        try:
+            _out, _err = proc.communicate(timeout=1)
+            if not stderr_tail:
+                stderr_tail = str(_err or "")
+        except Exception:
+            pass
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+        except Exception:
+            pass
+    return failures
 
 
 def _fix_python(
@@ -911,7 +941,9 @@ def _chat(
     temperature: float = 0.2,
     num_ctx: int = 16384,
     timeout: int = 360,
+    label: str = "unknown",
 ) -> str:
+    started = time.monotonic()
     try:
         result = client.chat(
             model="qwen2.5-coder:7b",
@@ -924,9 +956,39 @@ def _chat(
             retry_attempts=4,
             retry_backoff_sec=1.5,
         )
-        return str(result or "").strip()
+        text = str(result or "").strip()
+        ok = bool(text)
+        return text
     except Exception as exc:
-        return f"[Model call failed: {exc}]"
+        text = f"[Model call failed: {exc}]"
+        ok = False
+    finally:
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        entry = {
+            "label": str(label or "unknown"),
+            "latency_ms": elapsed_ms,
+            "system_prompt_tokens": _approx_tokens(system_prompt),
+            "user_prompt_tokens": _approx_tokens(user_prompt),
+            "response_tokens": _approx_tokens(text if "text" in locals() else ""),
+            "ok": bool(ok if "ok" in locals() else False),
+        }
+        calls = _APP_POOL_LLM_CALLS.get()
+        if calls is not None:
+            calls.append(entry)
+        bus = _APP_POOL_BUS.get()
+        if bus is not None:
+            try:
+                bus.emit("app_pool", "llm_call", entry)
+            except Exception:
+                pass
+    return text
+
+
+def _approx_tokens(text: str) -> int:
+    words = [word for word in str(text or "").split() if word.strip()]
+    if not words:
+        return 0
+    return max(1, int(round(len(words) * 1.35)))
 
 
 # ---------------------------------------------------------------------------
@@ -963,6 +1025,12 @@ def _find_existing_app(repo_root: Path, project_slug: str) -> dict[str, str]:
     if found:
         found["__source_dir__"] = latest.name  # record which build we're extending
         found["__source_path__"] = str(latest)
+        marker = latest / ".canon-version"
+        if marker.exists():
+            try:
+                found["__source_canon_version__"] = marker.read_text(encoding="utf-8").strip()
+            except Exception:
+                pass
     return found
 
 
@@ -1014,7 +1082,7 @@ def _step_db_architect(
             f"Research knowledge:\n{_trim(research_knowledge, 2500) or '(none)'}\n\n"
             "Design a minimal but complete SQLite schema for this app."
         )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=16384)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=16384, label="db_architect_legacy")
 
     sql_match = re.search(r"```sql\n(.*?)```", raw, re.DOTALL)
     py_match = re.search(r"```python\n(.*?)```", raw, re.DOTALL)
@@ -1092,7 +1160,7 @@ def _step_api_implementer(
             "Write the complete Flask app.py with all routes implemented."
         )
     code = _extract_named_block(
-        _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=20480, timeout=480),
+        _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=20480, timeout=480, label="api_implementer_legacy"),
         ("python",),
     )
 
@@ -1158,7 +1226,7 @@ def _step_vue_architect(
         f"Research knowledge:\n{_trim(research_knowledge, 1600) or '(none)'}\n\n"
         "Plan the Vue 3 component structure and data flow. Be specific about which API calls go where."
     )
-    return _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=16384)
+    return _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=16384, label="vue_architect_legacy")
 
 
 def _step_vue_implementer(
@@ -1213,7 +1281,7 @@ def _step_vue_implementer(
             f"Research knowledge:\n{_trim(research_knowledge, 1200) or '(none)'}\n\n"
             "Write the complete app.js — all state, API calls, and template logic."
         )
-    app_js_raw = _chat(client, system_prompt_js, user_prompt_js, temperature=0.3, num_ctx=20480, timeout=480)
+    app_js_raw = _chat(client, system_prompt_js, user_prompt_js, temperature=0.3, num_ctx=20480, timeout=480, label="vue_js_legacy")
     app_js = _extract_named_block(app_js_raw, ("javascript", "js"))
 
     # index.html
@@ -1254,7 +1322,7 @@ def _step_vue_implementer(
             "Write the complete index.html with all template markup inside #app."
         )
     index_html = _extract_named_block(
-        _chat(client, system_prompt_html, user_prompt_html, temperature=0.25, num_ctx=20480, timeout=360),
+        _chat(client, system_prompt_html, user_prompt_html, temperature=0.25, num_ctx=20480, timeout=360, label="vue_html_legacy"),
         ("html",),
     )
     vue_issues = _check_html_structure(index_html) + _check_vue_bindings(index_html, app_js)
@@ -1273,7 +1341,7 @@ def _step_vue_implementer(
             "Return corrected app.js."
         )
         js_candidate = _extract_named_block(
-            _chat(client, fix_js_system, fix_js_user, temperature=0.15, num_ctx=20480, timeout=360),
+            _chat(client, fix_js_system, fix_js_user, temperature=0.15, num_ctx=20480, timeout=360, label="vue_js_fix_legacy"),
             ("javascript", "js"),
         )
         if js_candidate.strip():
@@ -1292,7 +1360,7 @@ def _step_vue_implementer(
             "Return corrected index.html."
         )
         html_candidate = _extract_named_block(
-            _chat(client, fix_html_system, fix_html_user, temperature=0.15, num_ctx=20480, timeout=360),
+            _chat(client, fix_html_system, fix_html_user, temperature=0.15, num_ctx=20480, timeout=360, label="vue_html_fix_legacy"),
             ("html",),
         )
         if html_candidate.strip():
@@ -1330,7 +1398,7 @@ def _step_integration_check(
         f"HTML template (first 2000 chars):\n{index_html[:2000]}\n\n"
         f"Research knowledge:\n{_trim(research_knowledge, 1200) or '(none)'}"
     )
-    return _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=16384)
+    return _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=16384, label="integration_check_legacy")
 
 
 def _step_integration_fixer(
@@ -1369,7 +1437,7 @@ def _step_integration_fixer(
             f"Current app.py:\n```python\n{_trim(flask_code, 6000)}\n```\n\n"
             "Return the complete corrected app.py."
         )
-        fixed_raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=20480, timeout=480)
+        fixed_raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=20480, timeout=480, label="integration_fix_backend_legacy")
         candidate = _extract_named_block(fixed_raw, ("python",))
         if candidate.strip():
             ok, err = _py_compile_check(candidate)
@@ -1400,7 +1468,7 @@ def _step_integration_fixer(
             f"Current app.js:\n```javascript\n{_trim(app_js, 6000)}\n```\n\n"
             "Return the complete corrected app.js."
         )
-        fixed_raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=20480, timeout=480)
+        fixed_raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=20480, timeout=480, label="integration_fix_frontend_legacy")
         candidate = _extract_named_block(fixed_raw, ("javascript", "js"))
         if candidate.strip():
             app_js = candidate
@@ -1474,7 +1542,7 @@ def _check_feature_coverage(
         "Do not include inferred or implicit features."
     )
     user_prompt = f"Build request:\n{_trim(question, 1200)}\n\nReturn JSON array only."
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=8192, timeout=180)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=8192, timeout=180, label="feature_coverage_legacy")
     features = _parse_feature_list(raw)
     if not features:
         return []
@@ -1553,7 +1621,7 @@ def _step_css_writer(
             f"HTML structure (for layout reference):\n{_trim(index_html, 4000)}\n\n"
             "Write the complete styles.css."
         )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.3, num_ctx=16384, timeout=360)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.3, num_ctx=16384, timeout=360, label="css_writer_legacy")
     css_block = re.search(r"```(?:css)?\n(.*?)```", raw, re.DOTALL)
     css_out = ""
     if css_block:
@@ -1583,7 +1651,7 @@ def _step_css_writer(
         f"Current stylesheet:\n```css\n{_trim(css_out, 6000)}\n```\n\n"
         "Return corrected plain CSS."
     )
-    fixed_raw = _chat(client, fix_system_prompt, fix_user_prompt, temperature=0.15, num_ctx=16384, timeout=360)
+    fixed_raw = _chat(client, fix_system_prompt, fix_user_prompt, temperature=0.15, num_ctx=16384, timeout=360, label="css_fix_legacy")
     fixed_block = re.search(r"```(?:css)?\n(.*?)```", fixed_raw, re.DOTALL)
     fixed_css = fixed_block.group(1).strip() if fixed_block else fixed_raw.strip()
     return fixed_css if fixed_css else css_out
@@ -1613,7 +1681,7 @@ def _step_readme(
         f"Research knowledge:\n{_trim(research_knowledge, 1000) or '(none)'}\n\n"
         "Write the README.md."
     )
-    return _chat(client, system_prompt, user_prompt, temperature=0.3, num_ctx=12288)
+    return _chat(client, system_prompt, user_prompt, temperature=0.3, num_ctx=12288, label="readme_legacy")
 
 
 # ---------------------------------------------------------------------------
@@ -1621,6 +1689,37 @@ def _step_readme(
 # ---------------------------------------------------------------------------
 
 _CANON_VERSION = "web_app_v1"
+_CANON_MARKER_VERSION = "web_app_v1.1"
+
+META_TERMS = frozenset(
+    {
+        "mvp",
+        "application",
+        "app",
+        "system",
+        "context",
+        "domain",
+        "topic",
+        "thread",
+        "build",
+        "feature",
+        "requirement",
+        "spec",
+        "implementation",
+        "tracker",
+        "manager",
+        "tool",
+        "platform",
+        "service",
+        "module",
+        "page",
+    }
+)
+
+GENERIC_ENTITY_NAMES = frozenset({"build", "item", "thing", "entry", "record", "object", "data", "info"})
+
+_APP_POOL_LLM_CALLS: ContextVar[list[dict[str, Any]] | None] = ContextVar("app_pool_llm_calls", default=None)
+_APP_POOL_BUS: ContextVar[Any | None] = ContextVar("app_pool_bus", default=None)
 
 
 def _slot_paths(app_dir: Path) -> dict[str, Path]:
@@ -1655,38 +1754,449 @@ def _parse_json_object(raw: str) -> dict[str, Any]:
         return {}
 
 
-def _default_app_spec(question: str) -> AppSpec:
-    noun = re.sub(r"[^a-z0-9]+", "_", question.lower()).strip("_")
-    base = noun.split("_")[0] if noun else "record"
-    singular = base if re.match(r"^[a-z][a-z0-9_]*$", base or "") else "record"
-    plural = singular if singular.endswith("s") else f"{singular}s"
-    payload = {
-        "app_name": f"{singular.title()} Tracker",
-        "feature_summary": str(question or "").strip() or "Generated app feature",
-        "entities": [
+def _snake_case_token(value: str, *, fallback: str = "item") -> str:
+    text = re.sub(r"[^a-zA-Z0-9]+", "_", str(value or "").strip()).strip("_").lower()
+    text = re.sub(r"_+", "_", text)
+    if not text:
+        return fallback
+    if not re.match(r"^[a-z]", text):
+        text = f"{fallback}_{text}"
+    return text
+
+
+def _kebab_case_token(value: str, *, fallback: str = "view") -> str:
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", str(value or "").strip()).strip("-").lower()
+    text = re.sub(r"-+", "-", text)
+    if not text:
+        return fallback
+    if not re.match(r"^[a-z]", text):
+        text = f"{fallback}-{text}"
+    return text
+
+
+def _infer_field_type(name: str) -> str:
+    token = _snake_case_token(name, fallback="field")
+    if token == "id" or token.endswith("_id"):
+        return "int"
+    if token in {"created_at", "updated_at", "timestamp"}:
+        return "datetime"
+    if token in {"date", "last_watered", "target_date", "due_date"} or token.endswith("_date"):
+        return "date"
+    if token.startswith("is_") or token.startswith("has_") or token in {"completed", "done", "active", "enabled"}:
+        return "bool"
+    if token.endswith("_count") or token in {"streak", "count", "total"}:
+        return "int"
+    return "str"
+
+
+def _entity_singular(name: str) -> str:
+    token = _snake_case_token(name, fallback="item")
+    if token.endswith("ies") and len(token) > 3:
+        return token[:-3] + "y"
+    if token.endswith("sses"):
+        return token[:-2]
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 1:
+        return token[:-1]
+    return token
+
+
+def _entity_plural(name: str) -> str:
+    token = _entity_singular(name)
+    if token.endswith("y") and len(token) > 1 and token[-2] not in "aeiou":
+        return token[:-1] + "ies"
+    if token.endswith(("s", "x", "z", "ch", "sh")):
+        return token + "es"
+    return token + "s"
+
+
+def _coerce_route_method(path: str, handler_name: str, method_hint: str = "") -> str:
+    method = str(method_hint or "").strip().upper()
+    by_id = path.endswith("/<int:id>")
+    if method in {"GET", "POST", "PUT", "DELETE"}:
+        if by_id and method == "POST":
+            return "PUT"
+        return method
+    low = _snake_case_token(handler_name, fallback="handler")
+    if "delete" in low or "destroy" in low or "remove" in low:
+        return "DELETE"
+    if "update" in low or "edit" in low or "put" in low:
+        return "PUT"
+    if "create" in low or "add" in low or "new" in low:
+        return "POST"
+    if by_id:
+        return "GET"
+    return "GET"
+
+
+def _path_to_entity(segment: str, entity_names: list[str]) -> str | None:
+    base = _entity_singular(segment)
+    if base in entity_names:
+        return base
+    for entity in entity_names:
+        if _entity_plural(entity) == segment:
+            return entity
+    return None
+
+
+def _coerce_spec_payload(raw_payload: dict[str, Any]) -> dict[str, Any]:
+    app_name = str(raw_payload.get("app_name", "")).strip() or "Generated App"
+    feature_summary = str(raw_payload.get("feature_summary", "")).strip() or "Generated feature"
+
+    raw_entities = raw_payload.get("entities")
+    if not isinstance(raw_entities, list):
+        raw_entities = raw_payload.get("models")
+    if not isinstance(raw_entities, list):
+        raw_entities = raw_payload.get("tables")
+    if not isinstance(raw_entities, list):
+        raw_entities = []
+    entities: list[dict[str, Any]] = []
+    seen_entities: set[str] = set()
+    if isinstance(raw_entities, list):
+        for idx, row in enumerate(raw_entities, start=1):
+            if isinstance(row, dict):
+                raw_name = row.get("name", row.get("entity_name", row.get("table_name", f"entity_{idx}")))
+                name = _entity_singular(str(raw_name or ""))
+                fields: list[dict[str, Any]] = []
+                raw_fields = row.get("fields", row.get("attributes", []))
+                if isinstance(raw_fields, list):
+                    for field_entry in raw_fields:
+                        if isinstance(field_entry, dict):
+                            field_name = _snake_case_token(
+                                str(
+                                    field_entry.get(
+                                        "name",
+                                        field_entry.get(
+                                            "field",
+                                            field_entry.get("field_name", "field"),
+                                        ),
+                                    )
+                                )
+                            )
+                            raw_type = str(field_entry.get("type", field_entry.get("data_type", ""))).strip().lower()
+                            type_aliases = {
+                                "string": "str",
+                                "text": "str",
+                                "integer": "int",
+                                "number": "float",
+                                "double": "float",
+                                "boolean": "bool",
+                            }
+                            field_type = type_aliases.get(raw_type, raw_type) or _infer_field_type(field_name)
+                            if field_type not in {"str", "int", "float", "bool", "date", "datetime", "json"}:
+                                field_type = _infer_field_type(field_name)
+                            fields.append(
+                                {
+                                    "name": field_name,
+                                    "type": field_type,
+                                    "required": bool(field_entry.get("required", field_name != "id")),
+                                }
+                            )
+                        else:
+                            field_name = _snake_case_token(str(field_entry or "field"))
+                            fields.append({"name": field_name, "type": _infer_field_type(field_name), "required": field_name != "id"})
+                if not any(field.get("name") == "id" for field in fields):
+                    fields.insert(0, {"name": "id", "type": "int", "required": True})
+                if not any(str(field.get("name", "")).strip() != "id" for field in fields):
+                    fields.append({"name": "name", "type": "str", "required": True})
+                if name and name not in seen_entities:
+                    entities.append({"name": name, "primary_key": "id", "fields": fields})
+                    seen_entities.add(name)
+                continue
+
+            if isinstance(row, str):
+                name = _entity_singular(row)
+                if name and name not in seen_entities:
+                    entities.append(
+                        {
+                            "name": name,
+                            "primary_key": "id",
+                            "fields": [
+                                {"name": "id", "type": "int", "required": True},
+                                {"name": "name", "type": "str", "required": True},
+                            ],
+                        }
+                    )
+                    seen_entities.add(name)
+
+    entity_names = [str(entity.get("name", "")).strip() for entity in entities if str(entity.get("name", "")).strip()]
+    raw_routes = raw_payload.get("routes", [])
+    routes: list[dict[str, Any]] = []
+    if isinstance(raw_routes, list):
+        for row in raw_routes:
+            if not isinstance(row, dict):
+                continue
+            raw_path = str(row.get("path", row.get("route_path", ""))).strip()
+            if not raw_path:
+                continue
+            path = re.sub(r"/:id\b", "/<int:id>", raw_path)
+            path = path.replace("/{id}", "/<int:id>")
+            if not path.startswith("/"):
+                path = "/" + path
+            if not path.startswith("/api/"):
+                segment = _snake_case_token(path.strip("/").split("/")[0], fallback="items")
+                path = f"/api/{segment}"
+            if path.endswith("/id"):
+                path = path[:-3] + "/<int:id>"
+            if "/<int:id>" in path and not path.endswith("/<int:id>"):
+                path = path.split("/<int:id>")[0] + "/<int:id>"
+            path = re.sub(r"/+", "/", path)
+            if not re.match(r"^/api/[a-z][a-z0-9_]*(?:/<int:id>)?$", path):
+                parts = [part for part in path.split("/") if part]
+                if len(parts) >= 2 and parts[0] == "api":
+                    if len(parts) >= 4 and parts[2] == "<int:id>" and parts[-1] != "<int:id>":
+                        path = f"/api/{_snake_case_token(parts[-1], fallback='items')}"
+                    elif "<int:id>" in parts:
+                        path = f"/api/{_snake_case_token(parts[1], fallback='items')}/<int:id>"
+                    elif len(parts) >= 3:
+                        tail = _snake_case_token(parts[-1], fallback="endpoint")
+                        path = f"/api/{tail}"
+                    else:
+                        path = f"/api/{_snake_case_token(parts[1], fallback='items')}"
+                else:
+                    path = "/api/items"
+
+            raw_handler = str(row.get("handler_name", row.get("handler", row.get("action", "")))).strip()
+            if not raw_handler:
+                seg = path.split("/api/", 1)[1].split("/", 1)[0] if "/api/" in path else "items"
+                base = _entity_singular(seg)
+                method_hint = str(row.get("method", "")).strip().upper()
+                if path.endswith("/<int:id>"):
+                    if method_hint == "PUT":
+                        raw_handler = f"update_{base}"
+                    elif method_hint == "DELETE":
+                        raw_handler = f"delete_{base}"
+                    else:
+                        raw_handler = f"get_{base}"
+                else:
+                    if method_hint == "POST":
+                        raw_handler = f"create_{base}"
+                    else:
+                        raw_handler = f"list_{_entity_plural(base)}"
+            handler_name = _snake_case_token(raw_handler.replace(".", "_"), fallback="handle_route")
+            method = _coerce_route_method(path, handler_name, str(row.get("method", "")))
+            seg = path.split("/api/", 1)[1].split("/", 1)[0] if "/api/" in path else "items"
+            entity = _path_to_entity(_snake_case_token(seg, fallback="item"), entity_names)
+            routes.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "handler_name": handler_name,
+                    "entity": entity or "",
+                    "summary": str(row.get("summary", "")).strip(),
+                }
+            )
+
+    if not routes and entity_names:
+        entity = entity_names[0]
+        plural = _entity_plural(entity)
+        routes = [
+            {"method": "GET", "path": f"/api/{plural}", "handler_name": f"list_{plural}", "entity": entity, "summary": f"List {plural}"},
+            {"method": "POST", "path": f"/api/{plural}", "handler_name": f"create_{entity}", "entity": entity, "summary": f"Create {entity}"},
+            {"method": "GET", "path": f"/api/{plural}/<int:id>", "handler_name": f"get_{entity}", "entity": entity, "summary": f"Get {entity}"},
+        ]
+
+    if not entities:
+        route_entities: list[str] = []
+        for route in routes:
+            path = str(route.get("path", "")).strip()
+            if not path.startswith("/api/"):
+                continue
+            seg = _snake_case_token(path.split("/api/", 1)[1].split("/", 1)[0], fallback="")
+            entity = _entity_singular(seg)
+            if not entity or entity in {"health", "login", "logout", "auth", "status"}:
+                continue
+            if entity not in route_entities:
+                route_entities.append(entity)
+        for entity in route_entities:
+            entities.append(
+                {
+                    "name": entity,
+                    "primary_key": "id",
+                    "fields": [
+                        {"name": "id", "type": "int", "required": True},
+                        {"name": "name", "type": "str", "required": True},
+                    ],
+                }
+            )
+        entity_names = [str(entity.get("name", "")).strip() for entity in entities if str(entity.get("name", "")).strip()]
+
+    for route in routes:
+        if str(route.get("entity", "")).strip():
+            continue
+        path = str(route.get("path", "")).strip()
+        if not path.startswith("/api/"):
+            continue
+        seg = _snake_case_token(path.split("/api/", 1)[1].split("/", 1)[0], fallback="item")
+        guessed = _path_to_entity(seg, entity_names)
+        route["entity"] = guessed or ""
+
+    raw_views = raw_payload.get("views", [])
+    views: list[dict[str, Any]] = []
+    if isinstance(raw_views, list):
+        for idx, row in enumerate(raw_views, start=1):
+            if isinstance(row, dict):
+                raw_name = row.get("name", row.get("view_name", f"view-{idx}"))
+                view_name = _kebab_case_token(str(raw_name or ""), fallback=f"view-{idx}")
+                purpose = str(row.get("purpose", row.get("description", ""))).strip()
+                raw_entity = str(row.get("entity", "")).strip()
+                entity = _entity_singular(raw_entity) if raw_entity else None
+                if entity and entity not in entity_names:
+                    entity = None
+                views.append({"name": view_name, "entity": entity or "", "purpose": purpose})
+                continue
+            if isinstance(row, str):
+                view_name = _kebab_case_token(row, fallback=f"view-{idx}")
+                guessed_entity = _entity_singular(row.split("-", 1)[-1]) if "-" in row else ""
+                if guessed_entity and guessed_entity not in entity_names:
+                    guessed_entity = ""
+                views.append({"name": view_name, "entity": guessed_entity, "purpose": ""})
+
+    if not views:
+        default_entity = entity_names[0] if entity_names else None
+        views = [{"name": "dashboard", "entity": default_entity or "", "purpose": "Main dashboard view"}]
+
+    if not entities:
+        candidate = _entity_singular(app_name)
+        if candidate in {"generated_app", "app", "application", "system"}:
+            candidate = "record_entry"
+        entities = [
             {
-                "name": singular,
+                "name": candidate,
                 "primary_key": "id",
                 "fields": [
+                    {"name": "id", "type": "int", "required": True},
                     {"name": "name", "type": "str", "required": True},
-                    {"name": "notes", "type": "str", "required": False},
-                    {"name": "created_at", "type": "datetime", "required": False},
                 ],
             }
-        ],
-        "routes": [
-            {"method": "GET", "path": f"/api/{plural}", "handler_name": f"list_{plural}", "entity": singular, "summary": f"List {plural}"},
-            {"method": "POST", "path": f"/api/{plural}", "handler_name": f"create_{singular}", "entity": singular, "summary": f"Create {singular}"},
-            {"method": "GET", "path": f"/api/{plural}/<int:id>", "handler_name": f"get_{singular}", "entity": singular, "summary": f"Get {singular}"},
-            {"method": "PUT", "path": f"/api/{plural}/<int:id>", "handler_name": f"update_{singular}", "entity": singular, "summary": f"Update {singular}"},
-            {"method": "DELETE", "path": f"/api/{plural}/<int:id>", "handler_name": f"delete_{singular}", "entity": singular, "summary": f"Delete {singular}"},
-        ],
-        "views": [
-            {"name": "main-panel", "entity": singular, "purpose": f"Display and manage {plural}"}
-        ],
-        "notes": "",
+        ]
+        entity_names = [candidate]
+        for route in routes:
+            if not str(route.get("entity", "")).strip():
+                route["entity"] = candidate
+        for view in views:
+            if not str(view.get("entity", "")).strip():
+                view["entity"] = candidate
+
+    raw_notes = raw_payload.get("notes", "")
+    if isinstance(raw_notes, list):
+        notes = "\n".join(f"- {str(item).strip()}" for item in raw_notes if str(item).strip())
+    else:
+        notes = str(raw_notes or "").strip()
+
+    return {
+        "app_name": app_name,
+        "feature_summary": feature_summary,
+        "entities": entities,
+        "routes": routes,
+        "views": views,
+        "notes": notes,
     }
-    return AppSpec.model_validate(payload)
+
+
+class BuildFailedError(RuntimeError):
+    """Raised when build gating fails after bounded retries."""
+
+
+class SlotFillTypeError(ValueError):
+    """Raised when an LLM returns a non-string value for a slot."""
+
+
+def _extract_slot_string(parsed: dict[str, Any], key: str, *, fallback: str = "") -> str:
+    """Return parsed[key] only if it is a string; else fallback or raise."""
+    value = parsed.get(key)
+    if value is None:
+        return str(fallback or "").strip()
+    if not isinstance(value, str):
+        raise SlotFillTypeError(f"slot '{key}' returned as {type(value).__name__}, expected str")
+    return value.strip()
+
+
+def _drop_forbidden_imports(content: str) -> str:
+    """Remove banned dependency imports from imports-feature output."""
+    blocked = {"sqlalchemy", "flask_sqlalchemy"}
+    kept_lines: list[str] = []
+    for raw_line in str(content or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        low = line.lower()
+        if low.startswith("import "):
+            module = low.replace("import ", "", 1).split(" as ", 1)[0].split(",", 1)[0].strip().split(".", 1)[0]
+            if module in blocked:
+                continue
+        if low.startswith("from "):
+            module = low.replace("from ", "", 1).split(" import ", 1)[0].strip().split(".", 1)[0]
+            if module in blocked:
+                continue
+        kept_lines.append(raw_line)
+    return "\n".join(kept_lines).strip()
+
+
+class SpecConcretenessFailure(ValueError):
+    """Raised when generated app specs stay abstract after retry."""
+
+    def __init__(self, issues: list[str], original_request: str) -> None:
+        self.issues = list(issues)
+        self.original_request = str(original_request or "")
+        super().__init__("; ".join(self.issues))
+
+
+class SpecGenerationFailure(RuntimeError):
+    """Raised when LLM returns an unparseable AppSpec payload."""
+
+    def __init__(self, message: str, *, raw_response: str = "") -> None:
+        super().__init__(message)
+        self.raw_response = str(raw_response or "")
+
+
+def _log_spec_generator_failure(question: str, raw: str, exc: Exception) -> None:
+    """Persist raw spec-generator failures for debugging."""
+    log_dir = Path("Runtime/diagnostics/spec_generator_failures")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+    path = log_dir / f"{stamp}.txt"
+    path.write_text(
+        f"Question:\n{question}\n\nRaw response:\n{raw}\n\nException:\n{exc!r}\n",
+        encoding="utf-8",
+    )
+
+
+def _validate_spec_concreteness(spec: AppSpec, original_request: str) -> list[str]:
+    """Detect abstract specs that do not preserve concrete user nouns."""
+    _ = original_request
+    issues: list[str] = []
+    summary_tokens = re.findall(r"\b\w{4,}\b", str(spec.feature_summary or "").lower())
+    concrete = [token for token in summary_tokens if token not in META_TERMS]
+    if len(concrete) < 3:
+        issues.append(f"feature_summary too abstract: only {len(concrete)} concrete tokens ({concrete!r})")
+    if not spec.entities:
+        issues.append("spec has zero entities")
+    offenders = [
+        str(entity.name or "").strip().lower()
+        for entity in spec.entities
+        if str(entity.name or "").strip().lower() in GENERIC_ENTITY_NAMES
+    ]
+    if offenders:
+        issues.append(
+            f"generic entity names rejected: {offenders!r}. "
+            "Each entity must be a concrete domain noun from the request."
+        )
+    for entity in spec.entities:
+        non_id_fields = [
+            field for field in entity.fields if str(getattr(field, "name", "")).strip().lower() != "id"
+        ]
+        if not non_id_fields:
+            issues.append(
+                f"entity '{entity.name}' has no fields beyond id — "
+                "every entity must declare at least one concrete field"
+            )
+    entity_names = {str(entity.name or "").strip() for entity in spec.entities if str(entity.name or "").strip()}
+    for route in spec.routes:
+        route_entity = str(getattr(route, "entity", "") or "").strip()
+        if route_entity and route_entity not in entity_names:
+            issues.append(f"route {route.path} references unknown entity '{route_entity}'")
+    return issues
+
 
 
 def _step_spec_generator(
@@ -1694,25 +2204,152 @@ def _step_spec_generator(
     question: str,
     research_knowledge: str,
     existing_context: str = "",
+    upstream_requirements: dict[str, Any] | None = None,
+    upstream_architecture: dict[str, Any] | None = None,
+    upstream_implementation_plan: dict[str, Any] | None = None,
 ) -> AppSpec:
-    system_prompt = (
-        f"Today: {_today()}. You generate structured AppSpec JSON for a Flask+Vue+SQLite app.\n"
-        "Return one JSON object only matching fields:\n"
-        "app_name, feature_summary, entities[], routes[], views[], notes.\n"
-        "Use route paths /api/<plural> and /api/<plural>/<int:id>.\n"
-        "Use handler_name snake_case.\n"
-        "Use view names kebab-case."
+    def _generate(extra_instruction: str = "") -> AppSpec:
+        system_prompt = (
+            f"Today: {_today()}. You generate structured AppSpec JSON for a Flask+Vue+SQLite app.\n"
+            "Return one JSON object only matching fields:\n"
+            "app_name, feature_summary, entities[], routes[], views[], notes.\n"
+            "Use route paths /api/<plural> and /api/<plural>/<int:id>.\n"
+            "Use handler_name snake_case.\n"
+            "Use view names kebab-case.\n"
+            "Do not use generic entity names like build/item/thing/record.\n"
+            + (extra_instruction.strip() + "\n" if extra_instruction.strip() else "")
+        )
+        user_prompt = (
+            f"Build request:\n{_trim(question, 1400)}\n\n"
+            f"Research context:\n{_trim(research_knowledge, 2000) or '(none)'}\n\n"
+            f"Existing app context:\n{_trim(existing_context, 1200) or '(none)'}\n\n"
+            f"Upstream requirements:\n{_trim(json.dumps(upstream_requirements or {}, ensure_ascii=True), 1200) or '(none)'}\n\n"
+            f"Upstream architecture:\n{_trim(json.dumps(upstream_architecture or {}, ensure_ascii=True), 1200) or '(none)'}\n\n"
+            f"Upstream implementation plan:\n{_trim(json.dumps(upstream_implementation_plan or {}, ensure_ascii=True), 1200) or '(none)'}"
+        )
+        raw = _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=16384, timeout=300, label="spec_generator")
+        try:
+            return parse_spec_text(raw)
+        except Exception as exc:
+            parsed_payload = _parse_json_object(raw)
+            if parsed_payload:
+                try:
+                    repaired_payload = _coerce_spec_payload(parsed_payload)
+                    return AppSpec.model_validate(repaired_payload)
+                except Exception:
+                    pass
+            _log_spec_generator_failure(question, raw, exc)
+            raise SpecGenerationFailure(
+                f"LLM did not return parseable AppSpec JSON: {exc}",
+                raw_response=raw,
+            ) from exc
+
+    spec = _generate()
+    issues = _validate_spec_concreteness(spec, question)
+    if not issues:
+        return spec
+
+    spec = _generate(
+        "Previous attempt was too abstract. "
+        f"Issues: {issues}. Extract concrete domain nouns from the user request. "
+        "Each entity must map to a real-world object the user mentioned."
     )
-    user_prompt = (
-        f"Build request:\n{_trim(question, 1400)}\n\n"
-        f"Research context:\n{_trim(research_knowledge, 2000) or '(none)'}\n\n"
-        f"Existing app context:\n{_trim(existing_context, 1600) or '(none)'}"
+    issues = _validate_spec_concreteness(spec, question)
+    if issues:
+        raise SpecConcretenessFailure(issues, question)
+    return spec
+
+
+def _write_canon_marker(target_dir: Path) -> None:
+    (target_dir / ".canon-version").write_text(f"{_CANON_MARKER_VERSION}\n", encoding="utf-8")
+
+
+def _canon_scaffold_root() -> Path:
+    return Path(__file__).resolve().parent / "canon" / _CANON_VERSION
+
+
+_VOLATILE_BUILD_ARTIFACTS = (
+    "app.db",
+    "app.db-journal",
+    "app.db-wal",
+    "app.db-shm",
+)
+
+
+def _purge_volatile_build_artifacts(app_dir: Path) -> list[str]:
+    """Remove inherited runtime DB artifacts from implementation directories."""
+    removed: list[str] = []
+    for name in _VOLATILE_BUILD_ARTIFACTS:
+        path = app_dir / name
+        if not path.exists():
+            continue
+        try:
+            path.unlink()
+            removed.append(name)
+        except Exception:
+            continue
+    return removed
+
+
+def _enter_extend_mode(prior_build: Path, app_dir: Path) -> str:
+    """Return 'extend' or 'rescaffold' depending on canon marker compatibility."""
+    prior_version = ""
+    marker = prior_build / ".canon-version"
+    if marker.exists():
+        try:
+            prior_version = marker.read_text(encoding="utf-8").strip()
+        except Exception:
+            prior_version = ""
+    if prior_version != _CANON_MARKER_VERSION:
+        copy_scaffold(_CANON_VERSION, app_dir)
+        _write_canon_marker(app_dir)
+        return "rescaffold"
+    shutil.copytree(
+        prior_build,
+        app_dir,
+        dirs_exist_ok=True,
+        ignore=shutil.ignore_patterns(
+            *_VOLATILE_BUILD_ARTIFACTS,
+            "__pycache__",
+            "*.pyc",
+            "*.pyo",
+        ),
     )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.15, num_ctx=16384, timeout=300)
-    try:
-        return parse_spec_text(raw)
-    except Exception:
-        return _default_app_spec(question)
+    _purge_volatile_build_artifacts(app_dir)
+    return "extend"
+
+
+def _reconcile_plumbing(app_dir: Path) -> list[str]:
+    """Copy required canon static files when missing from inherited builds."""
+    copied: list[str] = []
+    canon_root = _canon_scaffold_root()
+    for name in ("requirements.txt", ".gitignore", ".env.example"):
+        src = canon_root / name
+        dst = app_dir / name
+        if src.exists() and not dst.exists():
+            shutil.copyfile(src, dst)
+            copied.append(name)
+    return copied
+
+
+def _revalidate_inherited_slots(app_dir: Path) -> list[str]:
+    """Clear inherited slots that fail current validators."""
+    from agents_make.canon.slot_validators import VALIDATORS, validate_slot
+
+    cleared: list[str] = []
+    for rel_path, slot_name in VALIDATORS.keys():
+        file_path = app_dir / rel_path
+        if not file_path.exists():
+            continue
+        try:
+            content = read_slot(file_path, slot_name)
+        except Exception:
+            continue
+        violations = validate_slot(rel_path, slot_name, content)
+        if violations:
+            write_slot(file_path, slot_name, "", validate=False, canon_root=app_dir)
+            cleared.append(f"{rel_path}/{slot_name}")
+    return cleared
 
 
 def _step_scaffold_copy(*, target_dir: Path, existing: dict[str, str]) -> tuple[str, str]:
@@ -1721,53 +2358,40 @@ def _step_scaffold_copy(*, target_dir: Path, existing: dict[str, str]) -> tuple[
         source_dir = Path(source_path)
         canon_marker = source_dir / ".canon-version"
         if canon_marker.exists():
-            shutil.copytree(source_dir, target_dir, dirs_exist_ok=True)
-            return "extend_canon", ""
+            mode = _enter_extend_mode(source_dir, target_dir)
+            copied = _reconcile_plumbing(target_dir)
+            purged = _purge_volatile_build_artifacts(target_dir)
+            cleared = _revalidate_inherited_slots(target_dir) if mode == "extend" else []
+            details: list[str] = []
+            if copied:
+                details.append("reconciled: " + ", ".join(copied))
+            if purged:
+                details.append("purged: " + ", ".join(purged))
+            if cleared:
+                details.append("cleared: " + ", ".join(cleared))
+            return (f"{mode}_canon", "; ".join(details))
 
     copy_scaffold(_CANON_VERSION, target_dir)
+    _write_canon_marker(target_dir)
     if source_path:
         return "migrate_legacy", f"Legacy app detected: {Path(source_path).name}"
     return "new_canon", ""
 
 
 def _step_db_architect_slots(
-    client: OllamaClient,
+    _client: OllamaClient,
     question: str,
     spec: AppSpec,
-    research_knowledge: str,
+    _research_knowledge: str,
     existing_tables: str = "",
     existing_seeds: str = "",
-) -> tuple[str, str]:
-    system_prompt = (
-        f"Today: {_today()}. Fill schema.sql canon slots.\n"
-        "Return JSON only: {\"tables\": \"...\", \"seeds\": \"...\"}.\n"
-        "tables: SQL DDL only. Include indexes for foreign keys.\n"
-        "seeds: SQL INSERT statements only.\n"
-        "Never include markdown fences."
-    )
-    user_prompt = (
-        f"Request: {question}\n\n"
-        f"Spec:\n{spec_to_json(spec)}\n\n"
-        f"Research context:\n{_trim(research_knowledge, 1200) or '(none)'}\n\n"
-        f"Existing tables slot:\n{_trim(existing_tables, 1500) or '(none)'}\n\n"
-        f"Existing seeds slot:\n{_trim(existing_seeds, 1000) or '(none)'}"
-    )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.1, num_ctx=16384)
-    parsed = _parse_json_object(raw)
-    tables = str(parsed.get("tables", "")).strip() or existing_tables
-    seeds = str(parsed.get("seeds", "")).strip() or existing_seeds
-    if not tables:
-        first = spec.entities[0]
-        table_name = first.name if first.name.endswith("s") else f"{first.name}s"
-        tables = (
-            f"CREATE TABLE IF NOT EXISTS {table_name} (\n"
-            "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"
-            "    name TEXT NOT NULL,\n"
-            "    notes TEXT,\n"
-            "    created_at TEXT DEFAULT (datetime('now', 'utc'))\n"
-            ");"
-        )
-    return tables.strip(), seeds.strip()
+) -> tuple[str, str, str | None]:
+    _ = (question, existing_tables, existing_seeds)  # keep signature stable for callers/logging
+    try:
+        tables, seeds = codegen.render_schema(spec)
+    except Exception as exc:
+        return "", "", f"deterministic schema generation failed: {exc}"
+    return tables.strip(), seeds.strip(), None
 
 
 def _step_api_slot_fill(
@@ -1778,38 +2402,48 @@ def _step_api_slot_fill(
     current_imports: str,
     current_routes: str,
     issue_notes: str = "",
-) -> tuple[str, str]:
+) -> tuple[str, str, str | None]:
+    baseline_imports = codegen.render_imports(spec).strip()
+    baseline_routes = codegen.render_routes(spec).strip()
+    non_crud_routes = [route for route in spec.routes if not str(route.entity or "").strip()]
+
+    if not non_crud_routes and not str(issue_notes or "").strip():
+        return baseline_imports, baseline_routes, None
+
     system_prompt = (
-        f"Today: {_today()}. Fill canon app.py slots.\n"
-        "Output JSON only with keys: imports_feature, routes_feature.\n"
-        "Use envelope helpers only: ok_item, ok_items, err.\n"
-        "Do not redefine app, get_db, or envelope helpers.\n"
-        "Route methods and paths must match spec."
+        f"Today: {_today()}. Add NON-CRUD routes to canon app.py.\n"
+        "CRUD routes are already generated. Add only custom/auth/domain-specific behavior.\n"
+        "Return JSON only: {\"imports_extra\": \"...\", \"routes_extra\": \"...\"}.\n"
+        "Each key MUST be a string of executable Python code (never arrays/objects).\n"
+        "Use ok_item/ok_items/err helpers. Never redefine app/get_db/envelope helpers.\n"
+        "Do not import or use SQLAlchemy/flask_sqlalchemy; use sqlite3 access through get_db() only."
     )
     user_prompt = (
         f"Request: {question}\n\n"
         f"Spec:\n{spec_to_json(spec)}\n\n"
+        f"Non-CRUD routes to implement:\n"
+        f"{json.dumps([route.to_dict() for route in non_crud_routes], indent=2, ensure_ascii=False) if non_crud_routes else '[]'}\n\n"
         f"Research context:\n{_trim(research_knowledge, 1200) or '(none)'}\n\n"
         f"Current imports-feature slot:\n{_trim(current_imports, 1000) or '(empty)'}\n\n"
         f"Current routes-feature slot:\n{_trim(current_routes, 2600) or '(empty)'}\n\n"
         f"Issues to fix:\n{_trim(issue_notes, 1400) or '(none)'}"
     )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.12, num_ctx=20480, timeout=420)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.12, num_ctx=20480, timeout=420, label="api_slot")
     parsed = _parse_json_object(raw)
-    imports_slot = str(parsed.get("imports_feature", "")).strip()
-    routes_slot = str(parsed.get("routes_feature", "")).strip()
-    if not routes_slot:
-        entity = spec.entities[0].name
-        table_name = entity if entity.endswith("s") else f"{entity}s"
-        routes_slot = (
-            f"@app.get(\"/api/{table_name}\")\n"
-            f"def list_{table_name}():\n"
-            f"    \"\"\"List {table_name}.\"\"\"\n"
-            f"    db = get_db()\n"
-            f"    rows = db.execute(\"SELECT * FROM {table_name} ORDER BY id DESC\").fetchall()\n"
-            "    return ok_items([row_to_dict(row) for row in rows])"
-        )
-    return imports_slot, routes_slot
+    try:
+        imports_extra = _extract_slot_string(parsed, "imports_extra", fallback="")
+        if not imports_extra and "imports_feature" in parsed:
+            imports_extra = _extract_slot_string(parsed, "imports_feature", fallback="")
+        routes_extra = _extract_slot_string(parsed, "routes_extra", fallback="")
+        if not routes_extra and "routes_feature" in parsed:
+            routes_extra = _extract_slot_string(parsed, "routes_feature", fallback="")
+    except SlotFillTypeError as exc:
+        return current_imports, current_routes, str(exc)
+
+    imports_extra = _drop_forbidden_imports(imports_extra)
+    imports_slot = "\n".join(part for part in (baseline_imports, imports_extra) if part.strip()).strip()
+    routes_slot = "\n\n".join(part for part in (baseline_routes, routes_extra) if part.strip()).strip()
+    return imports_slot, routes_slot, None
 
 
 def _step_vue_architect_spec(
@@ -1827,7 +2461,7 @@ def _step_vue_architect_spec(
         f"Spec:\n{spec_to_json(spec)}\n\n"
         f"Research context:\n{_trim(research_knowledge, 1000) or '(none)'}"
     )
-    return _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=12288, timeout=240)
+    return _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=12288, timeout=240, label="vue_architect")
 
 
 def _step_vue_slot_fill(
@@ -1838,7 +2472,7 @@ def _step_vue_slot_fill(
     research_knowledge: str,
     current_slots: dict[str, str],
     issue_notes: str = "",
-) -> dict[str, str]:
+) -> tuple[dict[str, str], str | None]:
     system_prompt = (
         f"Today: {_today()}. Fill canon Vue slots for app.js and index.html.\n"
         "Return JSON only with keys:\n"
@@ -1854,13 +2488,16 @@ def _step_vue_slot_fill(
         f"Current slots JSON:\n{json.dumps(current_slots, ensure_ascii=False, indent=2)[:4000]}\n\n"
         f"Issues to fix:\n{_trim(issue_notes, 1200) or '(none)'}"
     )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=24576, timeout=420)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.2, num_ctx=24576, timeout=420, label="vue_slot")
     parsed = _parse_json_object(raw)
     output: dict[str, str] = {}
-    for key in ("state", "methods", "computed", "on_mounted", "view_feature", "head_feature"):
-        value = str(parsed.get(key, "")).strip()
-        output[key] = value if value else str(current_slots.get(key, "")).strip()
-    return output
+    try:
+        for key in ("state", "methods", "computed", "on_mounted", "view_feature", "head_feature"):
+            value = _extract_slot_string(parsed, key, fallback=str(current_slots.get(key, "")).strip())
+            output[key] = value if value else str(current_slots.get(key, "")).strip()
+    except SlotFillTypeError as exc:
+        return dict(current_slots), str(exc)
+    return output, None
 
 
 def _step_css_slot_fill(
@@ -1882,7 +2519,7 @@ def _step_css_slot_fill(
         f"Current feature-styles slot:\n{_trim(current_feature_styles, 1400) or '(empty)'}\n\n"
         f"Issues to fix:\n{_trim(issue_notes, 1000) or '(none)'}"
     )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.18, num_ctx=12288, timeout=300)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.18, num_ctx=12288, timeout=300, label="css_slot")
     css = re.sub(r"^```(?:css)?\n|```$", "", str(raw or "").strip(), flags=re.MULTILINE).strip()
     return css or current_feature_styles
 
@@ -1894,7 +2531,7 @@ def _step_readme_slot_fill(
     feature_list_slot: str,
     run_notes_slot: str,
     research_knowledge: str,
-) -> tuple[str, str]:
+) -> tuple[str, str, str | None]:
     system_prompt = (
         f"Today: {_today()}. Fill README canon slots.\n"
         "Return JSON only with keys: feature_list, run_notes.\n"
@@ -1908,11 +2545,14 @@ def _step_readme_slot_fill(
         f"Current feature-list slot:\n{_trim(feature_list_slot, 1000)}\n\n"
         f"Current run-notes slot:\n{_trim(run_notes_slot, 1000)}"
     )
-    raw = _chat(client, system_prompt, user_prompt, temperature=0.25, num_ctx=12288, timeout=240)
+    raw = _chat(client, system_prompt, user_prompt, temperature=0.25, num_ctx=12288, timeout=240, label="readme_slot")
     parsed = _parse_json_object(raw)
-    feature_list = str(parsed.get("feature_list", "")).strip() or feature_list_slot
-    run_notes = str(parsed.get("run_notes", "")).strip() or run_notes_slot
-    return feature_list, run_notes
+    try:
+        feature_list = _extract_slot_string(parsed, "feature_list", fallback=feature_list_slot) or feature_list_slot
+        run_notes = _extract_slot_string(parsed, "run_notes", fallback=run_notes_slot) or run_notes_slot
+    except SlotFillTypeError as exc:
+        return feature_list_slot, run_notes_slot, str(exc)
+    return feature_list, run_notes, None
 
 
 def _step_legacy_migration(
@@ -1945,21 +2585,78 @@ def _step_legacy_migration(
         f"Legacy app.js:\n{_trim(existing.get('static/app.js', ''), 3800)}\n\n"
         f"Legacy styles.css:\n{_trim(existing.get('static/styles.css', ''), 2600)}"
     )
-    parsed = _parse_json_object(_chat(client, migration_prompt, migration_input, temperature=0.15, num_ctx=32768, timeout=600))
+    parsed = _parse_json_object(_chat(client, migration_prompt, migration_input, temperature=0.15, num_ctx=32768, timeout=600, label="legacy_migration"))
     if parsed:
-        write_slot(app_dir / "app.py", "imports-feature", str(parsed.get("imports_feature", "")).strip())
-        write_slot(app_dir / "app.py", "routes-feature", str(parsed.get("routes_feature", "")).strip())
-        write_slot(app_dir / "static/app.js", "state", str(parsed.get("state", "")).strip())
-        write_slot(app_dir / "static/app.js", "methods", str(parsed.get("methods", "")).strip())
-        write_slot(app_dir / "static/app.js", "computed", str(parsed.get("computed", "")).strip())
-        write_slot(app_dir / "static/app.js", "on-mounted", str(parsed.get("on_mounted", "")).strip())
-        write_slot(app_dir / "templates/index.html", "view-feature", str(parsed.get("view_feature", "")).strip())
-        write_slot(app_dir / "templates/index.html", "head-feature", str(parsed.get("head_feature", "")).strip())
-        write_slot(app_dir / "static/styles.css", "feature-styles", str(parsed.get("feature_styles", "")).strip())
-        notes.append("Mapped legacy Flask/Vue/CSS content into canon slots.")
+        try:
+            write_slot(app_dir / "app.py", "imports-feature", _extract_slot_string(parsed, "imports_feature", fallback=""))
+            write_slot(app_dir / "app.py", "routes-feature", _extract_slot_string(parsed, "routes_feature", fallback=""))
+            write_slot(app_dir / "static/app.js", "state", _extract_slot_string(parsed, "state", fallback=""))
+            write_slot(app_dir / "static/app.js", "methods", _extract_slot_string(parsed, "methods", fallback=""))
+            write_slot(app_dir / "static/app.js", "computed", _extract_slot_string(parsed, "computed", fallback=""))
+            write_slot(app_dir / "static/app.js", "on-mounted", _extract_slot_string(parsed, "on_mounted", fallback=""))
+            write_slot(app_dir / "templates/index.html", "view-feature", _extract_slot_string(parsed, "view_feature", fallback=""))
+            write_slot(app_dir / "templates/index.html", "head-feature", _extract_slot_string(parsed, "head_feature", fallback=""))
+            write_slot(app_dir / "static/styles.css", "feature-styles", _extract_slot_string(parsed, "feature_styles", fallback=""))
+            notes.append("Mapped legacy Flask/Vue/CSS content into canon slots.")
+        except (SlotFillTypeError, SlotValidationError) as exc:
+            notes.append(f"Legacy slot conversion rejected invalid output: {exc}")
     else:
         notes.append("Legacy auto-port was partial; fallback slots left for fresh generation.")
     return "\n".join(f"- {line}" for line in notes)
+
+
+def _format_violations(rows: list[dict[str, Any]]) -> str:
+    return "\n".join(
+        f"- [{row.get('file')}:{row.get('line')}] {row.get('rule')}: {row.get('message')}"
+        for row in rows
+    )
+
+
+def _format_runtime_failures(rows: list[dict[str, Any]]) -> str:
+    lines: list[str] = []
+    for row in rows:
+        route = str(row.get("route", "")).strip()
+        method = str(row.get("method", "")).strip() or "GET"
+        status = row.get("status", "")
+        detail = str(row.get("body", "") or row.get("error", "") or row.get("stderr", "")).strip()
+        msg = f"- [{method} {route}] runtime_route_failure: status={status}"
+        if detail:
+            msg += f" | detail={_trim(detail, 260)}"
+        lines.append(msg)
+    return "\n".join(lines)
+
+
+def _write_slot_checked(file_path: Path, slot_name: str, content: str, *, canon_root: Path | None = None) -> str | None:
+    try:
+        write_slot(file_path, slot_name, content, canon_root=canon_root)
+        return None
+    except SlotValidationError as exc:
+        return str(exc)
+
+
+def _replace_raw_hex_with_neu_vars(css: str) -> str:
+    """Normalize raw hex colors to Canon neumorphic color tokens."""
+    text = str(css or "")
+    hex_pattern = re.compile(r"#[0-9a-fA-F]{3,8}\b")
+    matches = hex_pattern.findall(text)
+    if not matches:
+        return text
+    token_cycle = (
+        "var(--neu-bg-secondary)",
+        "var(--neu-text-secondary)",
+        "var(--neu-info)",
+        "var(--neu-warning)",
+        "var(--neu-success)",
+        "var(--neu-error)",
+    )
+    mapped: dict[str, str] = {}
+    next_idx = 0
+    for raw in matches:
+        key = raw.lower()
+        if key not in mapped:
+            mapped[key] = token_cycle[next_idx % len(token_cycle)]
+            next_idx += 1
+    return hex_pattern.sub(lambda m: mapped.get(m.group(0).lower(), "var(--neu-info)"), text)
 
 
 # ---------------------------------------------------------------------------
@@ -1972,6 +2669,9 @@ def run_app_pool(
     project_slug: str,
     bus: Any,
     research_context: str = "",
+    upstream_requirements: dict[str, Any] | None = None,
+    upstream_architecture: dict[str, Any] | None = None,
+    upstream_implementation_plan: dict[str, Any] | None = None,
     cancel_checker: Callable[[], bool] | None = None,
     progress_callback: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
@@ -1992,6 +2692,8 @@ def run_app_pool(
                 return False
         return False
 
+    _APP_POOL_LLM_CALLS.set([])
+    _APP_POOL_BUS.set(bus)
     bus.emit("app_pool", "start", {"question": question, "project": project_slug})
     client = OllamaClient()
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -2007,6 +2709,23 @@ def run_app_pool(
 
     app_dir = repo_root / "Projects" / project_slug / "implementation" / f"{ts}_app"
     app_dir.mkdir(parents=True, exist_ok=True)
+
+    def _build_failed(message: str) -> dict[str, Any]:
+        text = str(message or "Build failed.").strip()
+        fail_path = app_dir / "BUILD_FAILED.md"
+        fail_path.write_text(f"# Build Failed\n\n{text}\n", encoding="utf-8")
+        bus.emit("app_pool", "failed", {"project": project_slug, "path": str(app_dir), "error": text[:500]})
+        _prog("app_pool_failed", {"path": str(app_dir), "error": text[:240]})
+        return {
+            "ok": False,
+            "status": "failed",
+            "message": text,
+            "path": str(app_dir),
+            "files": {"BUILD_FAILED.md": str(fail_path)},
+            "integration_notes": text,
+            "llm_calls": list(_APP_POOL_LLM_CALLS.get() or []),
+        }
+
     mode, mode_detail = _step_scaffold_copy(target_dir=app_dir, existing=existing)
     _prog("app_scaffold_copy", {"mode": mode, "detail": mode_detail, "target": str(app_dir)})
 
@@ -2019,12 +2738,41 @@ def run_app_pool(
 
     slot_files = _slot_paths(app_dir)
     existing_spec_ctx = migration_notes if migration_notes else ""
-    spec = _step_spec_generator(client, question, research_knowledge, existing_spec_ctx)
+    try:
+        spec = _step_spec_generator(
+            client,
+            question,
+            research_knowledge,
+            existing_spec_ctx,
+            upstream_requirements=upstream_requirements,
+            upstream_architecture=upstream_architecture,
+            upstream_implementation_plan=upstream_implementation_plan,
+        )
+    except SpecConcretenessFailure as exc:
+        field_issues = [issue for issue in exc.issues if "no fields beyond id" in issue]
+        if field_issues:
+            return _build_failed(
+                "I need you to describe the fields each entity should have. "
+                "For example: 'each recipe has a title, ingredients, and instructions; "
+                "each user has a username and password.' "
+                f"Issues: {'; '.join(field_issues)}"
+            )
+        return _build_failed(
+            "I could not infer concrete app features from the request. "
+            "Please describe what users do and which concrete entities/fields are needed. "
+            f"Details: {'; '.join(exc.issues)}"
+        )
+    except SpecGenerationFailure as exc:
+        return _build_failed(
+            "Spec generation failed because the model response was not parseable JSON. "
+            "Check Runtime/diagnostics/spec_generator_failures for details. "
+            f"Details: {exc}"
+        )
     _prog("app_spec_generated", {"app_name": spec.app_name, "routes": len(spec.routes), "entities": len(spec.entities)})
 
     current_tables = read_slot(slot_files["schema_sql"], "tables")
     current_seeds = read_slot(slot_files["schema_sql"], "seeds")
-    tables_sql, seeds_sql = _step_db_architect_slots(
+    tables_sql, seeds_sql, db_slot_err = _step_db_architect_slots(
         client,
         question,
         spec,
@@ -2032,22 +2780,46 @@ def run_app_pool(
         existing_tables=current_tables,
         existing_seeds=current_seeds,
     )
+    if db_slot_err:
+        return _build_failed(f"DB slot generation failed: {db_slot_err}")
     write_slot(slot_files["schema_sql"], "tables", tables_sql)
     write_slot(slot_files["schema_sql"], "seeds", seeds_sql)
     _prog("app_db_architect_completed", {"tables_lines": tables_sql.count("\n"), "seeds_lines": seeds_sql.count("\n")})
 
     imports_slot = read_slot(slot_files["app_py"], "imports-feature")
     routes_slot = read_slot(slot_files["app_py"], "routes-feature")
-    imports_slot, routes_slot = _step_api_slot_fill(
-        client,
-        question,
-        spec,
-        research_knowledge,
-        imports_slot,
-        routes_slot,
-    )
-    write_slot(slot_files["app_py"], "imports-feature", imports_slot)
-    write_slot(slot_files["app_py"], "routes-feature", routes_slot)
+    api_issue_notes = ""
+    for attempt in range(1, 4):
+        imports_slot, routes_slot, slot_err = _step_api_slot_fill(
+            client,
+            question,
+            spec,
+            research_knowledge,
+            imports_slot,
+            routes_slot,
+            issue_notes=api_issue_notes,
+        )
+        if slot_err:
+            api_issue_notes = slot_err
+            if attempt >= 3:
+                return _build_failed(f"API slot generation failed after 3 attempts: {slot_err}")
+            continue
+
+        write_import_err = _write_slot_checked(
+            slot_files["app_py"], "imports-feature", imports_slot, canon_root=app_dir
+        )
+        write_route_err = _write_slot_checked(
+            slot_files["app_py"], "routes-feature", routes_slot, canon_root=app_dir
+        )
+        if write_import_err or write_route_err:
+            api_issue_notes = "\n".join(x for x in (write_import_err, write_route_err) if x)
+            if attempt >= 3:
+                return _build_failed(f"API slot validation failed after 3 attempts:\n{api_issue_notes}")
+            _prog("app_api_slot_retry", {"attempt": attempt, "error": _trim(api_issue_notes, 240)})
+            continue
+        api_issue_notes = ""
+        break
+
     flask_code = slot_files["app_py"].read_text(encoding="utf-8")
     schema_sql = slot_files["schema_sql"].read_text(encoding="utf-8")
     db_py = slot_files["db_py"].read_text(encoding="utf-8")
@@ -2063,17 +2835,20 @@ def run_app_pool(
             if not ok_smoke:
                 api_validation_error = f"import smoke check failed:\n{smoke_err}"
             else:
-                ok_runtime, runtime_err = _runtime_smoke_check(app_dir, spec)
-                if not ok_runtime:
-                    api_validation_error = f"runtime smoke check failed:\n{runtime_err}"
+                runtime_failures = _runtime_smoke_check(app_dir, spec)
+                if runtime_failures:
+                    api_validation_error = "runtime smoke check failed:\n" + _format_runtime_failures(runtime_failures)
                 else:
                     api_validation_error = ""
                     break
 
         if cycle >= 2:
-            break
+            return _build_failed(
+                "Build failed after 3 API retries; unresolved validation errors:\n"
+                f"{api_validation_error}"
+            )
         _prog("app_api_fix_cycle", {"cycle": cycle + 1, "error": api_validation_error[:220]})
-        imports_slot, routes_slot = _step_api_slot_fill(
+        imports_slot, routes_slot, slot_err = _step_api_slot_fill(
             client,
             question,
             spec,
@@ -2082,11 +2857,20 @@ def run_app_pool(
             read_slot(slot_files["app_py"], "routes-feature"),
             issue_notes=api_validation_error,
         )
-        write_slot(slot_files["app_py"], "imports-feature", imports_slot)
-        write_slot(slot_files["app_py"], "routes-feature", routes_slot)
+        if slot_err:
+            api_validation_error = slot_err
+            continue
+        write_import_err = _write_slot_checked(
+            slot_files["app_py"], "imports-feature", imports_slot, canon_root=app_dir
+        )
+        write_route_err = _write_slot_checked(
+            slot_files["app_py"], "routes-feature", routes_slot, canon_root=app_dir
+        )
+        if write_import_err or write_route_err:
+            api_validation_error = "\n".join(x for x in (write_import_err, write_route_err) if x)
 
     if api_validation_error:
-        _prog("app_api_smoke_warning", {"error": api_validation_error[:220]})
+        return _build_failed(api_validation_error)
 
     _present_deps, _missing_deps = _check_dependencies(flask_code)
     if _missing_deps:
@@ -2103,7 +2887,9 @@ def run_app_pool(
         "view_feature": read_slot(slot_files["index_html"], "view-feature"),
         "head_feature": read_slot(slot_files["index_html"], "head-feature"),
     }
-    vue_slots = _step_vue_slot_fill(client, question, spec, vue_plan, research_knowledge, current_slots)
+    vue_slots, vue_slot_error = _step_vue_slot_fill(client, question, spec, vue_plan, research_knowledge, current_slots)
+    if vue_slot_error:
+        return _build_failed(f"Vue slot generation failed: {vue_slot_error}")
     write_slot(slot_files["app_js"], "state", vue_slots["state"])
     write_slot(slot_files["app_js"], "methods", vue_slots["methods"])
     write_slot(slot_files["app_js"], "computed", vue_slots["computed"])
@@ -2130,7 +2916,7 @@ def run_app_pool(
         integration_notes = appended if "integration looks clean" in integration_notes.lower() else f"{integration_notes}\n\n{appended}"
 
     if "integration looks clean" not in integration_notes.lower():
-        imports_slot, routes_slot = _step_api_slot_fill(
+        imports_slot, routes_slot, slot_err = _step_api_slot_fill(
             client,
             question,
             spec,
@@ -2139,9 +2925,11 @@ def run_app_pool(
             read_slot(slot_files["app_py"], "routes-feature"),
             issue_notes=integration_notes,
         )
+        if slot_err:
+            return _build_failed(f"Integration API repair failed: {slot_err}")
         write_slot(slot_files["app_py"], "imports-feature", imports_slot)
         write_slot(slot_files["app_py"], "routes-feature", routes_slot)
-        vue_slots = _step_vue_slot_fill(
+        vue_slots, vue_slot_error = _step_vue_slot_fill(
             client,
             question,
             spec,
@@ -2157,6 +2945,8 @@ def run_app_pool(
             },
             issue_notes=integration_notes,
         )
+        if vue_slot_error:
+            return _build_failed(f"Integration Vue repair failed: {vue_slot_error}")
         write_slot(slot_files["app_js"], "state", vue_slots["state"])
         write_slot(slot_files["app_js"], "methods", vue_slots["methods"])
         write_slot(slot_files["app_js"], "computed", vue_slots["computed"])
@@ -2166,11 +2956,26 @@ def run_app_pool(
 
     feature_styles = read_slot(slot_files["styles_css"], "feature-styles")
     feature_styles = _step_css_slot_fill(client, question, slot_files["index_html"].read_text(encoding="utf-8"), feature_styles)
-    write_slot(slot_files["styles_css"], "feature-styles", feature_styles)
+    style_write_err = _write_slot_checked(
+        slot_files["styles_css"],
+        "feature-styles",
+        feature_styles,
+        canon_root=app_dir,
+    )
+    if style_write_err and "raw_hex_color" in style_write_err:
+        feature_styles = _replace_raw_hex_with_neu_vars(feature_styles)
+        style_write_err = _write_slot_checked(
+            slot_files["styles_css"],
+            "feature-styles",
+            feature_styles,
+            canon_root=app_dir,
+        )
+    if style_write_err:
+        return _build_failed(f"Feature styles validation failed: {style_write_err}")
 
     feature_list_slot = read_slot(slot_files["readme_md"], "feature-list")
     run_notes_slot = read_slot(slot_files["readme_md"], "run-notes")
-    feature_list_slot, run_notes_slot = _step_readme_slot_fill(
+    feature_list_slot, run_notes_slot, readme_slot_error = _step_readme_slot_fill(
         client,
         question,
         spec,
@@ -2178,25 +2983,31 @@ def run_app_pool(
         run_notes_slot,
         research_knowledge,
     )
+    if readme_slot_error:
+        return _build_failed(f"README slot generation failed: {readme_slot_error}")
     write_slot(slot_files["readme_md"], "feature-list", feature_list_slot)
     write_slot(slot_files["readme_md"], "run-notes", run_notes_slot)
 
     app_py_text = slot_files["app_py"].read_text(encoding="utf-8")
     app_js_text = slot_files["app_js"].read_text(encoding="utf-8")
     feature_styles = read_slot(slot_files["styles_css"], "feature-styles")
-    lint_violations = run_policy_lints(
-        app_py=app_py_text,
-        app_js=app_js_text,
-        feature_styles=feature_styles,
-        spec=spec,
-    )
-
-    if lint_violations:
-        lint_blob = "\n".join(
-            f"- [{row.get('file')}:{row.get('line')}] {row.get('rule')}: {row.get('message')}"
-            for row in lint_violations[:30]
+    lint_violations: list[dict[str, Any]] = []
+    advisory_violations: list[dict[str, Any]] = []
+    MAX_LINT_RETRIES = 3
+    blocking: list[dict[str, Any]] = []
+    for attempt in range(1, MAX_LINT_RETRIES + 1):
+        lint_violations = run_policy_lints(
+            app_py=app_py_text,
+            app_js=app_js_text,
+            feature_styles=feature_styles,
+            spec=spec,
         )
-        imports_slot, routes_slot = _step_api_slot_fill(
+        blocking, advisory_violations = _classify(lint_violations)
+        if not blocking:
+            break
+
+        lint_blob = _format_violations(blocking)
+        imports_slot, routes_slot, slot_err = _step_api_slot_fill(
             client,
             question,
             spec,
@@ -2205,8 +3016,26 @@ def run_app_pool(
             read_slot(slot_files["app_py"], "routes-feature"),
             issue_notes=lint_blob,
         )
-        write_slot(slot_files["app_py"], "imports-feature", imports_slot)
-        write_slot(slot_files["app_py"], "routes-feature", routes_slot)
+        if slot_err:
+            if attempt >= MAX_LINT_RETRIES:
+                return _build_failed(
+                    f"Build failed after {MAX_LINT_RETRIES} retries; unresolved blocking lints:\n{lint_blob}"
+                )
+            continue
+        write_import_err = _write_slot_checked(
+            slot_files["app_py"], "imports-feature", imports_slot, canon_root=app_dir
+        )
+        write_route_err = _write_slot_checked(
+            slot_files["app_py"], "routes-feature", routes_slot, canon_root=app_dir
+        )
+        if write_import_err or write_route_err:
+            if attempt >= MAX_LINT_RETRIES:
+                details = "\n".join(x for x in (write_import_err, write_route_err) if x)
+                return _build_failed(
+                    f"Build failed after {MAX_LINT_RETRIES} retries; unresolved slot validation:\n{details}"
+                )
+            continue
+
         feature_styles = _step_css_slot_fill(
             client,
             question,
@@ -2214,28 +3043,41 @@ def run_app_pool(
             read_slot(slot_files["styles_css"], "feature-styles"),
             issue_notes=lint_blob,
         )
-        write_slot(slot_files["styles_css"], "feature-styles", feature_styles)
+        style_write_err = _write_slot_checked(
+            slot_files["styles_css"],
+            "feature-styles",
+            feature_styles,
+            canon_root=app_dir,
+        )
+        if style_write_err and "raw_hex_color" in style_write_err:
+            feature_styles = _replace_raw_hex_with_neu_vars(feature_styles)
+            style_write_err = _write_slot_checked(
+                slot_files["styles_css"],
+                "feature-styles",
+                feature_styles,
+                canon_root=app_dir,
+            )
+        if style_write_err:
+            if attempt >= MAX_LINT_RETRIES:
+                return _build_failed(
+                    f"Build failed after {MAX_LINT_RETRIES} retries; unresolved style validation:\n{style_write_err}"
+                )
+            continue
         app_py_text = slot_files["app_py"].read_text(encoding="utf-8")
         app_js_text = slot_files["app_js"].read_text(encoding="utf-8")
-        lint_violations = run_policy_lints(
-            app_py=app_py_text,
-            app_js=app_js_text,
-            feature_styles=read_slot(slot_files["styles_css"], "feature-styles"),
-            spec=spec,
+    else:
+        return _build_failed(
+            f"Build failed after {MAX_LINT_RETRIES} retries; unresolved blocking lints:\n{_format_violations(blocking)}"
         )
 
-    plumbing_divergence = verify_plumbing_intact(app_dir, _CANON_VERSION)
-    if plumbing_divergence:
-        note = "\n".join(f"- {rel}" for rel in plumbing_divergence)
-        integration_notes = (
-            f"{integration_notes}\n\nPlumbing divergence detected:\n{note}"
-            if integration_notes
-            else f"Plumbing divergence detected:\n{note}"
-        )
+    _plumbing_divergence = verify_plumbing_intact(app_dir, _CANON_VERSION)
 
     files_written: dict[str, str] = {}
     for rel in (
         ".canon-version",
+        ".gitignore",
+        ".env.example",
+        "requirements.txt",
         "schema.sql",
         "db.py",
         "app.py",
@@ -2258,17 +3100,24 @@ def run_app_pool(
         migration_path.write_text(f"# Legacy Migration Notes\n\n{migration_notes}\n", encoding="utf-8")
         files_written["MIGRATION_NOTES.md"] = str(migration_path)
 
-    if lint_violations:
+    if advisory_violations:
         lint_blob = "\n".join(
             f"- [{row.get('file')}:{row.get('line')}] {row.get('rule')}: {row.get('message')}"
-            for row in lint_violations
+            for row in advisory_violations
         )
         lint_path = app_dir / "INTEGRATION_NOTES.md"
         prior = lint_path.read_text(encoding="utf-8").strip() if lint_path.exists() else "# Integration Review"
-        lint_path.write_text(f"{prior}\n\n## Policy Lints\n{lint_blob}\n", encoding="utf-8")
+        lint_path.write_text(f"{prior}\n\n## Policy Lints (Advisory)\n{lint_blob}\n", encoding="utf-8")
         files_written["INTEGRATION_NOTES.md"] = str(lint_path)
 
-    mode_line = f"Mode: EXTEND — source build: `{existing.get('__source_dir__', '')}`" if is_extend else "Mode: NEW BUILD"
+    if mode.startswith("extend_"):
+        mode_line = f"Mode: EXTEND — source build: `{existing.get('__source_dir__', '')}`"
+    elif mode.startswith("rescaffold_"):
+        mode_line = f"Mode: RESCAFFOLD — source build: `{existing.get('__source_dir__', '')}`"
+    elif is_extend:
+        mode_line = f"Mode: EXTEND — source build: `{existing.get('__source_dir__', '')}`"
+    else:
+        mode_line = "Mode: NEW BUILD"
     summary_md = (
         f"# App Build: {question[:80]}\n\n"
         f"Generated: {ts} | {mode_line} | Canon: `{_CANON_VERSION}`\n\n"
@@ -2290,4 +3139,5 @@ def run_app_pool(
         "path": str(app_dir),
         "files": files_written,
         "integration_notes": integration_notes,
+        "llm_calls": list(_APP_POOL_LLM_CALLS.get() or []),
     }

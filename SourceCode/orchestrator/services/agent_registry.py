@@ -85,6 +85,9 @@ class AppPoolAgent(BaseAgentExecutor):
             project_slug=task.project_slug,
             bus=bus,
             research_context=str(task.context.get("research_context", "") or ""),
+            upstream_requirements=task.context.get("upstream_requirements"),
+            upstream_architecture=task.context.get("upstream_architecture"),
+            upstream_implementation_plan=task.context.get("upstream_implementation_plan"),
             cancel_checker=task.cancel_checker,
             progress_callback=task.progress_callback,
         )
