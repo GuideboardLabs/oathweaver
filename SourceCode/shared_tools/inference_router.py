@@ -10,8 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import threading
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +23,36 @@ from shared_tools.model_routing import load_model_routing
 from shared_tools.ollama_client import OllamaClient
 
 LOGGER = logging.getLogger(__name__)
+
+_MODEL_SIZE_RE = re.compile(r"(?<![a-z0-9])([0-9]+(?:\.[0-9]+)?)\s*b(?![a-z])", flags=re.IGNORECASE)
+_SIZE_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kmgt]?i?b)?\s*$", flags=re.IGNORECASE)
+
+
+def _to_gb(raw: Any) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        val = float(raw)
+        if val > 1024.0:
+            return val / (1024.0 ** 3)
+        return val
+    text = str(raw).strip()
+    if not text:
+        return 0.0
+    match = _SIZE_RE.match(text)
+    if not match:
+        return 0.0
+    number = float(match.group(1))
+    unit = str(match.group(2) or "gb").lower()
+    if unit == "b":
+        return number / (1024.0 ** 3)
+    if unit in {"kb", "kib"}:
+        return number / (1024.0 ** 2)
+    if unit in {"mb", "mib"}:
+        return number / 1024.0
+    if unit in {"tb", "tib"}:
+        return number * 1024.0
+    return number
 
 
 class InferenceRouter:
@@ -31,6 +64,7 @@ class InferenceRouter:
     _shared_response_cache: dict[str, dict[str, Any]] = {}
     _shared_response_cache_lock = threading.Lock()
     _MAX_RESPONSE_CACHE_ENTRIES = 300
+    _FALLBACK_KEYS = ("fallback_models", "synthesis_fallback_models")
 
     def __init__(self, repo_root: Path | None = None) -> None:
         self._ollama = OllamaClient()
@@ -44,11 +78,12 @@ class InferenceRouter:
 
         if repo_root is None:
             repo_root = Path(__file__).resolve().parents[2]
+        self.repo_root = Path(repo_root)
 
-        routing = load_model_routing(repo_root)
-        servers = routing.get("llama_cpp_servers")
+        self._routing = load_model_routing(self.repo_root)
+        servers = self._routing.get("llama_cpp_servers")
         if not isinstance(servers, dict):
-            return
+            servers = {}
 
         for key, cfg in servers.items():
             if not isinstance(cfg, dict):
@@ -92,6 +127,13 @@ class InferenceRouter:
     def _clear_server_backoff(cls, server_key: str) -> None:
         with cls._shared_lock:
             cls._shared_backoff_until.pop(server_key, None)
+
+    @classmethod
+    def _server_backoff_remaining_sec(cls, server_key: str) -> int:
+        now = time.monotonic()
+        with cls._shared_lock:
+            until = float(cls._shared_backoff_until.get(server_key, 0.0) or 0.0)
+        return int(max(0.0, round(until - now)))
 
     def _server_declares_model(self, model: str) -> bool:
         server_key = self._model_map.get(model, "")
@@ -226,6 +268,587 @@ class InferenceRouter:
             overflow = len(cls._shared_response_cache) - cls._MAX_RESPONSE_CACHE_ENTRIES
             for idx in range(max(0, overflow)):
                 cls._shared_response_cache.pop(ordered[idx][0], None)
+
+    @staticmethod
+    def _clean_model_list(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        out: list[str] = []
+        for item in value:
+            name = str(item or "").strip()
+            if name and name not in out:
+                out.append(name)
+        return out
+
+    @staticmethod
+    def _append_unique(items: list[str], value: str) -> None:
+        name = str(value or "").strip()
+        if name and name not in items:
+            items.append(name)
+
+    @classmethod
+    def _iter_route_configs(cls, value: Any, path: str = ""):
+        if isinstance(value, dict):
+            has_model_config = "model" in value or any(key in value for key in cls._FALLBACK_KEYS)
+            if has_model_config:
+                yield path or "<root>", value
+            for key, child in value.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                yield from cls._iter_route_configs(child, child_path)
+        elif isinstance(value, list):
+            for idx, child in enumerate(value):
+                child_path = f"{path}[{idx}]" if path else f"[{idx}]"
+                yield from cls._iter_route_configs(child, child_path)
+
+    @staticmethod
+    def _model_size_b(model: str) -> float:
+        match = _MODEL_SIZE_RE.search(str(model or ""))
+        if not match:
+            return 0.0
+        try:
+            return float(match.group(1))
+        except Exception:
+            return 0.0
+
+    @classmethod
+    def _weight_class(cls, model: str) -> str:
+        size_b = cls._model_size_b(model)
+        if size_b <= 0:
+            return "unknown"
+        if size_b <= 4:
+            return "small"
+        if size_b <= 9:
+            return "normal"
+        if size_b <= 14:
+            return "heavy"
+        if size_b >= 24:
+            return "premium"
+        return "large"
+
+    @staticmethod
+    def _weight_rank(weight_class: str) -> int:
+        return {
+            "unknown": 0,
+            "small": 1,
+            "normal": 2,
+            "large": 3,
+            "heavy": 4,
+            "premium": 5,
+        }.get(str(weight_class or ""), 0)
+
+    def _configured_model_names(self) -> list[str]:
+        out: list[str] = []
+        servers = self._routing.get("llama_cpp_servers")
+        if isinstance(servers, dict):
+            for cfg in servers.values():
+                if isinstance(cfg, dict):
+                    for model_name in self._clean_model_list(cfg.get("models")):
+                        self._append_unique(out, model_name)
+        for model_name in self._clean_model_list(self._routing.get("premium_models")):
+            self._append_unique(out, model_name)
+        for _, cfg in self._iter_route_configs(self._routing):
+            model_name = str(cfg.get("model") or "").strip()
+            self._append_unique(out, model_name)
+            for key in self._FALLBACK_KEYS:
+                for fallback in self._clean_model_list(cfg.get(key)):
+                    self._append_unique(out, fallback)
+        return out
+
+    def _ollama_tags(self, timeout: int = 5) -> tuple[bool, list[str], str]:
+        if not isinstance(self._ollama, OllamaClient):
+            try:
+                models = self._ollama.list_local_models()
+                return True, list(models) if isinstance(models, list) else [], ""
+            except Exception as exc:
+                return False, [], str(exc).strip()[:240]
+
+        url = f"{self._ollama.base_url}/api/tags"
+        req = urllib.request.Request(url=url, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.URLError as exc:
+            return False, [], str(exc).strip()[:240]
+        except Exception as exc:
+            return False, [], str(exc).strip()[:240]
+
+        names: list[str] = []
+        models = data.get("models") if isinstance(data, dict) else []
+        if isinstance(models, list):
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or item.get("model") or "").strip()
+                if name and name not in names:
+                    names.append(name)
+        return True, names, ""
+
+    def _read_ollama_ps_json(self, timeout: int = 5) -> dict[str, Any]:
+        if not isinstance(self._ollama, OllamaClient) and hasattr(self._ollama, "ps_json"):
+            try:
+                payload = self._ollama.ps_json()
+                return dict(payload) if isinstance(payload, dict) else {}
+            except Exception:
+                return {}
+        base_url = str(getattr(self._ollama, "base_url", "http://127.0.0.1:11434")).rstrip("/")
+        url = f"{base_url}/api/ps"
+        req = urllib.request.Request(url=url, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = resp.read().decode("utf-8")
+        except urllib.error.URLError:
+            return {}
+        except Exception:
+            return {}
+        try:
+            payload = json.loads(data)
+        except Exception:
+            return {}
+        return dict(payload) if isinstance(payload, dict) else {}
+
+    def list_backends(self) -> list[dict[str, Any]]:
+        """Return configured local inference backends and lightweight reachability state."""
+        backends: list[dict[str, Any]] = []
+        ollama_reachable, ollama_models, ollama_error = self._ollama_tags()
+        ollama_backend: dict[str, Any] = {
+            "name": "ollama",
+            "kind": "ollama",
+            "base_url": str(getattr(self._ollama, "base_url", "http://127.0.0.1:11434")),
+            "reachable": ollama_reachable,
+            "models": ollama_models,
+        }
+        if ollama_error:
+            ollama_backend["error"] = ollama_error
+        backends.append(ollama_backend)
+
+        servers = self._routing.get("llama_cpp_servers")
+        server_cfgs = servers if isinstance(servers, dict) else {}
+        for server_key, client in self._llama_clients.items():
+            cfg = server_cfgs.get(server_key, {}) if isinstance(server_cfgs.get(server_key, {}), dict) else {}
+            configured_models = self._clean_model_list(cfg.get("models"))
+            if not configured_models:
+                configured_models = [model for model, mapped in self._model_map.items() if mapped == server_key]
+            remaining = self._server_backoff_remaining_sec(server_key)
+            served_models: list[str] = []
+            reachable = False
+            error = ""
+            if remaining <= 0:
+                try:
+                    served_models = client.list_local_models_strict()
+                    reachable = True
+                    self._clear_server_backoff(server_key)
+                except Exception as exc:
+                    error = str(exc).strip()[:240]
+                    self._mark_server_backoff(server_key)
+                    remaining = self._server_backoff_remaining_sec(server_key)
+
+            item: dict[str, Any] = {
+                "name": server_key,
+                "kind": "llama.cpp",
+                "base_url": str(getattr(client, "base_url", "")),
+                "reachable": reachable,
+                "models": served_models,
+                "configured_models": configured_models,
+                "fallback_to_ollama": self._fallback_flags.get(server_key, False),
+                "backoff_until_sec": remaining,
+            }
+            if error:
+                item["error"] = error
+            backends.append(item)
+        return backends
+
+    def fallback_chain(self, model: str) -> list[str]:
+        """Return configured fallback candidates for a primary model, preserving order."""
+        target = str(model or "").strip()
+        chain: list[str] = []
+        if not target:
+            return chain
+        for _, cfg in self._iter_route_configs(self._routing):
+            primary = str(cfg.get("model") or "").strip()
+            if primary != target:
+                continue
+            self._append_unique(chain, primary)
+            for key in self._FALLBACK_KEYS:
+                for fallback in self._clean_model_list(cfg.get(key)):
+                    self._append_unique(chain, fallback)
+        if not chain:
+            chain.append(target)
+        return chain
+
+    def memory_state(self) -> dict[str, Any]:
+        """Return currently loaded Ollama model state without triggering a load."""
+        payload = self._read_ollama_ps_json()
+        rows = payload.get("models") if isinstance(payload, dict) else []
+        if not isinstance(rows, list):
+            rows = []
+
+        loaded_models: list[str] = []
+        loaded_model = ""
+        loaded_adapter = ""
+        total_vram_used_gb = 0.0
+        total_vram_capacity_gb = 0.0
+        kv_pressure = 0.0
+
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("name") or row.get("model") or "").strip()
+            if name:
+                self._append_unique(loaded_models, name)
+                if not loaded_model:
+                    loaded_model = name
+
+            adapter = str(row.get("adapter") or row.get("lora") or "").strip()
+            if adapter and not loaded_adapter:
+                loaded_adapter = adapter
+
+            total_vram_used_gb += max(
+                0.0,
+                _to_gb(row.get("size_vram") or row.get("vram_size") or row.get("gpu_memory")),
+            )
+            total_vram_capacity_gb = max(
+                total_vram_capacity_gb,
+                _to_gb(row.get("gpu_total") or row.get("vram_total") or row.get("gpu_capacity")),
+            )
+            kv = row.get("kv_cache_usage")
+            if kv is None:
+                kv = row.get("kv_usage")
+            try:
+                kv_val = float(kv)
+            except Exception:
+                kv_val = 0.0
+            if kv_val > 1.0:
+                kv_val = kv_val / 100.0
+            kv_pressure = max(kv_pressure, max(0.0, min(1.0, kv_val)))
+
+        free_vram_gb = 0.0
+        if total_vram_capacity_gb > 0.0:
+            free_vram_gb = max(0.0, total_vram_capacity_gb - total_vram_used_gb)
+
+        return {
+            "backend": "ollama",
+            "loaded_model": loaded_model,
+            "loaded_models": loaded_models,
+            "loaded_adapter": loaded_adapter,
+            "kv_pressure": kv_pressure,
+            "free_vram_gb": float(round(free_vram_gb, 3)),
+            "vram_used_gb": float(round(total_vram_used_gb, 3)),
+            "vram_capacity_gb": float(round(total_vram_capacity_gb, 3)),
+            "raw_model_count": len(loaded_models),
+        }
+
+    def is_loaded(self, model: str) -> bool:
+        name = str(model or "").strip()
+        return bool(name and name in self.memory_state().get("loaded_models", []))
+
+    def context_window(self, model: str) -> int:
+        name = str(model or "").strip()
+        contexts: list[int] = []
+        if not name:
+            return 8192
+        for _, cfg in self._iter_route_configs(self._routing):
+            refs = [str(cfg.get("model") or "").strip()]
+            for key in self._FALLBACK_KEYS:
+                refs.extend(self._clean_model_list(cfg.get(key)))
+            if name not in refs:
+                continue
+            try:
+                ctx = int(cfg.get("num_ctx") or 0)
+            except Exception:
+                ctx = 0
+            if ctx > 0:
+                contexts.append(ctx)
+        return max(contexts) if contexts else 8192
+
+    def capabilities(self, model: str) -> dict[str, Any]:
+        name = str(model or "").strip()
+        premium_models = set(self._clean_model_list(self._routing.get("premium_models")))
+        size_b = self._model_size_b(name)
+        weight_class = self._weight_class(name)
+        backends: list[str] = []
+        if name in self._model_map:
+            backends.append("llama.cpp")
+        backends.append("ollama")
+        low = name.lower()
+        tasks = ["embedding"] if "embed" in low else ["chat"]
+        return {
+            "model": name,
+            "configured": name in self._configured_model_names(),
+            "premium": name in premium_models or weight_class == "premium",
+            "size_b": size_b,
+            "weight_class": weight_class,
+            "context_window": self.context_window(name),
+            "reasoning": low.startswith("deepseek-r1") or low.startswith("qwen3"),
+            "tasks": tasks,
+            "backends": backends,
+        }
+
+    def estimate_fit(
+        self,
+        model: str,
+        num_ctx: int,
+        concurrency: int = 1,
+        profile: dict[str, Any] | str | None = None,
+    ) -> dict[str, Any]:
+        """Conservative policy estimate, not a hardware memory calculator."""
+        name = str(model or "").strip()
+        caps = self.capabilities(name)
+        warnings: list[str] = []
+        fits = True
+        confidence = "medium"
+
+        max_context = 32768
+        warning_context = 16384
+        max_concurrency = 1
+        allow_premium = False
+        profile_name = "default_local_workstation"
+        if isinstance(profile, dict):
+            profile_name = str(profile.get("name") or profile_name)
+            max_context = int(profile.get("max_context", max_context) or max_context)
+            warning_context = int(profile.get("warning_context", warning_context) or warning_context)
+            max_concurrency = int(profile.get("max_concurrency", max_concurrency) or max_concurrency)
+            allow_premium = bool(profile.get("allow_premium", allow_premium))
+        elif isinstance(profile, str) and profile.strip():
+            profile_name = profile.strip()
+
+        try:
+            ctx = int(num_ctx)
+        except Exception:
+            ctx = 8192
+        try:
+            active = max(1, int(concurrency))
+        except Exception:
+            active = 1
+
+        weight_class = str(caps.get("weight_class") or "unknown")
+        if weight_class == "unknown":
+            confidence = "low"
+            warnings.append("Model size is unknown; fit estimate uses only context and concurrency policy.")
+        elif weight_class in {"small", "normal"}:
+            confidence = "medium"
+        elif weight_class == "heavy":
+            warnings.append("Heavy model class; prefer low concurrency and explicit operator intent.")
+        elif weight_class == "premium":
+            if allow_premium:
+                warnings.append("Premium-size model allowed by profile; expect manual capacity planning.")
+                confidence = "low"
+            else:
+                fits = False
+                confidence = "high"
+                warnings.append("Premium-size model is outside the default local workstation policy.")
+        else:
+            warnings.append("Large model class; verify available memory before loading.")
+
+        if ctx > warning_context:
+            warnings.append(f"Requested context {ctx} exceeds the profile warning threshold {warning_context}.")
+        if ctx > max_context:
+            fits = False
+            warnings.append(f"Requested context {ctx} exceeds the profile cap {max_context}.")
+        if active > max_concurrency:
+            warnings.append(f"Requested concurrency {active} exceeds the profile default {max_concurrency}.")
+            if active > 2 and weight_class in {"normal", "large", "heavy", "premium"}:
+                fits = False
+
+        if fits and not warnings:
+            reason = f"{weight_class} model is within the conservative {profile_name} policy."
+        elif fits:
+            reason = f"{weight_class} model may fit under {profile_name}, with policy warnings."
+        else:
+            reason = f"{weight_class} model is outside the conservative {profile_name} policy."
+
+        return {
+            "model": name,
+            "fits": fits,
+            "confidence": confidence,
+            "profile": profile_name,
+            "size_b": caps.get("size_b", 0.0),
+            "weight_class": weight_class,
+            "num_ctx": ctx,
+            "concurrency": active,
+            "reason": reason,
+            "warnings": warnings,
+        }
+
+    def health_report(self) -> dict[str, Any]:
+        warnings: list[str] = []
+        backends = self.list_backends()
+        for backend in backends:
+            if not backend.get("reachable"):
+                warnings.append(f"{backend.get('name')} backend is not reachable.")
+        loaded = self.memory_state()
+        ok = any(bool(backend.get("reachable")) for backend in backends)
+        model_health: dict[str, Any] = {}
+        get_status = getattr(self._ollama, "get_status", None)
+        if callable(get_status):
+            try:
+                status = get_status()
+                if isinstance(status, dict):
+                    model_health = status
+            except Exception:
+                model_health = {}
+        return {
+            "ok": ok,
+            "backends": backends,
+            "loaded_models": loaded.get("loaded_models", []),
+            "memory_state": loaded,
+            "ollama_model_health": model_health,
+            "warnings": warnings,
+        }
+
+    def validate_config(self, *, strict: bool = False, check_remote: bool = True) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        referenced = self._configured_model_names()
+
+        servers = self._routing.get("llama_cpp_servers")
+        if servers is not None and not isinstance(servers, dict):
+            errors.append("llama_cpp_servers must be an object when present.")
+        if isinstance(servers, dict):
+            seen_server_models: set[str] = set()
+            for server_key, cfg in servers.items():
+                if not isinstance(cfg, dict):
+                    errors.append(f"llama_cpp_servers.{server_key} must be an object.")
+                    continue
+                base_url = str(cfg.get("base_url") or "").strip()
+                if not base_url:
+                    errors.append(f"llama_cpp_servers.{server_key}.base_url is empty.")
+                models = cfg.get("models")
+                if not isinstance(models, list):
+                    errors.append(f"llama_cpp_servers.{server_key}.models must be a list.")
+                    continue
+                local_seen: set[str] = set()
+                for raw in models:
+                    name = str(raw or "").strip()
+                    if not name:
+                        errors.append(f"llama_cpp_servers.{server_key}.models contains an empty model name.")
+                        continue
+                    if name in local_seen or name in seen_server_models:
+                        warnings.append(f"Duplicate llama.cpp model mapping: {name}.")
+                    local_seen.add(name)
+                    seen_server_models.add(name)
+
+        referenced_set = set(referenced)
+        premium_models = set(self._clean_model_list(self._routing.get("premium_models")))
+        for path, cfg in self._iter_route_configs(self._routing):
+            primary = str(cfg.get("model") or "").strip()
+            if not primary and "model" in cfg:
+                errors.append(f"{path}.model is empty.")
+            primary_class = self._weight_class(primary)
+            for key in self._FALLBACK_KEYS:
+                for fallback in self._clean_model_list(cfg.get(key)):
+                    if fallback not in referenced_set:
+                        warnings.append(f"{path}.{key} references {fallback}, but no route or model list defines it.")
+                    fallback_class = self._weight_class(fallback)
+                    if self._weight_rank(fallback_class) > self._weight_rank(primary_class):
+                        warnings.append(f"{path}.{key} fallback {fallback} appears heavier than primary {primary}.")
+            if primary in premium_models and "tier_premium" not in path and not path.endswith("tier_premium"):
+                warnings.append(f"{path}.model uses premium model {primary} outside an explicit premium tier.")
+            try:
+                ctx = int(cfg.get("num_ctx") or 0)
+            except Exception:
+                ctx = 0
+            if ctx > 32768:
+                errors.append(f"{path}.num_ctx={ctx} exceeds the default hard cap 32768.")
+            elif ctx > 16384:
+                warnings.append(f"{path}.num_ctx={ctx} exceeds the conservative local warning threshold 16384.")
+            try:
+                parallel = int(cfg.get("parallel_agents") or 0)
+            except Exception:
+                parallel = 0
+            if parallel > 2:
+                warnings.append(f"{path}.parallel_agents={parallel} exceeds the conservative local default 2.")
+
+        if check_remote:
+            backends = self.list_backends()
+            installed: set[str] = set()
+            saw_reachable_backend = False
+            for backend in backends:
+                if backend.get("reachable"):
+                    saw_reachable_backend = True
+                if backend.get("kind") == "llama.cpp" and backend.get("backoff_until_sec", 0):
+                    warnings.append(f"{backend.get('name')} llama.cpp server is in backoff.")
+                if not backend.get("reachable"):
+                    warnings.append(f"{backend.get('name')} backend is not reachable.")
+                for model_name in backend.get("models") or []:
+                    installed.add(str(model_name))
+            if saw_reachable_backend:
+                for model_name in referenced:
+                    if model_name not in installed:
+                        msg = f"Configured model {model_name} is not present on any reachable backend."
+                        if strict:
+                            errors.append(msg)
+                        else:
+                            warnings.append(msg)
+
+        return {
+            "ok": not errors and (not strict or not warnings),
+            "errors": errors,
+            "warnings": warnings,
+            "model_count": len(referenced),
+        }
+
+    def explain_route(
+        self,
+        model: str | None = None,
+        task_class: str | None = None,
+        constraints: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        constraints = constraints if isinstance(constraints, dict) else {}
+        lane_cfg = self._routing.get(str(task_class or ""), {})
+        lane_cfg = lane_cfg if isinstance(lane_cfg, dict) else {}
+        requested = str(model or lane_cfg.get("model") or "").strip()
+        fallback_models = self._clean_model_list(constraints.get("fallback_models"))
+        if not fallback_models:
+            for key in self._FALLBACK_KEYS:
+                fallback_models.extend(self._clean_model_list(lane_cfg.get(key)))
+        chain = self._candidate_models(requested, fallback_models) if fallback_models else self.fallback_chain(requested)
+
+        backends = self.list_backends()
+        installed: set[str] = set()
+        llama_served: set[str] = set()
+        for backend in backends:
+            for model_name in backend.get("models") or []:
+                installed.add(str(model_name))
+                if backend.get("kind") == "llama.cpp":
+                    llama_served.add(str(model_name))
+
+        selected = ""
+        for candidate in chain:
+            if candidate in installed:
+                selected = candidate
+                break
+        if not selected and chain:
+            selected = chain[0]
+
+        server_key = self._model_map.get(selected, "")
+        server_in_backoff = bool(server_key and self._server_in_backoff(server_key))
+        backend = "llama.cpp" if selected in llama_served and not server_in_backoff else "ollama"
+        try:
+            num_ctx = int(constraints.get("num_ctx") or lane_cfg.get("num_ctx") or self.context_window(selected))
+        except Exception:
+            num_ctx = self.context_window(selected)
+        try:
+            concurrency = int(constraints.get("concurrency") or lane_cfg.get("parallel_agents") or 1)
+        except Exception:
+            concurrency = 1
+        fit = self.estimate_fit(selected, num_ctx, concurrency=concurrency, profile=constraints.get("profile"))
+        warnings = list(fit.get("warnings") or [])
+        if requested and requested not in installed:
+            warnings.append(f"Requested model {requested} is not present on any reachable backend.")
+        if server_in_backoff:
+            warnings.append(f"Configured llama.cpp server {server_key} is currently in backoff.")
+        return {
+            "requested_model": requested,
+            "selected_model": selected,
+            "task_class": str(task_class or ""),
+            "backend": backend,
+            "fallback_chain": chain,
+            "installed": selected in installed,
+            "loaded": self.is_loaded(selected),
+            "server_in_backoff": server_in_backoff,
+            "estimated_fit": fit,
+            "warnings": warnings,
+        }
 
     def chat(
         self,
@@ -470,6 +1093,23 @@ class InferenceRouter:
             last_error or "unknown",
         )
         return False
+
+    def wait_for_any(
+        self,
+        models: list[str],
+        *,
+        max_wait_sec: int = 300,
+        poll_interval_sec: int = 15,
+    ) -> bool:
+        candidates = self._candidate_models("", models)
+        if not candidates:
+            return False
+        return self.wait_for_available(
+            candidates[0],
+            fallback_models=candidates[1:],
+            max_wait_sec=max_wait_sec,
+            poll_interval_sec=poll_interval_sec,
+        )
 
     def release_models(self, models: list[str]) -> None:
         """Release Ollama-hosted models from VRAM after a pool run completes.
