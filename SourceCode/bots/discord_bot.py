@@ -218,6 +218,7 @@ class DiscordBot(threading.Thread):
             history=history,
             project="general",
             persona_override=self._build_persona(),
+            role_scope="guest",
         )
 
         store.add_message(conv_id, "assistant", reply, mode="talk")

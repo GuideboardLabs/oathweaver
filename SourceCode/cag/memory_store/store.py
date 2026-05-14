@@ -247,6 +247,22 @@ class CAGMemoryStore:
             supersedes.append(old_memory_id)
         self.update_row(new_memory_id, {"supersedes": supersedes})
 
+    def count_rows(self, *, project: str = "") -> int:
+        where = ""
+        args: tuple[Any, ...] = ()
+        key = str(project or "").strip()
+        if key:
+            where = " WHERE project=?"
+            args = (key,)
+        with sqlite3.connect(self.db_path) as conn:
+            row = conn.execute(f"SELECT COUNT(*) FROM memory_rows{where}", args).fetchone()
+        if not row:
+            return 0
+        try:
+            return max(0, int(row[0]))
+        except Exception:
+            return 0
+
     def _new_memory_id(self) -> str:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         return f"mem_{stamp}_{uuid.uuid4().hex[:8]}"

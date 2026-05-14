@@ -67,6 +67,8 @@ from orchestrator.pipelines import (
 from orchestrator.services import OrchestratorInfraRuntime, ResearchService, TurnPlanner, WorkerResult
 from orchestrator.services.agent_contracts import AgentTask
 from orchestrator.services.agent_registry import build_default_agent_registry
+from orchestrator.services.self_query_gate import SelfQueryGate
+from orchestrator.services.self_state import SelfStateService
 from orchestrator.services import cag_helpers as _cag_helpers
 from orchestrator.services.policy import _resolve_domain, should_route_web_fetch
 from orchestrator.text_processing.text_analysis import (
@@ -285,10 +287,19 @@ class OathweaverOrchestrator:
         self.trace_ledger = TraceLedger(repo_root)
         self.replay_store = ReplayStore(repo_root)
         self.capability_registry = CapabilityRegistry(repo_root)
+        self.self_query_gate = SelfQueryGate(embed_client=self.ollama, threshold=0.75, repo_root=repo_root)
+        self.self_state_service = SelfStateService(
+            router=self.ollama,
+            capability_registry=self.capability_registry,
+            cag_store=self.cag_memory_store if hasattr(self, "cag_memory_store") else None,
+            hardware_profile_provider=lambda: self.hardware_profile,
+            project_slug_provider=lambda: self.project_slug,
+        )
         self.benchmark_import = BenchmarkImport(default_cag_bench_results_root(self.repo_root))
         self.auditor_engine = AuditorEngine(benchmark_import=self.benchmark_import)
         self.regression_reporter = RegressionReporter(repo_root)
         self.cag_memory_store = CAGMemoryStore(repo_root)
+        self.self_state_service.cag_store = self.cag_memory_store
         _ingest_canon_seed_files(repo_root, self.cag_memory_store)
         self.cag_selector = ScopedSelector()
         self.cag_promotion_gate = PromotionGate()
@@ -2152,6 +2163,92 @@ class OathweaverOrchestrator:
     def _is_oathweaver_self_query(self, text: str) -> bool:
         return _is_gb_self_query(text)
 
+    def _build_self_state_block(
+        self,
+        text: str,
+        *,
+        role_scope: str = "owner",
+    ) -> tuple[str, dict[str, Any]]:
+        if not hasattr(self, "self_query_gate") or not hasattr(self, "self_state_service"):
+            return "", {}
+        try:
+            decision = self.self_query_gate.classify(text)
+        except Exception:
+            return "", {}
+        if not bool(getattr(decision, "is_self_query", False)):
+            return "", {
+                "is_self_query": False,
+                "match_kind": "",
+                "confidence": float(getattr(decision, "confidence", 0.0) or 0.0),
+                "matched_exemplar": str(getattr(decision, "matched_exemplar", "") or ""),
+            }
+        try:
+            snapshot = self.self_state_service.compute(
+                match_kind=str(decision.match_kind or "general"),
+                role=role_scope,
+            )
+            block = snapshot.to_prompt_block(str(decision.match_kind or "general"))
+            return block, {
+                "is_self_query": True,
+                "match_kind": str(decision.match_kind or "general"),
+                "confidence": float(decision.confidence),
+                "matched_exemplar": str(decision.matched_exemplar or ""),
+                "top_values": snapshot.top_values(str(decision.match_kind or "general")),
+            }
+        except Exception:
+            return "", {}
+
+    @staticmethod
+    def _reply_contains_any_value(reply: str, values: list[str]) -> bool:
+        hay = str(reply or "").strip().lower()
+        if not hay:
+            return False
+        for value in values:
+            needle = str(value or "").strip().lower()
+            if needle and needle in hay:
+                return True
+        return False
+
+    def _apply_self_state_safety_net(
+        self,
+        reply: str,
+        *,
+        self_query_meta: dict[str, Any] | None = None,
+    ) -> str:
+        text = str(reply or "").strip()
+        meta = self_query_meta if isinstance(self_query_meta, dict) else {}
+        if not bool(meta.get("is_self_query", False)):
+            return text
+        if float(meta.get("confidence", 0.0) or 0.0) < 0.85:
+            return text
+        kind = str(meta.get("match_kind", "")).strip().lower() or "general"
+        values = [str(x).strip() for x in (meta.get("top_values") or []) if str(x).strip()]
+        if values and self._reply_contains_any_value(text, values):
+            return text
+        lines = ["", "---", "For reference, current configuration:"]
+        if kind == "model":
+            if values:
+                lines.append(f"- chat_layer.model: {values[0]}")
+        elif kind == "hardware":
+            if len(values) > 0:
+                lines.append(f"- hardware_profile.name: {values[0]}")
+            if len(values) > 1:
+                lines.append(f"- hardware_profile.gpu_backend: {values[1]}")
+        elif kind == "backend":
+            if values:
+                lines.append(f"- backend.reachable: {values[0]}")
+        elif kind == "loaded":
+            if values:
+                lines.append(f"- loaded_models[0]: {values[0]}")
+        else:
+            if len(values) > 0:
+                lines.append(f"- chat_layer.model: {values[0]}")
+            if len(values) > 1:
+                lines.append(f"- hardware_profile.name: {values[1]}")
+        if len(lines) <= 3:
+            return text
+        return (text + "\n" + "\n".join(lines)).strip()
+
     def conversation_reply(
         self,
         text: str,
@@ -2165,6 +2262,9 @@ class OathweaverOrchestrator:
         cancel_checker=None,
         topic_context: str = "",
         reply_to: dict[str, Any] | None = None,
+        self_state_block: str = "",
+        self_query_meta: dict[str, Any] | None = None,
+        role_scope: str = "owner",
     ) -> str:
         cfg = self._chat_layer_config()
         model = cfg.get("model", "")
@@ -2181,6 +2281,14 @@ class OathweaverOrchestrator:
         project_slug = (project or self.project_slug or "").strip() or "general"
         if self._is_oathweaver_self_query(incoming_text):
             return self._oathweaver_identity_reply()
+        if not self_state_block and not isinstance(self_query_meta, dict):
+            try:
+                self_state_block, self_query_meta = self._build_self_state_block(
+                    incoming_text,
+                    role_scope=role_scope,
+                )
+            except Exception:
+                self_state_block, self_query_meta = "", {}
         if callable(cancel_checker):
             try:
                 if bool(cancel_checker()):
@@ -2562,6 +2670,8 @@ class OathweaverOrchestrator:
             _stack_caps = ""
         _briefing_ctx = self._watchtower_context_for_query()
         _sys_parts = [(persona_override or self._weaver_persona_block()) + "\n\n" + _talk_sys]
+        if self_state_block.strip():
+            _sys_parts.append(self_state_block.strip())
         if topic_context.strip():
             _sys_parts.append(topic_context.strip())
         if _reply_research_ctx:
@@ -2633,6 +2743,7 @@ class OathweaverOrchestrator:
                 )
             except Exception:
                 pass
+            reply = self._apply_self_state_safety_net(reply, self_query_meta=self_query_meta)
             reply = self._append_daymarker_note(reply, web_note)
             reply = self._append_daymarker_note(reply, event_note)
             return self._append_daymarker_note(reply, reminder_note)

@@ -130,7 +130,7 @@ class TelegramBot(threading.Thread):
         store.add_message(conv_id, "user", text, mode="talk")
 
         orch = OathweaverOrchestrator(self._repo_root)
-        reply = orch.conversation_reply(text, history=history, project="general")
+        reply = orch.conversation_reply(text, history=history, project="general", role_scope="guest")
 
         store.add_message(conv_id, "assistant", reply, mode="talk")
         return reply

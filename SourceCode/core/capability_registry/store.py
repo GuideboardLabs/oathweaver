@@ -41,6 +41,36 @@ class CapabilityRegistry:
         payload = self._load_claims()
         return [dict(x) for x in payload if isinstance(x, dict)]
 
+    def list_recent_claims(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return newest-first claim summaries for lightweight diagnostics."""
+        try:
+            max_items = max(1, int(limit))
+        except Exception:
+            max_items = 10
+        rows: list[dict[str, Any]] = []
+        for claim in self._load_claims():
+            if not isinstance(claim, dict):
+                continue
+            created_at = str(claim.get("created_at", "")).strip()
+            updated_at = str(claim.get("updated_at", "")).strip()
+            timestamp = updated_at or created_at
+            claim_text = str(claim.get("claim", "")).strip()
+            if not claim_text:
+                continue
+            evidence = claim.get("benchmarks", [])
+            evidence_summary = ", ".join(str(x).strip() for x in evidence if str(x).strip())
+            rows.append(
+                {
+                    "id": str(claim.get("id", "")) or claim_text[:48],
+                    "created_at": timestamp,
+                    "claim": claim_text,
+                    "evidence_summary": evidence_summary,
+                }
+            )
+
+        rows.sort(key=lambda item: str(item.get("created_at", "")), reverse=True)
+        return rows[:max_items]
+
     def upsert_claim(self, claim: dict[str, Any]) -> dict[str, Any]:
         incoming = dict(claim or {})
         claim_key = str(incoming.get("claim", "")).strip()

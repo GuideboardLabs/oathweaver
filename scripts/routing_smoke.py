@@ -17,6 +17,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import math
 import sys
 import time
 import traceback
@@ -29,6 +31,7 @@ sys.path.insert(0, str(SOURCE))
 sys.path.insert(0, str(ROOT))
 
 from tests.common import ensure_runtime  # noqa: E402
+from orchestrator.services.self_query_gate import SelfQueryGate  # noqa: E402
 
 SMALL_MODEL = "qwen3:4b"
 
@@ -62,6 +65,97 @@ MAKE_PROMPTS: dict[str, str] = {
     "history":        "Write an essay on the causes of the fall of the Roman Empire.",
     "game_design_doc":"Write a game design document for a turn-based strategy roguelike.",
 }
+
+_SELF_QUERY_POSITIVES = [
+    "what model are you running right now",
+    "which model is this chat using",
+    "show me your fallback chain",
+    "why did you pick that model",
+    "what model routing are you using",
+    "is llama.cpp running",
+    "is ollama reachable right now",
+    "what inference backend are available",
+    "what models are loaded in vram",
+    "how much vram is currently used",
+    "what is your kv pressure",
+    "what gpu are you on",
+    "how much vram do you have",
+    "what hardware profile are you using",
+    "are you on cuda",
+    "are you allowed to use premium models",
+    "what are your capabilities",
+    "what is your context window",
+    "show me your current config state",
+    "tell me about your setup right now",
+]
+
+_SELF_QUERY_NEGATIVES = [
+    "what model car should i buy",
+    "tell me about ollama in general",
+    "describe transformer architecture",
+    "what gpu should i get for gaming",
+    "how to install cuda on ubuntu",
+    "what is vram and why does it matter",
+    "compare llama.cpp and ollama",
+    "explain what a context window is",
+    "what can you do for a marketing plan",
+    "show me my project configuration",
+    "what backend framework should i use",
+    "what models are popular in 2026",
+    "how much memory does python use",
+    "why is my laptop slow",
+    "give me hardware recommendations",
+    "what does premium mean in software",
+    "how are you feeling today",
+    "tell me a joke",
+    "write a blog outline",
+    "what's the capital of france",
+]
+
+
+class _TokenEmbedder:
+    def embed(self, model: str, text: str, *, timeout: int = 20) -> list[float]:  # noqa: ARG002
+        tokens = [tok for tok in str(text or "").lower().split() if tok]
+        size = 256
+        vec = [0.0] * size
+        for token in tokens:
+            digest = hashlib.sha256(token.encode("utf-8")).digest()
+            idx = int.from_bytes(digest[:2], "big") % size
+            vec[idx] += 1.0
+        norm = math.sqrt(sum(v * v for v in vec))
+        if norm > 0:
+            vec = [v / norm for v in vec]
+        return vec
+
+
+def _run_self_query_smoke() -> int:
+    cache_path = ROOT / "Runtime" / "routing" / "self_query_gate.json"
+    cache_path.unlink(missing_ok=True)
+    gate = SelfQueryGate(_TokenEmbedder(), threshold=0.62, repo_root=ROOT)
+    tp = 0
+    fp = 0
+    fn = 0
+    tn = 0
+    for text in _SELF_QUERY_POSITIVES:
+        hit = gate.classify(text).is_self_query
+        if hit:
+            tp += 1
+        else:
+            fn += 1
+    for text in _SELF_QUERY_NEGATIVES:
+        hit = gate.classify(text).is_self_query
+        if hit:
+            fp += 1
+        else:
+            tn += 1
+    precision = tp / max(1, tp + fp)
+    recall = tp / max(1, tp + fn)
+    print("\nSelf-query smoke")
+    print(f"  TP={tp} FP={fp} FN={fn} TN={tn}")
+    print(f"  precision={precision:.3f} recall={recall:.3f}")
+    ok = precision >= 0.85 and recall >= 0.85
+    print(f"  status={'PASS' if ok else 'FAIL'}")
+    return 0 if ok else 1
 
 
 # ---------------------------------------------------------------------------
@@ -297,6 +391,8 @@ def main() -> None:
                         help="Run chat, research, and every make type")
     parser.add_argument("--no-limits", action="store_true",
                         help="Remove all timeouts and raise context window — use with large slow models")
+    parser.add_argument("--self-query-smoke", action="store_true",
+                        help="Run self-query gate precision/recall smoke checks")
     args = parser.parse_args()
 
     ensure_runtime(ROOT)
@@ -304,6 +400,8 @@ def main() -> None:
     if args.list_types:
         _print_types()
         return
+    if args.self_query_smoke:
+        raise SystemExit(_run_self_query_smoke())
 
     nl = args.no_limits
 

@@ -281,12 +281,28 @@ def compile_chat_turn_graph(
                 "lane_execute",
             )
 
+        text_value = str(state.get("text", "")).strip()
+        role_scope = str(state.get("auth_role", "owner")).strip().lower() or "owner"
+        self_state_block = ""
+        self_query_meta: dict[str, Any] = {}
+        if lane == "conversation":
+            try:
+                self_state_block, self_query_meta = orchestrator._build_self_state_block(  # pylint: disable=protected-access
+                    text_value,
+                    role_scope=role_scope,
+                )
+            except Exception:
+                self_state_block, self_query_meta = "", {}
+
         reply = orchestrator.conversation_reply(
-            str(state.get("text", "")).strip(),
+            text_value,
             history=list(state.get("history") or []),
             project=orchestrator.project_slug,
             cancel_checker=cancel_checker,
             progress_callback=progress_callback,
+            self_state_block=self_state_block,
+            self_query_meta=self_query_meta,
+            role_scope=role_scope,
         )
         return _assert_serializable({"lane": lane, "agent_findings": [], "composed_answer": reply}, "lane_execute")
 
@@ -336,6 +352,7 @@ def invoke_chat_turn_graph(
     cancel_checker=None,
     progress_callback=None,
     thread_id: str = "",
+    auth_role: str = "owner",
 ) -> dict[str, Any]:
     """Run chat lane through a LangGraph state pipeline when available."""
     if not _LANGGRAPH_AVAILABLE:
@@ -370,6 +387,7 @@ def invoke_chat_turn_graph(
         "agent_findings": [],
         "perf_trace": {},
         "precomputed_route": _normalize_precomputed_route(precomputed_route),
+        "auth_role": str(auth_role or "owner").strip().lower() or "owner",
     }
     stable_thread = str(thread_id or "").strip() or f"thread_{uuid.uuid4().hex[:16]}"
     result_state = graph.invoke(input_state, config={"configurable": {"thread_id": stable_thread}})

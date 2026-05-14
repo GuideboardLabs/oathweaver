@@ -6,12 +6,12 @@
 ![Frontend](https://img.shields.io/badge/VueJS-3.5.13-purple)
 ![Runtime](https://img.shields.io/badge/runtime-Local--Only-darkgreen)
 ![LLM](https://img.shields.io/badge/LLM-Ollama-black)
-![Status](https://img.shields.io/badge/status-Experimental-yellow)
+![Status](https://img.shields.io/badge/status-Release%20Candidate%20(0.9.x)-yellow)
 ![License](https://img.shields.io/badge/license-Service--Only%20Source--Available-orange)
 
 **Self-hosted AI workspace. No API keys. No cloud. No subscriptions. No frontier model calls. Ever.**
 
-Oathweaver is a local-only AI workspace for research, writing, and software generation. Every request flows through a typed pipeline engine, executed by a roster of specialist agents over a scoped context-augmented memory layer. Everything runs on your own hardware, on models you control, with data that never leaves your machine.
+Oathweaver is a local-only AI workspace for research, writing, and software generation. Every request flows through a typed pipeline engine, executed through ordered stages backed by a library of typed specialist skill packs and a scoped context-augmented memory layer. Everything runs on your own hardware, on models you control, with data that never leaves your machine.
 
 There is no external API integration and there never will be. The architecture is deliberately closed to frontier providers.
 
@@ -97,11 +97,11 @@ Every non-trivial request is mapped onto a typed `PipelineSpec` with a fixed inp
 
 Each stage emits an output that is checked against an **OutputContract** ([SourceCode/core/output_contracts/](SourceCode/core/output_contracts/)) before downstream stages run. Contract failures surface as findings — they do not silently propagate as fabrication or truncation.
 
-### 2. Specialist Roster
+### 2. Specialist Skill Packs
 
-Stages are executed by a fixed roster of specialist agents in [SourceCode/specialists/](SourceCode/specialists/). Each specialist ships as a `SpecialistSkillPack` (role prompt, output schema, CAG query profile, retrieval template, few-shot library, tool permissions, verifier rubric).
+Stages are parameterized by a library of typed specialist skill packs in [SourceCode/specialists/](SourceCode/specialists/). Each pack ships as a `SpecialistSkillPack` (role prompt, output schema, CAG query profile, retrieval template, few-shot library, tool permissions, verifier rubric).
 
-| Specialist | Typical stages |
+| Role | Typical stages |
 |---|---|
 | `planner` | intake, requirements, architecture, implementation_plan, patch_writer |
 | `researcher` | domain_framing, source_discovery, code_localizer |
@@ -111,7 +111,7 @@ Stages are executed by a fixed roster of specialist agents in [SourceCode/specia
 | `verifier` | verification, test_fixer |
 | `memory_critic` | cag_promotion_gate |
 
-Specialist selection is derived from `(stage, domain, make_type, research_focus)` — for runtime-systems work in computer science, for example, the planner becomes a `runtime_architect`, the auditor becomes a `benchmark_designer`, and the skeptic becomes a `systems_skeptic`.
+Role selection is derived from `(stage, domain, make_type, research_focus)` — for runtime-systems work in computer science, for example, the planner role becomes a `runtime_architect`, the auditor becomes a `benchmark_designer`, and the skeptic becomes a `systems_skeptic`. The pipeline engine resolves the role at planning time, then bakes the matching skill pack's role prompt, schema, and verifier rubric into the stage's context pack. Specialist modules are configuration, not autonomous agents — there is no separate dispatch loop; the model executing the stage is whatever the routing config selects for that lane.
 
 ### 3. CAG Memory Layer
 
@@ -145,11 +145,11 @@ Combined with [SourceCode/core/replay/](SourceCode/core/replay/) and [SourceCode
 The scheduler ([SourceCode/scheduler/](SourceCode/scheduler/)) decides what runs and when:
 
 - **`SpecialistRegistry`** — manifest-based registry of available specialists per role.
-- **`ResourceBudgetManager`** — per-hardware-profile budget for context, concurrency, and active models.
+- **`ResourceBudgetManager`** — context, concurrency, and active-model budget, initialized from the active hardware profile (see [Hardware Profile](#hardware-profile)).
 - **`OnDeckRuntime`** — keeps a small pool of warm specialists ready for the next stage.
 - **`BenchManager`** — coordinates benchmark execution against the budget.
 
-A **Watchtower** layer ([SourceCode/watchtower/](SourceCode/watchtower/)) — knowledge gap detector, project readiness assessor, research card store, and scout — runs alongside the kernel to surface what is missing before the user has to ask.
+A **Watchtower** layer ([SourceCode/watchtower/](SourceCode/watchtower/)) — knowledge gap detector, project readiness assessor, research card store, and scout — runs at the end of each pipeline turn and on explicit kernel-command invocation. Detected gaps are queued as research cards on disk and surfaced through the Web GUI's watchtower panel for manual review. Card consumption is operator-driven today; no autonomous agent acts on queued cards.
 
 ---
 
@@ -216,6 +216,8 @@ User-facing messaging is mediated by the **chat layer** (`dolphin3:8b`, configur
 
 Re-evaluation of stack is routed through a Technical topic / Technical-domain research pipeline.
 
+**Live self-awareness.** Conversation-lane turns pass through a `SelfQueryGate` ([SourceCode/orchestrator/services/self_query_gate.py](SourceCode/orchestrator/services/self_query_gate.py)) that detects self-introspection questions ("what model are you running?", "what GPU am I on?", "what's your fallback chain?"). On a hit, a `SelfStateService` ([SourceCode/orchestrator/services/self_state.py](SourceCode/orchestrator/services/self_state.py)) composes a snapshot from `InferenceRouter` diagnostics, the active hardware profile, and the capability registry, and injects it into the system prompt as authoritative context. The chat layer answers configuration questions from live state — not from training-data assumptions or static manifesto text. Non-self-query turns pay zero overhead.
+
 ---
 
 ## Turn Orchestration (LangGraph)
@@ -276,6 +278,29 @@ Oathweaver supports two local inference backends:
 
 The inference router auto-falls back to Ollama if a configured llama.cpp server is unreachable. Server backoff is 180s after failure.
 
+The router also exposes a diagnostic surface used by the self-awareness layer and the OpenAI-compatible API:
+
+- `list_backends()` — configured backends with reachability and loaded-model counts
+- `fallback_chain(model)` — ordered fallback candidates for a primary model
+- `memory_state()` — currently loaded models, VRAM use, KV-cache pressure (live `ollama ps`)
+- `capabilities(model)` — size, weight class, context window, premium flag, supported tasks
+- `estimate_fit(model, num_ctx, concurrency, profile=...)` — conservative policy estimate against the active hardware profile
+- `health_report()` / `explain_route()` / `validate_config()` — full health + routing-decision explanation + profile-aware config validation
+
+These are read-only inspections — they do not change routing decisions on the request path.
+
+---
+
+## Hardware Profile
+
+Local capacity is declared in [SourceCode/configs/hardware_profiles.json](SourceCode/configs/hardware_profiles.json) and resolved at orchestrator startup. The active profile drives the scheduler's `ResourceBudgetManager`, the inference router's `estimate_fit()` and `validate_config()` policies, and the diagnostic surfaces.
+
+Resolution order: explicit kernel-command argument → `OATHWEAVER_HARDWARE_PROFILE` env var → config `default_profile` → built-in conservative default (`8gb_vram_16gb_ram`).
+
+A profile declares hardware capacity (VRAM, RAM, GPU backend), scheduler caps (context tokens, parallel models, on-deck depth), inference policy (preferred backends, keep-alive, max loaded models), model policy (weight-class thresholds, premium gating), per-lane caps, and a validation mode. See the [example shape](SourceCode/configs/hardware_profiles.json) for the full schema.
+
+Enforcement is **advisory-first**: profile mismatches surface as warnings through `validate_config()` rather than hard-blocking startup or model calls. Operators can flip startup_mode to `strict` in the profile to escalate.
+
 ---
 
 ## Architecture Diagram
@@ -290,6 +315,7 @@ The inference router auto-falls back to Ollama if a configured llama.cpp server 
                   │   Chat Layer (dolphin3:8b)               │
                   │   semantic-router → intent (gemma3:4b)   │
                   │   → context gate (qwen3:4b)              │
+                  │   → self-query gate → self-state inject  │
                   └──────────────┬──────────────────────────┘
                                  │
                   ┌──────────────▼──────────────────────────┐
@@ -424,10 +450,13 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 ## Security Notes
 
 - Oathweaver is local-only. No data is ever transmitted to an external AI provider.
-- Startup scripts can bind to all interfaces (`0.0.0.0`) for LAN/Tailscale access.
-- Use loopback (`127.0.0.1`) to restrict to local access only.
-- Configure host/port via `OATHWEAVER_WEB_HOST` and `OATHWEAVER_WEB_PORT`.
-- Set `OATHWEAVER_WEB_PASSWORD` when exposing beyond localhost.
+- The Web GUI and Ollama both bind to `127.0.0.1` by default. Exposing beyond loopback is an explicit opt-in via `OATHWEAVER_WEB_HOST` / `OLLAMA_HOST` (or the corresponding installer/launcher flags).
+- When binding the Web GUI beyond loopback, set `OATHWEAVER_WEB_PASSWORD`. The first-boot owner-setup flow is otherwise reachable to anyone who can hit the port.
+- Session cookies are `HTTPOnly` and `SameSite=Strict`. Setting `OATHWEAVER_HTTPS=1` also enables `Secure` cookies so credentials never travel cleartext.
+- The action policy gate (`OATHWEAVER_APPROVAL_GATE`) defaults to enabled. Action policy is `draft_then_confirm` for sending messages, calendar booking, purchases, data deletion, and external submissions.
+- The OpenAI-compatible local API server defaults to localhost. If exposing beyond loopback, gate it via the local Bearer-token mechanism documented in [interfaces/api/server.py](SourceCode/interfaces/api/server.py).
+- Secret-bearing config files (e.g. `Runtime/config/bot_config.json`) are written with mode `0600`.
+- The MCP HTTP transport is gated behind an explicit config flag and is localhost-only by default.
 
 ---
 
@@ -444,7 +473,7 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 | `SourceCode/taxonomy/` | Domain, make-type, and research-focus taxonomies |
 | `SourceCode/orchestrator/` | Top-level orchestrator, intent routing, turn graph, MCP bridge, identity / manifesto |
 | `SourceCode/orchestrator/pipelines/` | LangGraph turn state machine, replay, regression harness |
-| `SourceCode/orchestrator/services/` | Intent confirmer, semantic gate, chat routing gate, Make-type classifier, agent contracts/registry |
+| `SourceCode/orchestrator/services/` | Intent confirmer, semantic gate, chat routing gate, self-query gate, self-state composer, Make-type classifier, agent contracts/registry |
 | `SourceCode/agents_research/` | Research pool: tree planner, deep researcher, synthesizer, citation linker, topic policy |
 | `SourceCode/agents_make/` | Build pools (essay, longform, content, specialist, creative, web app, desktop) + Canon v1 web scaffold |
 | `SourceCode/agents_tool/` | Tool pool (single-file Python with self-fix loop) |
@@ -452,13 +481,14 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 | `SourceCode/interfaces/` | Web GUI, OpenAI-compatible API, CLI, TUI frontends |
 | `SourceCode/web_gui/` | Flask web GUI (primary interface) |
 | `SourceCode/infra/` | Persistence, background workers, infra tooling |
-| `SourceCode/shared_tools/` | Inference router, memory systems, research tools, activity bus, Phase 0 flags |
+| `SourceCode/shared_tools/` | Inference router (+ diagnostics), hardware profile loader, memory systems, research tools, activity bus, Phase 0 flags |
 | `SourceCode/policies/` | Action policy and personal safety policy |
 | `SourceCode/legacy/` | Phase 0 quarantine notes |
 | `SourceCode/bots/` | Discord, Slack, Telegram bot adapters |
 | `SourceCode/benchmark/` | Benchmark runner: fires research-pool questions and reports output quality metrics |
 | `SourceCode/benchmarks/` | Hardware profiles and CAG benchmark adapter |
 | `SourceCode/configs/model_routing.json` | Model assignments, inference servers, fallback config |
+| `SourceCode/configs/hardware_profiles.json` | Hardware profile definitions (capacity, scheduler caps, model policy, lane caps) |
 | `scripts/` | ML training scripts for the SetFit make-type classifier and low-confidence flagging |
 | `tests/` | Test suite |
 | `docs/` | Architecture notes, changelogs, planning artifacts |
@@ -470,12 +500,20 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 
 ## Configuration
 
-Primary model and routing config:
+Primary config files:
 
 - `SourceCode/configs/model_routing.json` — model assignments per layer (chat, orchestrator reasoning, research pool, etc.), llama.cpp server entries, premium-model list, context sizes.
+- `SourceCode/configs/hardware_profiles.json` — hardware profile definitions; selects the active profile via `default_profile` and feeds the scheduler + inference router with capacity caps and model policy.
+- `SourceCode/configs/mcp_servers.json` — external MCP servers consumed by Oathweaver.
 
-Phase 0 environment flags:
+Environment flags:
 
+- `OATHWEAVER_HARDWARE_PROFILE` — pick the active hardware profile by name (overrides config `default_profile`). Resolution falls back to the config default and then to the built-in conservative profile.
+- `OATHWEAVER_APPROVAL_GATE` — default `1` (enabled). Gates message-send, calendar booking, purchases, data deletion, and external submissions through `draft_then_confirm`. Set to `0` to disable.
+- `OATHWEAVER_WEB_HOST` / `OATHWEAVER_WEB_PORT` — bind address and port for the Web GUI. Defaults to `127.0.0.1:5050`. Use an explicit non-loopback value to expose over LAN/Tailscale.
+- `OATHWEAVER_WEB_PASSWORD` — required when binding beyond loopback.
+- `OATHWEAVER_HTTPS` — when `1`, the web GUI sets `SESSION_COOKIE_SECURE` so cookies do not travel over plain HTTP.
+- `OLLAMA_HOST` — defaults to `127.0.0.1:11434`. Change only if you understand the LAN-exposure implications (Ollama has no built-in auth).
 - `OATHWEAVERX_SERIOUS_MODE` — default `1`. Set to `0` to allow playful framing in writing pipelines.
 
 Useful startup scripts:
@@ -635,7 +673,23 @@ powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1 -WebPort 505
 
 ## Project Status
 
-Oathweaver is functional and actively used. It is in an **experimental** phase — the CAG-native rebuild is in progress, and APIs and config formats may change between releases.
+Oathweaver is functional, actively used, and tracking toward a stable 1.0. The current series (`0.9.x`) is a **release candidate**: the architecture and primary surfaces (pipelines, CAG, chat layer, build pools, interfaces) are stable enough to depend on, with pending work scoped and tracked rather than open-ended.
+
+What is stable:
+- The five-layer architecture and the three canonical pipelines
+- Local-only operation; no path to a frontier provider
+- The four interfaces (Web GUI, OpenAI-compatible API, CLI, TUI) and the shared kernel they sit on
+- Inference router with diagnostics, fallback chain, and streaming watchdog
+- Hardware profile as explicit runtime policy
+- Self-awareness layer for live configuration queries
+- Approval gate, action policy, and security defaults (loopback binds, `SameSite=Strict`, `0600` secret files)
+
+What is still moving toward 1.0:
+- Decomposition of the largest source files (`orchestrator/main.py`, `web_research.py`, `app_pool.py`, `deep_researcher.py`)
+- Memory-layer consolidation (the CAG memory facade unifies most read paths; the last source merge is in progress)
+- Integration test coverage for the orchestrator main paths and Web GUI routes
+
+APIs and config formats are unlikely to break inside `0.9.x`, but the `1.0` cut may rename some surfaces. Pin to a specific `0.9.x` tag if that matters to you.
 
 - CI runs on Python 3.10 and 3.12 on every push/PR
 - Tested on Ubuntu 24.04 LTS (primary), Ubuntu 22.04 LTS, and Windows 11
