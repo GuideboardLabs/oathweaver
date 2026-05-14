@@ -24,6 +24,12 @@ from shared_tools.domain_reputation import DomainReputation
 from shared_tools.inference_router import InferenceRouter
 from shared_tools.model_routing import load_model_routing
 from shared_tools.web_cache import WebQueryCache, cache_key as build_cache_key, normalize_query as normalize_cache_query, settings_digest as build_settings_digest
+from shared_tools.web_query_cache_policy import (
+    cache_disclosure as cache_disclosure_text,
+    query_cache_settings as build_query_cache_settings,
+    query_cache_ttl_sec as compute_query_cache_ttl_sec,
+    should_bypass_query_cache as should_bypass_query_cache_policy,
+)
 
 
 def _now_iso() -> str:
@@ -3844,62 +3850,17 @@ class WebResearchEngine:
             fh.write(line + "\n")
 
     def _should_bypass_query_cache(self, query: str, note: str, explicit_bypass: bool) -> bool:
-        if explicit_bypass:
-            return True
-        raw = f"{query} {note}".lower()
-        return any(token in raw for token in ("refresh", "again"))
+        return should_bypass_query_cache_policy(query, note, explicit_bypass)
 
     def _query_cache_ttl_sec(self, query: str, topic_type: str) -> int:
-        low = str(query or "").lower()
-        live_markers = (
-            "fight night",
-            "live score",
-            "live result",
-            "live update",
-            "who won",
-            "score right now",
-            "tonight",
-            "main event",
-            "kickoff",
-            "tipoff",
-        )
-        if any(marker in low for marker in live_markers):
-            return 10 * 60
-        volatility = classify_fact_volatility(query, topic_type, query)
-        if volatility in {"volatile", "semi_volatile"}:
-            return 2 * 60 * 60
-        return 24 * 60 * 60
+        return compute_query_cache_ttl_sec(query, topic_type)
 
     def _query_cache_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
-        # Keep the digest stable and tied to result-shaping controls.
-        keys = (
-            "provider",
-            "max_results",
-            "query_expansion_enabled",
-            "query_expansion_variants",
-            "query_decomposition_enabled",
-            "query_decomposition_max_sub",
-            "crawl_enabled",
-            "crawl_depth",
-            "crawl_max_pages",
-            "crawl_links_per_page",
-            "crawl_timeout_sec",
-            "context_min_source_score",
-            "source_scoring_enabled",
-            "conflict_detection_enabled",
-            "iterative_search_enabled",
-            "iterative_search_time_budget_sec",
-        )
-        out: dict[str, Any] = {}
-        for key in keys:
-            if key in settings:
-                out[key] = settings.get(key)
-        return out
+        return build_query_cache_settings(settings)
 
     @staticmethod
     def _cache_disclosure(age_sec: int) -> str:
-        mins = max(0, int(round(age_sec / 60.0)))
-        return f"Last retrieved {mins} minute{'s' if mins != 1 else ''} ago."
+        return cache_disclosure_text(age_sec)
 
     def _run_query_with_cache(
         self,

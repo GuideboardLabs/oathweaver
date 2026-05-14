@@ -180,6 +180,58 @@ class CAGMemoryStore:
             rows = conn.execute(sql, tuple(args)).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
+    def list_rows_for_projects(
+        self,
+        *,
+        projects: list[str],
+        statuses: list[str] | None = None,
+        scope_levels: list[str] | None = None,
+        memory_types: list[str] | None = None,
+        include_expired: bool = False,
+        include_superseded: bool = False,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """Batch variant of list_rows() that resolves multiple projects in one query."""
+        normalized_projects = [str(p).strip() for p in projects if str(p).strip()]
+        if not normalized_projects:
+            return self.list_rows(
+                statuses=statuses,
+                scope_levels=scope_levels,
+                memory_types=memory_types,
+                include_expired=include_expired,
+                include_superseded=include_superseded,
+                limit=limit,
+            )
+
+        where: list[str] = ["project IN (" + ",".join(["?"] * len(normalized_projects)) + ")"]
+        args: list[Any] = list(normalized_projects)
+        if statuses:
+            valid = [str(x).strip().lower() for x in statuses if str(x).strip()]
+            if valid:
+                where.append("status IN (" + ",".join(["?"] * len(valid)) + ")")
+                args.extend(valid)
+        if scope_levels:
+            valid_levels = [str(x).strip().lower() for x in scope_levels if str(x).strip()]
+            if valid_levels:
+                where.append("scope_level IN (" + ",".join(["?"] * len(valid_levels)) + ")")
+                args.extend(valid_levels)
+        if memory_types:
+            valid_types = [str(x).strip().lower() for x in memory_types if str(x).strip()]
+            if valid_types:
+                where.append("type IN (" + ",".join(["?"] * len(valid_types)) + ")")
+                args.extend(valid_types)
+        if not include_expired:
+            where.append("status != 'expired'")
+        if not include_superseded:
+            where.append("status != 'superseded'")
+
+        sql = "SELECT * FROM memory_rows WHERE " + " AND ".join(where) + " ORDER BY updated_at DESC LIMIT ?"
+        args.append(max(1, int(limit)))
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(sql, tuple(args)).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
     def mark_supersession(self, *, old_memory_id: str, new_memory_id: str) -> None:
         old_row = self.get_row(old_memory_id)
         new_row = self.get_row(new_memory_id)

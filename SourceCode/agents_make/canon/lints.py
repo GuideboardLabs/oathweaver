@@ -17,6 +17,11 @@ _COLOR_NAME_RE = re.compile(
     r"\b(?:red|blue|green|black|white|yellow|orange|purple|pink|gray|grey|brown)\b",
     re.IGNORECASE,
 )
+_SCAFFOLD_API_ROUTES = frozenset({"/api/health"})
+_COLOR_DECLARATION_RE = re.compile(
+    r"^\s*(?:color|background(?:-color)?|border(?:-color)?|outline(?:-color)?|box-shadow|text-shadow|fill|stroke)\s*:",
+    re.IGNORECASE,
+)
 
 BLOCKING_RULES = frozenset(
     {
@@ -51,7 +56,7 @@ def _classify(violations: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], l
 def lint_route_naming(app_py: str, spec: AppSpec) -> list[dict[str, Any]]:
     """Check route paths against spec routes."""
     violations: list[dict[str, Any]] = []
-    expected_paths = {route.path for route in spec.routes}
+    expected_paths = {route.path for route in spec.routes} | _SCAFFOLD_API_ROUTES
     found_paths = set(
         match.group(2)
         for match in re.finditer(
@@ -118,7 +123,7 @@ def lint_css_tokens_only(feature_styles: str) -> list[dict[str, Any]]:
                     "message": "Raw hex color found in feature styles. Use var(--neu-*) tokens.",
                 }
             )
-        if ":" in line and _COLOR_NAME_RE.search(line) and "var(--" not in line and "@" not in line:
+        if _COLOR_DECLARATION_RE.search(line) and _COLOR_NAME_RE.search(line) and "var(--" not in line and "@" not in line:
             violations.append(
                 {
                     "file": "static/styles.css",

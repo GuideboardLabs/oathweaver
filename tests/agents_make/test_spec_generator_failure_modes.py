@@ -76,7 +76,10 @@ class SpecGeneratorFailureModeTests(unittest.TestCase):
         self.assertIn("habit", names)
         self.assertTrue(any(route.handler_name == "users_controller_index" for route in spec.routes))
 
-    def test_spec_generator_repairs_string_list_entities_and_views(self) -> None:
+    def test_spec_generator_rejects_string_list_entities_without_fields(self) -> None:
+        """Bare-string entity lists carry no field info — system should reject, not silently
+        fabricate {id, name}-only entities that produce empty scaffolds."""
+        from agents_make.app_pool import SpecConcretenessFailure
         raw = json.dumps(
             {
                 "app_name": "recipe_sharing_app",
@@ -92,12 +95,14 @@ class SpecGeneratorFailureModeTests(unittest.TestCase):
             }
         )
         with patch("agents_make.app_pool._chat", return_value=raw):
-            spec = _step_spec_generator(client=None, question="Build a recipe app", research_knowledge="")
-        self.assertGreaterEqual(len(spec.entities), 3)
-        self.assertTrue(any(entity.name == "recipe" for entity in spec.entities))
-        self.assertTrue(any(view.name == "add-recipe" for view in spec.views))
+            with self.assertRaises(SpecConcretenessFailure):
+                _step_spec_generator(client=None, question="Build a recipe app", research_knowledge="")
 
-    def test_spec_generator_repairs_empty_entity_fields_with_name_fallback(self) -> None:
+    def test_spec_generator_rejects_empty_entity_fields(self) -> None:
+        """An entity with empty fields should be rejected, not silently filled with {id, name}.
+        {id, name} is not a real domain spec — it indicates the LLM gave up and the system
+        should regenerate or fail loudly rather than produce a useless scaffold."""
+        from agents_make.app_pool import SpecConcretenessFailure
         raw = json.dumps(
             {
                 "app_name": "users_app",
@@ -109,11 +114,81 @@ class SpecGeneratorFailureModeTests(unittest.TestCase):
             }
         )
         with patch("agents_make.app_pool._chat", return_value=raw):
-            spec = _step_spec_generator(client=None, question="Build users app", research_knowledge="")
-        user_entity = next(entity for entity in spec.entities if entity.name == "user")
-        field_names = [field.name for field in user_entity.fields]
-        self.assertIn("id", field_names)
-        self.assertIn("name", field_names)
+            with self.assertRaises(SpecConcretenessFailure):
+                _step_spec_generator(client=None, question="Build users app", research_knowledge="")
+
+    def test_spec_generator_deduplicates_repaired_fields(self) -> None:
+        raw = json.dumps(
+            {
+                "app_name": "field_tracker",
+                "feature_summary": "Track field names and field notes",
+                "entities": [{"name": "garden_log", "attributes": ["id", "field", "field", "notes"]}],
+                "routes": [{"path": "/api/garden_logs", "method": "POST", "handler_name": "create_garden_log"}],
+                "views": [{"name": "garden-logs"}],
+                "notes": "",
+            }
+        )
+        with patch("agents_make.app_pool._chat", return_value=raw):
+            spec = _step_spec_generator(client=None, question="Build field tracker", research_knowledge="")
+        garden_log = next(entity for entity in spec.entities if entity.name == "garden_log")
+        field_names = [field.name for field in garden_log.fields]
+        self.assertEqual(field_names.count("field"), 1)
+
+    def test_spec_generator_enriches_fields_from_request(self) -> None:
+        raw = json.dumps(
+            {
+                "app_name": "bookmark_tracker",
+                "feature_summary": "Save bookmarks with title, url, tags, notes, priority, and archived status.",
+                "entities": [{"name": "bookmark", "fields": [{"name": "name", "type": "str"}]}],
+                "routes": [{"path": "/api/bookmarks", "method": "POST", "handler_name": "create_bookmark"}],
+                "views": [{"name": "dashboard"}],
+                "notes": "",
+            }
+        )
+        with patch("agents_make.app_pool._chat", return_value=raw):
+            spec = _step_spec_generator(
+                client=None,
+                question="Build a bookmark tracker with title, url, tags, notes, priority, and archived status",
+                research_knowledge="",
+            )
+        bookmark = next(entity for entity in spec.entities if entity.name == "bookmark")
+        field_names = {field.name for field in bookmark.fields}
+        for expected in {"title", "url", "tags", "notes", "priority", "archived"}:
+            self.assertIn(expected, field_names)
+        self.assertNotIn("name", field_names)
+
+    def test_spec_generator_normalizes_plant_auth_owned_records(self) -> None:
+        raw = json.dumps(
+            {
+                "app_name": "plant_care_app",
+                "feature_summary": "Plant care app for users and plants.",
+                "entities": [
+                    {"name": "user", "fields": [{"name": "id", "type": "int"}, {"name": "plants", "type": "str"}]},
+                    {"name": "plant", "fields": [{"name": "id", "type": "int"}, {"name": "name", "type": "str"}]},
+                ],
+                "routes": [{"path": "/api/users", "method": "GET", "handler_name": "list_users", "entity": "user"}],
+                "views": [{"name": "dashboard", "entity": "user"}],
+                "notes": "",
+            }
+        )
+        question = (
+            "Build a plant care tracker web app MVP. Users sign up and log in. "
+            "Each user has plants. Each plant has a name, an optional species, and a last_watered date. "
+            "The dashboard lists the logged-in user's plants and highlights any plant whose last_watered date is more than 7 days ago."
+        )
+        with patch("agents_make.app_pool._chat", return_value=raw):
+            spec = _step_spec_generator(client=None, question=question, research_knowledge="")
+        user = next(entity for entity in spec.entities if entity.name == "user")
+        plant = next(entity for entity in spec.entities if entity.name == "plant")
+        self.assertEqual({field.name for field in user.fields}, {"id", "email", "password_hash"})
+        plant_fields = {field.name for field in plant.fields}
+        for expected in {"user_id", "name", "species", "last_watered"}:
+            self.assertIn(expected, plant_fields)
+        self.assertNotIn("date", plant_fields)
+        routes = {(route.method, route.path, route.entity or "") for route in spec.routes}
+        self.assertIn(("POST", "/api/signup", ""), routes)
+        self.assertIn(("POST", "/api/login", ""), routes)
+        self.assertIn(("GET", "/api/plants", "plant"), routes)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,6 @@ from shared_tools.activity_bus import ActivityBus
 from shared_tools.activity_store import ActivityStore
 from shared_tools.approval_gate import ApprovalGate
 from shared_tools.context_policy import analyze_query_context, build_context_usage_guidance, evaluate_context_use
-from shared_tools.continuous_improvement import ContinuousImprovementEngine
 from shared_tools.domain_reputation import DomainReputation
 from shared_tools.feedback_learning import ORIGIN_REFLECTION
 from shared_tools.handoff_queue import HandoffQueue
@@ -63,7 +62,8 @@ from orchestrator.pipelines import (
 from orchestrator.services import OrchestratorInfraRuntime, ResearchService, TurnPlanner, WorkerResult
 from orchestrator.services.agent_contracts import AgentTask
 from orchestrator.services.agent_registry import build_default_agent_registry
-from orchestrator.services.policy import _resolve_domain
+from orchestrator.services import cag_helpers as _cag_helpers
+from orchestrator.services.policy import _resolve_domain, should_route_web_fetch
 from orchestrator.text_processing.text_analysis import (
     RECENCY_TERMS,
     is_recency_sensitive,
@@ -254,7 +254,6 @@ class OathweaverOrchestrator:
         self._infra = OrchestratorInfraRuntime(repo_root, self.ollama)
         self.research_service = ResearchService(repo_root)
         self.agent_registry = build_default_agent_registry()
-        self.improvement_engine = ContinuousImprovementEngine(repo_root)
         self.project_slug = "general"
         self.project_kernel_store = ProjectKernelStore(repo_root)
         self.project_kernel_store.get_or_create(self.project_slug)
@@ -297,6 +296,7 @@ class OathweaverOrchestrator:
         self._manifesto_cache_text: str = ""
         self._project_research_brief_cache: dict[tuple[str, float, int], dict[str, Any]] = {}
         self._project_make_brief_cache: dict[tuple[str, float, int, int], str] = {}
+        self._warmup_models_async()
 
 
     @property
@@ -328,6 +328,10 @@ class OathweaverOrchestrator:
         return self._infra.learning_engine
 
     @property
+    def improvement_engine(self):
+        return self._infra.improvement_engine
+
+    @property
     def reflection_engine(self):
         return self._infra.reflection_engine
 
@@ -352,6 +356,55 @@ class OathweaverOrchestrator:
         if self._tool_registry is None:
             self._tool_registry = self._infra.build_tool_registry(bus=self.bus)
         return self._tool_registry
+
+    def _warmup_models_async(self) -> None:
+        if str(os.getenv("OATHWEAVERX_ENABLE_MODEL_WARMUP", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+            return
+        try:
+            model_names = self._routing_model_names(limit=12)
+        except Exception:
+            model_names = []
+        if not model_names:
+            return
+
+        def _worker() -> None:
+            try:
+                self.ollama.warmup_models(model_names)
+            except Exception:
+                return
+
+        threading.Thread(
+            target=_worker,
+            daemon=True,
+            name=f"oathweaver-model-warmup-{uuid.uuid4().hex[:8]}",
+        ).start()
+
+    def _routing_model_names(self, *, limit: int = 12) -> list[str]:
+        names: list[str] = []
+        routing = self.model_routing if isinstance(self.model_routing, dict) else {}
+        for cfg in routing.values():
+            if not isinstance(cfg, dict):
+                continue
+            for key in ("model",):
+                name = str(cfg.get(key, "")).strip()
+                if name and name not in names:
+                    names.append(name)
+            for tier_key in ("tier_default", "tier_premium"):
+                tier_cfg = cfg.get(tier_key)
+                if not isinstance(tier_cfg, dict):
+                    continue
+                model = str(tier_cfg.get("model", "")).strip()
+                if model and model not in names:
+                    names.append(model)
+            fallbacks = cfg.get("fallback_models", [])
+            if isinstance(fallbacks, list):
+                for model in fallbacks:
+                    name = str(model or "").strip()
+                    if name and name not in names:
+                        names.append(name)
+            if len(names) >= max(1, int(limit)):
+                break
+        return names[: max(1, int(limit))]
 
     def _make_agent_task(
         self,
@@ -387,9 +440,10 @@ class OathweaverOrchestrator:
 
     @staticmethod
     def _resolved_pipeline_domain(turn_plan: Any) -> str:
-        return _resolve_domain(
+        return _cag_helpers.resolved_pipeline_domain(
             str(getattr(turn_plan, "make_type", "") or ""),
             str(getattr(turn_plan, "domain", "") or ""),
+            _resolve_domain,
         )
 
     @staticmethod
@@ -400,29 +454,42 @@ class OathweaverOrchestrator:
         project_rows: list[dict[str, Any]],
         domain_rows: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        candidate_rows = list(project_rows) + list(domain_rows)
-        deduped_rows: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for row in candidate_rows:
-            memory_id = str(row.get("memory_id", "")).strip()
-            if memory_id and memory_id in seen_ids:
-                continue
-            if memory_id:
-                seen_ids.add(memory_id)
-            deduped_rows.append(row)
-        domain_tag = str(payload.get("domain", "general_research")).strip() or "general_research"
-        make_type_tag = str(payload.get("target", "")).strip().lower()
-        return selector.retrieve_scoped(
-            task={
-                "title": str(payload.get("text", "")),
-                "prompt": str(payload.get("text", "")),
-                "tags": [token for token in (domain_tag, make_type_tag) if token],
-                "continuity_terms": [],
-                "domain": domain_tag,
-            },
-            rows=deduped_rows,
-            k=40,
+        return _cag_helpers.select_context_memory_rows(
+            selector,
+            payload=payload,
+            project_rows=project_rows,
+            domain_rows=domain_rows,
         )
+
+    def _scoped_rows_with_scores(
+        self,
+        *,
+        text: str,
+        tags: list[str],
+        continuity_terms: list[str],
+        projects: list[str],
+        limit: int = 500,
+        k: int = 40,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+        candidate_rows = self.cag_memory_store.list_rows_for_projects(
+            projects=projects,
+            include_expired=True,
+            include_superseded=True,
+            limit=limit,
+        )
+        candidate_rows = self._sort_memory_rows_oldest_first(candidate_rows)
+        scoped_rows, selector_scores = self.cag_selector.retrieve_scoped(
+            task={
+                "title": str(text or ""),
+                "prompt": str(text or ""),
+                "tags": list(tags or []),
+                "continuity_terms": list(continuity_terms or []),
+            },
+            rows=candidate_rows,
+            k=max(1, int(k)),
+            return_scores=True,
+        )
+        return candidate_rows, scoped_rows, selector_scores
 
     @staticmethod
     def _parse_json_object(raw: str) -> dict[str, Any]:
@@ -589,6 +656,7 @@ class OathweaverOrchestrator:
         event_note: str = "",
         details_sink: dict[str, Any] | None = None,
         household_context: str = "",
+        resolved_domain: str = "general_research",
     ) -> str | None:
         lane_key = str(lane or "").strip().lower()
         if lane_key in {"conversation", "personal"}:
@@ -604,7 +672,7 @@ class OathweaverOrchestrator:
         pipeline_context: dict[str, Any] = {
             "text": text,
             "project_slug": self.project_slug,
-            "domain": self._resolved_pipeline_domain(turn_plan),
+            "domain": str(resolved_domain or "general_research").strip().lower() or "general_research",
             "pipeline": pipeline_name,
             "topic_type": topic_type,
             "lane": lane_key,
@@ -730,18 +798,13 @@ class OathweaverOrchestrator:
                             "decision_ledger_entries": [],
                         }
 
-                    existing_rows = self.cag_memory_store.list_rows(project=self.project_slug, limit=500, include_expired=True, include_superseded=True)
-                    existing_rows = self._sort_memory_rows_oldest_first(existing_rows)
-                    scoped_rows, selector_scores = self.cag_selector.retrieve_scoped(
-                        task={
-                            "title": str(payload.get("text", "")),
-                            "prompt": str(payload.get("text", "")),
-                            "tags": list(candidate.get("tags", [])),
-                            "continuity_terms": list(candidate.get("promoted_terms", [])),
-                        },
-                        rows=existing_rows,
+                    _rows, scoped_rows, selector_scores = self._scoped_rows_with_scores(
+                        text=str(payload.get("text", "")),
+                        tags=list(candidate.get("tags", [])),
+                        continuity_terms=list(candidate.get("promoted_terms", [])),
+                        projects=[self.project_slug, "general"],
+                        limit=500,
                         k=40,
-                        return_scores=True,
                     )
                     contradictions = self.cag_contradiction_detector.detect(candidate=candidate, existing_rows=scoped_rows)
                     contradiction_budget = self.cag_contradiction_detector.contradiction_budget(
@@ -934,18 +997,14 @@ class OathweaverOrchestrator:
             pipeline: str,
         ) -> dict[str, Any]:
             kernel = self.project_kernel_store.snapshot(self.project_slug)
-            project_rows = self.cag_memory_store.list_rows(
-                project=self.project_slug,
+            combined_rows = self.cag_memory_store.list_rows_for_projects(
+                projects=[self.project_slug, "general"],
                 include_expired=False,
                 include_superseded=False,
-                limit=400,
+                limit=600,
             )
-            domain_rows = self.cag_memory_store.list_rows(
-                project="general",
-                include_expired=False,
-                include_superseded=False,
-                limit=200,
-            )
+            project_rows = [row for row in combined_rows if str(row.get("project", "")).strip() == self.project_slug]
+            domain_rows = [row for row in combined_rows if str(row.get("project", "")).strip() == "general"]
             memory_rows = self._select_context_memory_rows(
                 self.cag_selector,
                 payload=payload,
@@ -1300,45 +1359,15 @@ class OathweaverOrchestrator:
 
     @staticmethod
     def _candidate_tags(payload: dict[str, Any], scope_row: dict[str, Any]) -> list[str]:
-        raw = [
-            str(payload.get("lane", "")).strip(),
-            str(payload.get("topic_type", "")).strip(),
-            str(payload.get("query_mode", "")).strip(),
-            str(payload.get("query_complexity", "")).strip(),
-            str(scope_row.get("domain", "")).strip(),
-            str(scope_row.get("topic", "")).strip(),
-        ]
-        out: list[str] = []
-        for item in raw:
-            token = item.lower().replace(" ", "_")
-            if token and token not in out:
-                out.append(token)
-        return out
+        return _cag_helpers.candidate_tags(payload, scope_row)
 
     @staticmethod
     def _promoted_terms(text: str, *, limit: int = 12) -> list[str]:
-        terms: list[str] = []
-        for token in re.findall(r"[a-z0-9_\\-]{4,}", str(text or "").lower()):
-            if token in terms:
-                continue
-            terms.append(token)
-            if len(terms) >= max(1, int(limit)):
-                break
-        return terms
+        return _cag_helpers.promoted_terms(text, limit=limit)
 
     @staticmethod
     def _infer_memory_type(summary: str, payload: dict[str, Any]) -> str:
-        low = str(summary or "").lower()
-        lane = str(payload.get("lane", "")).strip().lower()
-        if "benchmark" in low or lane == "project":
-            return "benchmark_implication"
-        if any(word in low for word in ("must", "required", "constraint", "cannot", "never")):
-            return "constraint"
-        if any(word in low for word in ("we decided", "decision", "choose", "selected")):
-            return "decision"
-        if any(word in low for word in ("learned", "lesson", "retrospective")):
-            return "lesson"
-        return "fact"
+        return _cag_helpers.infer_memory_type(summary, payload)
 
     def plan_message(self, text: str) -> dict[str, Any]:
         plan = self.turn_planner.plan(
@@ -3356,18 +3385,13 @@ class OathweaverOrchestrator:
         trigger_reason: str = "keyword",
         timeout: int = 12,
     ) -> bool:
-        """Delegate to the ChatRoutingGate service. Returns True to allow web fetch, False to suppress."""
-        try:
-            from orchestrator.services.chat_routing_gate import check_web_routing
-            result = check_web_routing(
-                text,
-                prior_messages,
-                trigger_reason=trigger_reason,
-                repo_root=self.repo_root,
-            )
-            return str(result.get("route", "web")).strip().lower() == "web"
-        except Exception:
-            return True
+        """Consolidated policy entrypoint: True allows web fetch, False suppresses."""
+        return should_route_web_fetch(
+            text,
+            prior_messages,
+            repo_root=self.repo_root,
+            trigger_reason=trigger_reason,
+        )
 
     def _is_recency_sensitive_from_history(self, prior_messages: list, lookback: int = 4) -> bool:
         return is_recency_sensitive_from_history(prior_messages, lookback)
@@ -4410,6 +4434,7 @@ class OathweaverOrchestrator:
             lane = _make_lane_for_target(inferred_target)
         elif turn_plan.lane_override and lane in {"research", "project", "personal"}:
             lane = turn_plan.lane_override
+        resolved_domain = self._resolved_pipeline_domain(turn_plan)
         query_mode = turn_plan.query_mode
         query_complexity = turn_plan.complexity
         kernel = self.project_kernel_store.update_for_turn(
@@ -4465,6 +4490,7 @@ class OathweaverOrchestrator:
             event_note=event_note,
             details_sink=details_sink,
             household_context=household_context,
+            resolved_domain=resolved_domain,
         )
         if pipeline_reply is not None:
             return pipeline_reply
@@ -4490,6 +4516,11 @@ class OathweaverOrchestrator:
                         self,
                         text=text,
                         history=history,
+                        precomputed_route={
+                            "lane_hint": lane,
+                            "domain": resolved_domain,
+                            "make_type": str(getattr(turn_plan, "make_type", "") or ""),
+                        },
                         cancel_checker=cancel_checker,
                         progress_callback=progress_callback,
                         thread_id=str(thread_id or "").strip(),

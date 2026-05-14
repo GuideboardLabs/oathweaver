@@ -54,6 +54,10 @@ def _split_sections(text: str) -> list[str]:
     return sections or [text[:2000]]
 
 
+def _safe_model_token(model: str) -> str:
+    return re.sub(r"[^a-z0-9._-]+", "_", str(model or "").strip().lower())[:80] or "default"
+
+
 class EmbeddingMemory:
     """Local retrieval helper. Uses qwen3-embedding:4b vectors when available,
     silently falls back to bag-of-words cosine if Ollama/model is unavailable.
@@ -68,23 +72,31 @@ class EmbeddingMemory:
             return []
         return sorted(root.glob('*.md'), reverse=True)[:20]
 
-    def _cache_path(self, project: str) -> Path:
+    def _cache_path(self, project: str, *, model: str) -> Path:
         cache_dir = self.repo_root / 'Runtime' / 'memory' / 'embed_cache'
         cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir / f"{project.strip() or 'general'}.json"
+        proj = project.strip() or 'general'
+        return cache_dir / f"{proj}__{_safe_model_token(model)}.json"
 
-    def _load_cache(self, project: str) -> dict[str, Any]:
-        path = self._cache_path(project)
+    def _load_cache(self, project: str, *, model: str) -> dict[str, Any]:
+        path = self._cache_path(project, model=model)
         if not path.exists():
+            # Backward-compat: read legacy project-only cache once.
+            legacy = (self.repo_root / 'Runtime' / 'memory' / 'embed_cache' / f"{project.strip() or 'general'}.json")
+            if legacy.exists():
+                try:
+                    return json.loads(legacy.read_text(encoding='utf-8'))
+                except Exception:
+                    return {}
             return {}
         try:
             return json.loads(path.read_text(encoding='utf-8'))
         except Exception:
             return {}
 
-    def _save_cache(self, project: str, cache: dict[str, Any]) -> None:
+    def _save_cache(self, project: str, cache: dict[str, Any], *, model: str) -> None:
         try:
-            self._cache_path(project).write_text(
+            self._cache_path(project, model=model).write_text(
                 json.dumps(cache, ensure_ascii=False), encoding='utf-8'
             )
         except Exception:
@@ -123,7 +135,7 @@ class EmbeddingMemory:
         limit: int,
     ) -> list[dict[str, Any]]:
         query_vec = client.embed(_EMBED_MODEL, query[:2000])
-        cache = self._load_cache(project)
+        cache = self._load_cache(project, model=_EMBED_MODEL)
         cache_dirty = False
         # best section hit per file: path → {score, preview}
         best_per_file: dict[str, dict[str, Any]] = {}
@@ -159,7 +171,7 @@ class EmbeddingMemory:
                 continue
 
         if cache_dirty:
-            self._save_cache(project, cache)
+            self._save_cache(project, cache, model=_EMBED_MODEL)
 
         items = sorted(best_per_file.values(), key=lambda x: x['score'], reverse=True)
         return items[:limit]

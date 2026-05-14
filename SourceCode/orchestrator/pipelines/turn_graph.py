@@ -23,6 +23,50 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()[:16]
 
 
+def _normalize_precomputed_route(value: Any) -> dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    lane_hint = str(value.get("lane_hint", "")).strip().lower()
+    domain = str(value.get("domain", "")).strip().lower()
+    make_type = str(value.get("make_type", "")).strip().lower()
+    out: dict[str, str] = {}
+    if lane_hint:
+        out["lane_hint"] = lane_hint
+    if domain:
+        out["domain"] = domain
+    if make_type:
+        out["make_type"] = make_type
+    return out
+
+
+def _derive_context_gate(orchestrator: Any, *, text: str, lane: str) -> dict[str, Any]:
+    analysis, _household_context, guidance = orchestrator._context_bundle_for_query(  # pylint: disable=protected-access
+        str(text or "").strip(),
+        household_chars=900,
+    )
+    analysis = analysis if isinstance(analysis, dict) else {}
+    personal_context = any(
+        bool(analysis.get(flag, False))
+        for flag in (
+            "explicit_memory_query",
+            "family_query",
+            "pet_query",
+            "profile_query",
+            "preference_query",
+            "routine_query",
+        )
+    )
+    foraging_eligible = str(lane or "").strip().lower() in {"research", "project"} and not personal_context
+    return {
+        "foraging_plan": {"eligible": foraging_eligible},
+        "context_gate": {
+            "personal_context": personal_context,
+            "guidance": str(guidance or "").strip(),
+            "analysis": analysis,
+        },
+    }
+
+
 def _checkpoint_path(repo_root: Path) -> Path:
     path = Path(repo_root) / "Runtime" / "state" / "turn_checkpoints.sqlite"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -94,35 +138,23 @@ def _run_fallback(
     }
 
 
-def _select_lane(orchestrator: Any, text: str, history: list[dict[str, str]] | None = None) -> str:
-    try:
-        from shared_tools.model_routing import lane_model_config
-
-        recent_context = ""
-        rows = history if isinstance(history, list) else []
-        if rows:
-            clip = []
-            for row in rows[-6:]:
-                role = str((row or {}).get("role", "")).strip().lower()
-                content = str((row or {}).get("content", "")).strip()
-                if role in {"user", "assistant"} and content:
-                    clip.append(f"{role.upper()}: {content[:120]}")
-            if clip:
-                recent_context = "Recent conversation:\n" + "\n".join(clip)
-
-        plan = orchestrator.turn_planner.plan(
-            text,
-            project=orchestrator.project_slug,
-            client=orchestrator.ollama,
-            model_cfg=lane_model_config(orchestrator.repo_root, "orchestrator_reasoning"),
-            recent_context=recent_context,
-        )
-        lane = str(plan.lane or "").strip().lower() or "conversation"
-        if getattr(plan, "lane_override", None) and lane in {"research", "project", "personal"}:
-            lane = str(plan.lane_override).strip().lower() or lane
-        return lane
-    except Exception:
-        return "conversation"
+def _select_lane(
+    orchestrator: Any,
+    text: str,
+    history: list[dict[str, str]] | None = None,
+    precomputed_route: dict[str, Any] | None = None,
+    intent: str = "chat",
+) -> str:
+    _ = (orchestrator, text, history)
+    route = _normalize_precomputed_route(precomputed_route)
+    if route.get("lane_hint"):
+        return str(route.get("lane_hint", "conversation"))
+    intent_key = str(intent or "").strip().lower()
+    if intent_key == "forage":
+        return "research"
+    if intent_key == "make":
+        return "ui"
+    return "conversation"
 
 
 def compile_chat_turn_graph(
@@ -159,6 +191,7 @@ def compile_chat_turn_graph(
     def intent_confirm(state: dict[str, Any]) -> dict[str, Any]:
         text_value = str(state.get("text", "")).strip()
         history_rows = list(state.get("history") or [])
+        precomputed_route = _normalize_precomputed_route(state.get("precomputed_route", {}))
         gate_decision: dict[str, Any] = {}
         intent = "chat"
         try:
@@ -179,7 +212,8 @@ def compile_chat_turn_graph(
             {
                 "intent": intent,
                 "gate_decision": gate_decision,
-                "lane_hint": _select_lane(orchestrator, text_value, history_rows),
+                "lane_hint": _select_lane(orchestrator, text_value, history_rows, precomputed_route, intent=intent),
+                "precomputed_route": precomputed_route,
             },
             "intent_confirm",
         )
@@ -188,9 +222,16 @@ def compile_chat_turn_graph(
         intent = str(state.get("intent", "chat")).strip().lower()
         lane_hint = str(state.get("lane_hint", "conversation")).strip().lower() or "conversation"
         lane = lane_hint
+        precomputed_route = _normalize_precomputed_route(state.get("precomputed_route", {}))
         gate_decision = state.get("gate_decision", {}) if isinstance(state.get("gate_decision", {}), dict) else {}
-        make_type = str(gate_decision.get("suggested_type", "")).strip().lower()
-        domain = _resolve_domain(make_type, str(state.get("domain", "general_research")).strip())
+        make_type = str(
+            precomputed_route.get("make_type")
+            or gate_decision.get("suggested_type", "")
+        ).strip().lower()
+        domain = str(precomputed_route.get("domain", "")).strip().lower() or _resolve_domain(
+            make_type,
+            str(state.get("domain", "general_research")).strip(),
+        )
         if intent == "forage":
             lane = "research"
         elif intent == "make":
@@ -201,17 +242,9 @@ def compile_chat_turn_graph(
 
     def context_gate(state: dict[str, Any]) -> dict[str, Any]:
         text_value = str(state.get("text", "")).strip()
-        _, _, _ = orchestrator._context_bundle_for_query(  # pylint: disable=protected-access
-            text_value,
-            household_chars=900,
-        )
-        return _assert_serializable(
-            {
-                "foraging_plan": {"eligible": False},
-                "context_gate": {"personal_context": False},
-            },
-            "context_gate",
-        )
+        lane = str(state.get("lane", "conversation")).strip().lower()
+        gate = _derive_context_gate(orchestrator, text=text_value, lane=lane)
+        return _assert_serializable(gate, "context_gate")
 
     def lane_execute(state: dict[str, Any]) -> dict[str, Any]:
         lane = str(state.get("lane", "conversation")).strip().lower() or "conversation"
@@ -279,6 +312,7 @@ def invoke_chat_turn_graph(
     *,
     text: str,
     history: list[dict[str, str]] | None = None,
+    precomputed_route: dict[str, Any] | None = None,
     cancel_checker=None,
     progress_callback=None,
     thread_id: str = "",
@@ -315,6 +349,7 @@ def invoke_chat_turn_graph(
         "intent": "chat",
         "agent_findings": [],
         "perf_trace": {},
+        "precomputed_route": _normalize_precomputed_route(precomputed_route),
     }
     stable_thread = str(thread_id or "").strip() or f"thread_{uuid.uuid4().hex[:16]}"
     result_state = graph.invoke(input_state, config={"configurable": {"thread_id": stable_thread}})

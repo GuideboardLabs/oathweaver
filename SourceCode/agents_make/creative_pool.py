@@ -22,7 +22,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from core.output_contracts import OutputContract, OutputContractAuditor
 from shared_tools.fidelity_policy import FidelityLevel, fidelity_for, writer_constraint_block, thin_research_warning
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
@@ -30,6 +32,7 @@ _MODEL_PLANNER    = "qwen3:8b"
 _MODEL_WRITER     = "qwen3:8b"
 _MODEL_CRITIC     = "qwen3:8b"
 _MODEL_COMPOSITOR = "qwen3:8b"
+_CONTRACT_AUDITOR = OutputContractAuditor()
 
 
 def _today() -> str:
@@ -42,6 +45,36 @@ def _trim(text: str, max_chars: int) -> str:
         return body
     cut = body[:max_chars].rsplit("\n", 1)[0].strip()
     return cut or body[:max_chars]
+
+
+def _text_contract_validator(
+    *,
+    stage: str,
+    required_markers: tuple[str, ...] = tuple(),
+    forbidden_markers: tuple[str, ...] = tuple(),
+    min_chars: int = 0,
+) -> Callable[[str], str | None]:
+    required = tuple(str(x) for x in required_markers if str(x))
+    forbidden = tuple(str(x) for x in forbidden_markers if str(x))
+    contract = OutputContract(stage=stage, must_include=required, must_not_include=forbidden)
+
+    def _validate(text: str) -> str | None:
+        raw = str(text or "").strip()
+        if len(raw) < int(min_chars):
+            return f"{stage}:too_short:{len(raw)}<{int(min_chars)}"
+        payload: dict[str, Any] = {}
+        for marker in required:
+            payload[marker] = marker if marker in raw else ""
+        for marker in forbidden:
+            payload[marker] = marker if marker in raw else ""
+        audit = _CONTRACT_AUDITOR.validate(stage, payload, contract)
+        if audit.ok:
+            return None
+        missing = ",".join(audit.missing_fields)
+        forbidden_fields = ",".join(audit.forbidden_fields)
+        return f"{stage}:missing={missing};forbidden={forbidden_fields}"
+
+    return _validate
 
 
 _KIND_INSTRUCTIONS: dict[str, str] = {
@@ -96,7 +129,8 @@ def _run_story_planner(
         f"Research context:\n{_trim(research_context, 8000)}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_PLANNER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -106,8 +140,13 @@ def _run_story_planner(
             timeout=300,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            validator=_text_contract_validator(
+                stage="creative_story_planner",
+                required_markers=("### Scene",),
+                min_chars=80,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception:
         return f"### Scene 1: Opening\nEstablish setting and characters based on: {question[:200]}"
 
@@ -147,7 +186,8 @@ def _run_scene_writer(
         f"{continuity_block}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -157,8 +197,13 @@ def _run_scene_writer(
             timeout=420,
             retry_attempts=4,
             retry_backoff_sec=2.0,
+            validator=_text_contract_validator(
+                stage="creative_scene_writer",
+                forbidden_markers=("[Scene generation failed",),
+                min_chars=200,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Scene generation failed: {exc}]"
 
@@ -186,7 +231,8 @@ def _run_voice_critic(
         f"Draft to review:\n{_trim(scenes_text, 16000)}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_CRITIC,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -196,8 +242,12 @@ def _run_voice_critic(
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_text_contract_validator(
+                stage="creative_voice_critic",
+                min_chars=20,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Voice critic failed: {exc}]"
 
@@ -220,7 +270,8 @@ def _run_scene_revision(
         f"Critic notes:\n{_trim(critic_notes, 1500)}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -230,8 +281,12 @@ def _run_scene_revision(
             timeout=300,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_text_contract_validator(
+                stage="creative_scene_revision",
+                min_chars=80,
+            ),
         )
-        return str(result or "").strip() or scene_text
+        return str(result.text or "").strip() or scene_text
     except Exception:
         return scene_text
 
@@ -268,7 +323,8 @@ def _run_compositor(
         f"Scenes to assemble:\n\n{assembled}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_COMPOSITOR,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -278,8 +334,13 @@ def _run_compositor(
             timeout=480,
             retry_attempts=4,
             retry_backoff_sec=2.0,
+            validator=_text_contract_validator(
+                stage="creative_compositor",
+                required_markers=("##", "###"),
+                min_chars=240,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception:
         fallback_lines = [f"# {question[:80]}", ""]
         for name, _ in scenes:

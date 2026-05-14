@@ -14,17 +14,19 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from typing import Any, Callable
 
 from shared_tools.feedback_learning import FeedbackLearningEngine
 from shared_tools.fidelity_policy import FidelityLevel, fidelity_for, writer_constraint_block, evidence_key_block, critic_fabrication_block, thin_research_warning
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
 
 
-_MODEL_DRAFTER  = "huihui_ai/qwen3-abliterated:8b-Q4_K_M"
+_MODEL_DRAFTER  = "qwen3:8b"
 _MODEL_CRITIC   = "deepseek-r1:8b"
-_MODEL_POLISH   = "huihui_ai/qwen3-abliterated:8b-Q4_K_M"
+_MODEL_POLISH   = "qwen3:8b"
 
 
 def _today() -> str:
@@ -37,6 +39,74 @@ def _trim(text: str, max_chars: int) -> str:
         return body
     cut = body[:max_chars].rsplit("\n", 1)[0].strip()
     return cut or body[:max_chars]
+
+
+def _chat_retry(
+    client: OllamaClient,
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    num_ctx: int,
+    think: bool,
+    timeout: int,
+    retry_attempts: int,
+    retry_backoff_sec: float,
+    validator: Callable[[str], str | None] | None = None,
+    self_fix_attempts: int = 2,
+) -> str:
+    result = chat_with_self_fix_retry(
+        client,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        num_ctx=num_ctx,
+        think=think,
+        timeout=timeout,
+        retry_attempts=retry_attempts,
+        retry_backoff_sec=retry_backoff_sec,
+        validator=validator,
+        max_self_fix_attempts=self_fix_attempts,
+    )
+    return str(result.text or "").strip()
+
+
+def _planner_validator(section_names: list[str]) -> Callable[[str], str | None]:
+    expected = [str(name).strip().lower() for name in section_names if str(name).strip()]
+
+    def _validate(text: str) -> str | None:
+        body = str(text or "").strip()
+        if not body:
+            return "Planner output was empty."
+        if "###" not in body:
+            return "Planner must use '### [Section Name]' headings."
+        low = body.lower()
+        matches = sum(1 for name in expected if name and name in low)
+        minimum = max(2, min(len(expected), (len(expected) + 1) // 2))
+        if matches < minimum:
+            return f"Planner did not cover enough required sections ({matches}/{len(expected)})."
+        return None
+
+    return _validate
+
+
+def _critic_validator(approved_phrase: str) -> Callable[[str], str | None]:
+    approved_low = str(approved_phrase or "").strip().lower()
+
+    def _validate(text: str) -> str | None:
+        body = str(text or "").strip()
+        if not body:
+            return "Critic output was empty."
+        low = body.lower()
+        if approved_low and approved_low in low:
+            return None
+        if "**" in body and ":" in body:
+            return None
+        return "Critic must either approve explicitly or provide section-scoped fix notes."
+
+    return _validate
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +124,7 @@ _KIND_SPECS: dict[str, dict[str, Any]] = {
         ],
         "voice": "Conversational, authoritative, accessible. Write like you're explaining to a smart friend.",
         "min_chars": 1200,
+        "max_chars": 6500,
         "process_note": "Hook & headline → context/why now → core content with examples → takeaway & CTA.",
     },
     "social_post": {
@@ -65,6 +136,7 @@ _KIND_SPECS: dict[str, dict[str, Any]] = {
         ],
         "voice": "Punchy, direct, conversational. No jargon. No hashtag soup. Every word earns its place.",
         "min_chars": 80,
+        "max_chars": 1400,
         "process_note": "Hook (stop-scrolling) → context ≤2 lines → payoff/insight → optional CTA. Platform-aware voice.",
     },
     "email": {
@@ -77,6 +149,7 @@ _KIND_SPECS: dict[str, dict[str, Any]] = {
         ],
         "voice": "Professional, clear, respectful of the reader's time.",
         "min_chars": 400,
+        "max_chars": 3200,
         "process_note": "Subject under 60 chars → front-loaded ask → short body → clear next step.",
     },
 }
@@ -112,7 +185,8 @@ def _run_planner(
         f"Do not write the content itself.{thin_warn}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=_MODEL_DRAFTER,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nResearch:\n{_trim(research_context, 5000)}",
@@ -122,6 +196,8 @@ def _run_planner(
             timeout=180,
             retry_attempts=3,
             retry_backoff_sec=1.2,
+            validator=_planner_validator([name for name, _ in spec["sections"]]),
+            self_fix_attempts=3,
         )
         return str(result or "").strip()
     except Exception as exc:
@@ -154,7 +230,8 @@ def _run_section_writer(
         f"Research:{ev_key}\n{_trim(research_context, 4000)}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=_MODEL_DRAFTER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -196,7 +273,8 @@ def _run_critic(
         "If everything is strong, write 'Approved.' and stop."
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=_MODEL_CRITIC,
             system_prompt=system_prompt,
             user_prompt=f"Kind: {kind} | Request: {question}\n\nDraft:\n{_trim(draft, 6000)}{critic_fabrication_block(level, raw_notes_context, _trim, research_context)}",
@@ -206,6 +284,8 @@ def _run_critic(
             timeout=240,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_critic_validator("Approved."),
+            self_fix_attempts=3,
         )
         return str(result or "").strip()
     except Exception:
@@ -235,7 +315,8 @@ def _run_compositor(
         "5. Return the complete polished content in markdown. No meta-commentary."
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=_MODEL_POLISH,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nSections:\n{joined}",
@@ -260,10 +341,15 @@ def _quality_gate(body: str, kind: str) -> tuple[bool, list[str]]:
     issues: list[str] = []
     spec = _KIND_SPECS.get(kind, _KIND_SPECS["blog"])
     min_chars = spec.get("min_chars", 200)
+    max_chars = spec.get("max_chars")
     if len(body) < min_chars:
         issues.append(f"Too short: {len(body)} chars (minimum {min_chars})")
+    if isinstance(max_chars, int) and len(body) > max_chars:
+        issues.append(f"Too long: {len(body)} chars (maximum {max_chars})")
     if body.endswith("...") or body.endswith("…"):
         issues.append("Appears truncated (ends with ellipsis)")
+    if re.search(r"\[(?:link|url|cta)\]|\bexample\.com\b", body, re.IGNORECASE):
+        issues.append("Contains placeholder link or CTA text")
     return len(issues) == 0, issues
 
 
@@ -416,17 +502,21 @@ def run_content_pool(
                     fix_system = f"You are a {kind.replace('_', ' ')} editor. Apply the note and return the revised section only."
                     fix_user = f"Note: {fix_map[name]}\n\nSection to revise:\n{body}"
                     try:
-                        revised_body = str(client.chat(
-                            model=_MODEL_POLISH,
-                            system_prompt=fix_system,
-                            user_prompt=fix_user,
-                            temperature=0.4,
-                            num_ctx=10240,
-                            think=False,
-                            timeout=180,
-                            retry_attempts=2,
-                            retry_backoff_sec=1.2,
-                        ) or "").strip()
+                        revised_body = str(
+                            _chat_retry(
+                                client,
+                                model=_MODEL_POLISH,
+                                system_prompt=fix_system,
+                                user_prompt=fix_user,
+                                temperature=0.4,
+                                num_ctx=10240,
+                                think=False,
+                                timeout=180,
+                                retry_attempts=2,
+                                retry_backoff_sec=1.2,
+                            )
+                            or ""
+                        ).strip()
                         if revised_body and len(revised_body) >= len(body) * 0.4:
                             revised_sections[idx] = (name, revised_body)
                     except Exception:
@@ -448,18 +538,25 @@ def run_content_pool(
         _progress("build_quality_gate_failed", {"issues": gate_issues})
         try:
             fix_prompt = f"Issues detected:\n" + "\n".join(f"- {i}" for i in gate_issues) + f"\n\nFix and return:\n\n{_trim(final_body, 8000)}"
-            fixed = str(client.chat(
-                model=_MODEL_POLISH,
-                system_prompt=f"You are a {kind.replace('_', ' ')} editor. Fix the issues and return the corrected version.",
-                user_prompt=fix_prompt,
-                temperature=0.3,
-                num_ctx=12288,
-                think=False,
-                timeout=200,
-                retry_attempts=2,
-                retry_backoff_sec=1.2,
-            ) or "").strip()
-            if fixed and len(fixed) > len(final_body) * 0.8:
+            fixed = str(
+                _chat_retry(
+                    client,
+                    model=_MODEL_POLISH,
+                    system_prompt=f"You are a {kind.replace('_', ' ')} editor. Fix the issues and return the corrected version.",
+                    user_prompt=fix_prompt,
+                    temperature=0.3,
+                    num_ctx=12288,
+                    think=False,
+                    timeout=200,
+                    retry_attempts=2,
+                    retry_backoff_sec=1.2,
+                    validator=lambda candidate: "\n".join(_quality_gate(candidate, kind)[1]) or None,
+                    self_fix_attempts=3,
+                )
+                or ""
+            ).strip()
+            fixed_passed, _fixed_issues = _quality_gate(fixed, kind)
+            if fixed and (fixed_passed or len(fixed) > spec.get("min_chars", 80)):
                 final_body = fixed
         except Exception:
             pass

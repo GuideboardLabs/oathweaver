@@ -100,6 +100,56 @@ class RuntimeSmokeTests(unittest.TestCase):
             failures = _runtime_smoke_check(app_dir, spec)
             self.assertEqual(failures, [])
 
+    def test_runtime_smoke_uses_real_auth_payloads(self) -> None:
+        if not self._has_flask():
+            self.skipTest("flask is not installed in this test environment")
+        with tempfile.TemporaryDirectory(prefix="runtime_auth_ok_") as tmp:
+            app_dir = Path(tmp) / "app"
+            copy_scaffold("web_app_v1", app_dir)
+            spec = AppSpec.model_validate(
+                {
+                    "app_name": "Plant Care",
+                    "feature_summary": "plants",
+                    "entities": [
+                        {
+                            "name": "user",
+                            "fields": [
+                                {"name": "id", "type": "int", "required": True},
+                                {"name": "email", "type": "str", "required": True},
+                                {"name": "password_hash", "type": "str", "required": True},
+                            ],
+                        },
+                        {
+                            "name": "plant",
+                            "fields": [
+                                {"name": "id", "type": "int", "required": True},
+                                {"name": "user_id", "type": "int", "required": False},
+                                {"name": "name", "type": "str", "required": True},
+                                {"name": "species", "type": "str", "required": False},
+                                {"name": "last_watered", "type": "date", "required": True},
+                            ],
+                        },
+                    ],
+                    "routes": [
+                        {"method": "POST", "path": "/api/login", "handler_name": "login", "entity": ""},
+                        {"method": "POST", "path": "/api/signup", "handler_name": "signup", "entity": ""},
+                        {"method": "GET", "path": "/api/plants", "handler_name": "list_plants", "entity": "plant"},
+                        {"method": "POST", "path": "/api/plants", "handler_name": "create_plant", "entity": "plant"},
+                    ],
+                    "views": [{"name": "dashboard", "entity": "plant"}],
+                    "notes": "",
+                }
+            )
+            imports = render_imports(spec)
+            routes = render_routes(spec)
+            tables, seeds = render_schema(spec)
+            write_slot(app_dir / "app.py", "imports-feature", imports)
+            write_slot(app_dir / "app.py", "routes-feature", routes)
+            write_slot(app_dir / "schema.sql", "tables", tables)
+            write_slot(app_dir / "schema.sql", "seeds", seeds)
+            failures = _runtime_smoke_check(app_dir, spec)
+            self.assertEqual(failures, [])
+
 
 if __name__ == "__main__":
     unittest.main()

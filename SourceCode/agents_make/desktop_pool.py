@@ -33,15 +33,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from core.output_contracts import OutputContract, OutputContractAuditor
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
 _MODEL_SPEC   = "qwen3:8b"
-_MODEL_ARCH   = "qwen2.5-coder:14b"
-_MODEL_IMPL   = "qwen2.5-coder:14b"
+_MODEL_ARCH   = "qwen3-coder:30b-a3b-q4_K_M"
+_MODEL_IMPL   = "qwen3-coder:30b-a3b-q4_K_M"
 _MODEL_README = "qwen3:8b"
 # Fallback if upgraded model unavailable
 _MODEL_IMPL_FALLBACK = "qwen2.5-coder:7b"
+_CONTRACT_AUDITOR = OutputContractAuditor()
 
 
 def _today() -> str:
@@ -64,6 +67,30 @@ def _slugify(text: str) -> str:
 
 def _pascal(text: str) -> str:
     return _slugify(text)
+
+
+def _contract_validator(
+    *,
+    stage: str,
+    required_markers: tuple[str, ...] = tuple(),
+    min_chars: int = 0,
+) -> Callable[[str], str | None]:
+    required = tuple(str(x) for x in required_markers if str(x))
+    contract = OutputContract(stage=stage, must_include=required, must_not_include=tuple())
+
+    def _validate(text: str) -> str | None:
+        raw = str(text or "").strip()
+        if len(raw) < int(min_chars):
+            return f"{stage}:too_short:{len(raw)}<{int(min_chars)}"
+        payload: dict[str, Any] = {}
+        for marker in required:
+            payload[marker] = marker if marker in raw else ""
+        audit = _CONTRACT_AUDITOR.validate(stage, payload, contract)
+        if audit.ok:
+            return None
+        return f"{stage}:missing={','.join(audit.missing_fields)}"
+
+    return _validate
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +173,8 @@ def _run_specifier(client: OllamaClient, question: str, research_context: str) -
         "Be specific. No placeholder features. Keep it to what can realistically be implemented."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_SPEC,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nResearch context:\n{_trim(research_context, 3000)}",
@@ -156,8 +184,13 @@ def _run_specifier(client: OllamaClient, question: str, research_context: str) -
             timeout=240,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="desktop_specifier",
+                required_markers=("App Name", "Features", "State Model"),
+                min_chars=180,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Specifier failed: {exc}]"
 
@@ -182,7 +215,8 @@ def _run_architect(client: OllamaClient, spec: str, app_name: str) -> str:
         "All files must be complete and syntactically valid C#/AXAML."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_ARCH,
             system_prompt=system_prompt,
             user_prompt=f"App spec:\n{_trim(spec, 5000)}",
@@ -192,8 +226,14 @@ def _run_architect(client: OllamaClient, spec: str, app_name: str) -> str:
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=2.0,
+            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            validator=_contract_validator(
+                stage="desktop_architect",
+                required_markers=("=== FILE:",),
+                min_chars=260,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Architect failed: {exc}]"
 
@@ -218,7 +258,8 @@ def _run_viewmodels(client: OllamaClient, spec: str, app_name: str, question: st
         "[ViewModelBase inheriting ReactiveObject]\n"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_IMPL,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nApp spec:\n{_trim(spec, 4000)}",
@@ -228,8 +269,14 @@ def _run_viewmodels(client: OllamaClient, spec: str, app_name: str, question: st
             timeout=420,
             retry_attempts=3,
             retry_backoff_sec=2.0,
+            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            validator=_contract_validator(
+                stage="desktop_viewmodels",
+                required_markers=("=== FILE:", "ViewModels"),
+                min_chars=260,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[ViewModels failed: {exc}]"
 
@@ -252,7 +299,8 @@ def _run_views(client: OllamaClient, spec: str, viewmodels_code: str, app_name: 
         "[minimal code-behind: just InitializeComponent()]\n"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_IMPL,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nApp spec:\n{_trim(spec, 3000)}\n\nViewModels:\n{_trim(viewmodels_code, 4000)}",
@@ -262,8 +310,14 @@ def _run_views(client: OllamaClient, spec: str, viewmodels_code: str, app_name: 
             timeout=420,
             retry_attempts=3,
             retry_backoff_sec=2.0,
+            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            validator=_contract_validator(
+                stage="desktop_views",
+                required_markers=("=== FILE:", ".axaml"),
+                min_chars=260,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Views failed: {exc}]"
 
@@ -286,7 +340,8 @@ def _run_services(client: OllamaClient, spec: str, app_name: str, question: str)
         "[implementation]\n"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_IMPL,
             system_prompt=system_prompt,
             user_prompt=f"Request: {question}\n\nApp spec:\n{_trim(spec, 4000)}",
@@ -296,8 +351,14 @@ def _run_services(client: OllamaClient, spec: str, app_name: str, question: str)
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=2.0,
+            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            validator=_contract_validator(
+                stage="desktop_services",
+                required_markers=("=== FILE:", "Service"),
+                min_chars=220,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Services failed: {exc}]"
 
@@ -315,7 +376,8 @@ def _run_readme(client: OllamaClient, spec: str, app_name: str, question: str) -
         "Write complete, accurate markdown. No placeholders."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_README,
             system_prompt=system_prompt,
             user_prompt=f"App name: {app_name}\n\nSpec:\n{_trim(spec, 3000)}",
@@ -325,8 +387,13 @@ def _run_readme(client: OllamaClient, spec: str, app_name: str, question: str) -
             timeout=180,
             retry_attempts=2,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="desktop_readme",
+                required_markers=("## Overview", "## Prerequisites"),
+                min_chars=180,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"# {app_name}\n\n[README generation failed: {exc}]"
 

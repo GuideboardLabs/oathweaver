@@ -110,6 +110,64 @@ class CodegenTests(unittest.TestCase):
         self.assertNotIn("INSERT INTO records () VALUES ()", routes)
         self.assertNotIn("UPDATE records SET  WHERE id = ?", routes)
 
+    def test_render_routes_supports_auth_and_owned_collections(self) -> None:
+        spec = AppSpec.model_validate(
+            {
+                "app_name": "Plant Care",
+                "feature_summary": "Plant care",
+                "entities": [
+                    {
+                        "name": "user",
+                        "fields": [
+                            {"name": "id", "type": "int", "required": True},
+                            {"name": "email", "type": "str", "required": True},
+                            {"name": "password_hash", "type": "str", "required": True},
+                        ],
+                    },
+                    {
+                        "name": "plant",
+                        "fields": [
+                            {"name": "id", "type": "int", "required": True},
+                            {"name": "user_id", "type": "int", "required": False},
+                            {"name": "name", "type": "str", "required": True},
+                            {"name": "species", "type": "str", "required": False},
+                            {"name": "last_watered", "type": "date", "required": True},
+                        ],
+                    },
+                ],
+                "routes": [
+                    {"method": "POST", "path": "/api/signup", "handler_name": "signup", "entity": ""},
+                    {"method": "POST", "path": "/api/login", "handler_name": "login", "entity": ""},
+                    {"method": "GET", "path": "/api/plants", "handler_name": "list_plants", "entity": "plant"},
+                ],
+                "views": [{"name": "dashboard", "entity": "plant"}],
+                "notes": "",
+            }
+        )
+        imports = render_imports(spec)
+        routes = render_routes(spec)
+        ast.parse(imports + "\n" + routes)
+        self.assertIn("generate_password_hash", imports)
+        self.assertIn("check_password_hash", routes)
+        self.assertIn("@app.post(\"/api/signup\")", routes)
+        self.assertIn("@app.post(\"/api/login\")", routes)
+        self.assertIn('request.args.get("user_id", type=int)', routes)
+        self.assertIn("WHERE user_id = ?", routes)
+
+    def test_app_spec_accepts_json_null_for_non_entity_route(self) -> None:
+        spec = AppSpec.model_validate(
+            {
+                "app_name": "Auth",
+                "feature_summary": "auth",
+                "entities": [{"name": "user", "fields": [{"name": "email", "type": "str"}]}],
+                "routes": [{"method": "POST", "path": "/api/login", "handler_name": "login", "entity": None}],
+                "views": [{"name": "dashboard", "entity": None}],
+                "notes": "",
+            }
+        )
+        self.assertIsNone(spec.routes[0].entity)
+        self.assertIsNone(spec.views[0].entity)
+
 
 if __name__ == "__main__":
     unittest.main()

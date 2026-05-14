@@ -73,7 +73,8 @@ For recipient-friendly install steps, see [INSTALL_GUIDE.md](INSTALL_GUIDE.md).
 Oathweaver is in a CAG-native rebuild phase. Legacy surfaces have now been removed:
 
 - **Personal/life memory capture** has been removed.
-- **Image / video generation lanes** have been removed from the repository.
+- **Image generation lanes** have been removed from the repository.  
+  Longform `video_script` remains a writing format (text output only), not a media-generation lane.
 - **Serious mode** defaults on (`OATHWEAVERX_SERIOUS_MODE=1`) — research, build, and writing pipelines run with evidence discipline and no playful framing.
 
 See [SourceCode/legacy/README.md](SourceCode/legacy/README.md) for migration notes.
@@ -170,6 +171,8 @@ Build-pipeline runs are fronted by purpose-built pools that fill in stage output
 
 The Web app pool uses a **Canon v1** fixed scaffold ([agents_make/canon/web_app_v1/](SourceCode/agents_make/canon/web_app_v1/)) with named slot regions. The pool only fills slots; plumbing is asserted intact by the canon lints. **Extend Mode** copies a prior canon build and updates only the slots required by new features; legacy pre-canon builds are migrated into canon slots on first extend.
 
+Make hardening includes a **runtime smoke** pass for generated Canon v1 apps and a **Public-content guardrail** for blogs, emails, social posts, and other outward-facing writing so private profile hints are not pulled into public drafts unless explicitly requested.
+
 ---
 
 ## Taxonomy
@@ -211,7 +214,7 @@ User-facing messaging is mediated by the **chat layer** (`dolphin3:8b`, configur
 - `web_app` → Flask 3.x + Vue 3.5 (CDN) + SQLite (`sqlite3`)
 - `desktop_app` → .NET 8 LTS + Avalonia 11 + ReactiveUI
 
-Re-evaluation of stack is routed through a Technical-domain research pipeline.
+Re-evaluation of stack is routed through a Technical topic / Technical-domain research pipeline.
 
 ---
 

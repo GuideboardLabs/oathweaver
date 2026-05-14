@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from shared_tools.memory_types import TypedMemoryFacade
+from shared_tools.cag_memory_facade import CAGMemoryFacade
 from shared_tools.web_research import WebResearchEngine
 
 
@@ -38,7 +38,7 @@ def recall(
     project: str = "general",
     conversation_id: str = "",
 ) -> dict[str, Any]:
-    facade = TypedMemoryFacade(Path(repo_root))
+    facade = CAGMemoryFacade(Path(repo_root))
     raw_kinds = kinds if isinstance(kinds, list) else ["episodic", "semantic", "procedural"]
     clean_kinds = tuple(
         k
@@ -74,4 +74,3 @@ def make_artifact(repo_root: Path, type_id: str, spec: str) -> dict[str, Any]:
         "type_id": str(type_id or "").strip().lower(),
         "reply": str(reply or ""),
     }
-

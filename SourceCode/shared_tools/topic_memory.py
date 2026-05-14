@@ -22,6 +22,8 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from cag.memory_store import CAGMemoryStore
+
 
 _CONF_AUTO_CANON = 0.80
 _CONF_MIN_REVIEW = 0.60
@@ -81,6 +83,9 @@ class TopicMemory:
         self.lock = Lock()
         self.topics_dir.mkdir(parents=True, exist_ok=True)
         self._embed_cache: dict[str, list[float]] = {}
+        self._cag_store = CAGMemoryStore(repo_root)
+        self._backfill_flag_path = self.root / ".topic_cag_backfill_done"
+        self._ensure_cag_backfill()
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -222,6 +227,14 @@ class TopicMemory:
                         existing["updated_at"] = now
                         if confidence >= _CONF_AUTO_CANON:
                             existing["status"] = "canon"
+                        memory_id = str(existing.get("cag_memory_id", "")).strip()
+                        if memory_id:
+                            self._sync_fact_to_cag(
+                                topic_key=topic_key,
+                                topic_title=title,
+                                fact=existing,
+                                memory_id=memory_id,
+                            )
                         topic["updated_at"] = now
                         self._save_topic(topic)
                     return (str(existing.get("id", "")), str(existing.get("status", status)))
@@ -239,6 +252,14 @@ class TopicMemory:
                                 existing["updated_at"] = now
                                 if confidence >= _CONF_AUTO_CANON:
                                     existing["status"] = "canon"
+                                memory_id = str(existing.get("cag_memory_id", "")).strip()
+                                if memory_id:
+                                    self._sync_fact_to_cag(
+                                        topic_key=topic_key,
+                                        topic_title=title,
+                                        fact=existing,
+                                        memory_id=memory_id,
+                                    )
                                 topic["updated_at"] = now
                                 self._save_topic(topic)
                             return (str(existing.get("id", "")), str(existing.get("status", status)))
@@ -258,6 +279,12 @@ class TopicMemory:
                 "created_at": now,
                 "updated_at": now,
             }
+            fact["cag_memory_id"] = self._sync_fact_to_cag(
+                topic_key=topic_key,
+                topic_title=title,
+                fact=fact,
+                memory_id=str(fact.get("cag_memory_id", "")).strip() or None,
+            )
             topic.setdefault("facts", []).append(fact)
 
             # Merge subtopics
@@ -345,6 +372,14 @@ class TopicMemory:
                     if fact.get("id") == fact_id:
                         fact["status"] = "canon" if accepted else "rejected"
                         fact["updated_at"] = now
+                        memory_id = str(fact.get("cag_memory_id", "")).strip()
+                        if memory_id:
+                            self._sync_fact_to_cag(
+                                topic_key=topic_key,
+                                topic_title=str(topic.get("title", topic_key)),
+                                fact=fact,
+                                memory_id=memory_id,
+                            )
                         topic["updated_at"] = now
                         break
                 if topic.get("key"):
@@ -382,6 +417,10 @@ class TopicMemory:
         query_tokens = set(re.findall(r"\w+", query.lower()))
         if len(query_tokens) < 2:
             return ""
+
+        cag_lines = self._context_from_cag(query, max_facts=max_facts)
+        if cag_lines:
+            return "Known facts from memory:\n" + "\n".join(cag_lines)
 
         index = _load_json(self.index_path, {"topics": {}})
         topic_dict = index.get("topics", {})
@@ -448,6 +487,130 @@ class TopicMemory:
             return ""
 
         return "Known facts from memory:\n" + "\n".join(collected)
+
+    def _status_to_lifecycle(self, status: str) -> tuple[str, str]:
+        key = str(status or "").strip().lower()
+        if key == "canon":
+            return ("accepted", "accepted")
+        if key == "rejected":
+            return ("deprecated", "rejected")
+        return ("candidate", "unreviewed")
+
+    def _sync_fact_to_cag(
+        self,
+        *,
+        topic_key: str,
+        topic_title: str,
+        fact: dict[str, Any],
+        memory_id: str | None = None,
+    ) -> str:
+        if not isinstance(fact, dict):
+            return str(memory_id or "").strip()
+        claim = str(fact.get("claim", "")).strip()
+        if not claim:
+            return str(memory_id or "").strip()
+        status, human_status = self._status_to_lifecycle(str(fact.get("status", "")))
+        payload = {
+            "text": claim,
+            "scope": f"topic:{topic_key}",
+            "scope_level": "domain",
+            "domain": "general_research",
+            "topic": str(topic_title or topic_key).strip() or topic_key,
+            "thread": f"topic_{topic_key}",
+            "project": str(fact.get("project", "general")).strip() or "general",
+            "run": f"topic_memory_{topic_key}",
+            "type": "fact",
+            "status": status,
+            "human_status": human_status,
+            "confidence": float(fact.get("confidence", 0.0) or 0.0),
+            "tags": ["topic_memory", topic_key],
+            "promoted_terms": self._slugify(claim).split("_")[:10],
+            "source": str(fact.get("source", "topic_memory")).strip() or "topic_memory",
+            "evidence": [
+                {
+                    "kind": "topic_memory",
+                    "source_file": str(fact.get("source_file", "")).strip(),
+                    "fact_id": str(fact.get("id", "")).strip(),
+                }
+            ],
+            "validation": {"topic_memory_sync": True},
+            "created_at": str(fact.get("created_at", "")).strip(),
+            "updated_at": str(fact.get("updated_at", "")).strip(),
+        }
+        key = str(memory_id or "").strip()
+        try:
+            if key and self._cag_store.get_row(key):
+                updated = self._cag_store.update_row(key, payload) or {}
+                return str(updated.get("memory_id", key)).strip() or key
+            persisted = self._cag_store.add_row(payload)
+            return str(persisted.get("memory_id", "")).strip()
+        except Exception:
+            return key
+
+    def _ensure_cag_backfill(self) -> None:
+        if self._backfill_flag_path.exists():
+            return
+        try:
+            for path in sorted(self.topics_dir.glob("*.json"))[:500]:
+                topic = _load_json(path, {})
+                topic_key = str(topic.get("key", path.stem)).strip()
+                title = str(topic.get("title", topic_key)).strip() or topic_key
+                dirty = False
+                for fact in topic.get("facts", []):
+                    if not isinstance(fact, dict):
+                        continue
+                    memory_id = str(fact.get("cag_memory_id", "")).strip()
+                    synced_id = self._sync_fact_to_cag(
+                        topic_key=topic_key,
+                        topic_title=title,
+                        fact=fact,
+                        memory_id=memory_id or None,
+                    )
+                    if synced_id and synced_id != memory_id:
+                        fact["cag_memory_id"] = synced_id
+                        dirty = True
+                if dirty:
+                    self._save_topic(topic)
+            self._backfill_flag_path.write_text(_now_iso(), encoding="utf-8")
+        except Exception:
+            return
+
+    def _context_from_cag(self, query: str, *, max_facts: int) -> list[str]:
+        query_tokens = set(re.findall(r"\w+", str(query or "").lower()))
+        if len(query_tokens) < 2:
+            return []
+        try:
+            rows = self._cag_store.list_rows_for_projects(
+                projects=["general"],
+                statuses=["accepted", "user-confirmed", "benchmark-derived", "watchtower-derived"],
+                memory_types=["fact", "constraint", "decision"],
+                include_expired=False,
+                include_superseded=False,
+                limit=400,
+            )
+        except Exception:
+            return []
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for row in rows:
+            text = str(row.get("text", "")).strip()
+            if not text:
+                continue
+            row_tokens = set(re.findall(r"\w+", text.lower()))
+            overlap = len(query_tokens & row_tokens)
+            if overlap <= 0:
+                continue
+            confidence = float(row.get("confidence", 0.0) or 0.0)
+            scored.append((float(overlap) + confidence, row))
+        if not scored:
+            return []
+        scored.sort(key=lambda item: item[0], reverse=True)
+        lines: list[str] = []
+        for _score, row in scored[: max(1, int(max_facts))]:
+            title = str(row.get("topic", row.get("scope", "Memory"))).strip() or "Memory"
+            claim = str(row.get("text", "")).strip()[:_MAX_CLAIM_CHARS]
+            if claim:
+                lines.append(f"- [{title}] {claim}")
+        return lines
 
     # ── Private helpers ───────────────────────────────────────────────────
 

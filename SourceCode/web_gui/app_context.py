@@ -58,6 +58,7 @@ class AppContext:
         self.project_catalog_lock = Lock()
         self.login_limiter = LoginRateLimiter()
         self._panel_cache_lock = Lock()
+        self._orch_cache: dict[str, OathweaverOrchestrator] = {}
 
     # ------------------------------------------------------------------
     # Profile helpers
@@ -148,6 +149,17 @@ class AppContext:
     def new_orch(self, profile: dict[str, Any]) -> OathweaverOrchestrator:
         return OathweaverOrchestrator(self.repo_root_for_profile(profile))
 
+    def orch_for(self, profile: dict[str, Any]) -> OathweaverOrchestrator:
+        """Cached orchestrator per profile to avoid rehydrating heavy runtimes per panel call."""
+        profile_id = str(profile.get("id", "")).strip() or "owner"
+        with self._panel_cache_lock:
+            cached = self._orch_cache.get(profile_id)
+            if cached is not None:
+                return cached
+            orch = OathweaverOrchestrator(self.repo_root_for_profile(profile))
+            self._orch_cache[profile_id] = orch
+            return orch
+
     def pipeline_for(self, profile: dict[str, Any]) -> ProjectPipelineStore:
         return ProjectPipelineStore(self.repo_root_for_profile(profile))
 
@@ -161,11 +173,15 @@ class AppContext:
     def cache_clear(self, cache_scope: str | None = None) -> None:
         if not cache_scope:
             self.panel_cache.clear()
+            with self._panel_cache_lock:
+                self._orch_cache.clear()
             return
         prefix = f"{cache_scope}:"
         for key in list(self.panel_cache.keys()):
             if key.startswith(prefix):
                 self.panel_cache.pop(key, None)
+        with self._panel_cache_lock:
+            self._orch_cache.pop(str(cache_scope), None)
 
     def cache_get(self, cache_scope: str, key: str, ttl_sec: float, build_fn: Any) -> Any:
         import time

@@ -494,6 +494,11 @@ def _migration_019_library_domain(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_020_drop_unused_tables(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TABLE IF EXISTS cloud_requests;")
+    conn.execute("DROP TABLE IF EXISTS app_meta;")
+
+
 MIGRATIONS: Sequence[Migration] = (
     Migration(version=1, name="baseline_app_meta", apply=_migration_001_baseline),
     Migration(version=2, name="lessons_table", apply=_migration_002_lessons),
@@ -511,6 +516,7 @@ MIGRATIONS: Sequence[Migration] = (
     Migration(version=17, name="library_tables", apply=_migration_017_library_tables),
     Migration(version=18, name="web_cache_chunks", apply=_migration_018_web_cache_chunks),
     Migration(version=19, name="library_domain_column", apply=_migration_019_library_domain),
+    Migration(version=20, name="drop_unused_tables", apply=_migration_020_drop_unused_tables),
 )
 
 

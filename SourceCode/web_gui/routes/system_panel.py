@@ -34,7 +34,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
 
         profile = ctx.require_profile()
         limit = parse_optional_int(request.args.get("limit"), default=20, minimum=1, maximum=200)
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = orch.reflection_engine.list_open(limit=limit)
         return {"reflections": rows}, 200
 
@@ -44,7 +44,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
 
         profile = ctx.require_profile()
         limit = parse_optional_int(request.args.get("limit"), default=80, minimum=1, maximum=300)
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = orch.reflection_engine.list_history(limit=limit)
         return {"reflections": rows}, 200
 
@@ -56,14 +56,14 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
         lane = str(request.args.get("lane", "")).strip() or None
         limit = parse_optional_int(request.args.get("limit"), default=25, minimum=1, maximum=200)
         sort_by = str(request.args.get("sort", "newest")).strip().lower() or "newest"
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = orch.learning_engine.list_lessons(lane=lane, limit=limit, sort_by=sort_by)
         return {"lessons": rows}, 200
 
     @bp.post("/api/lessons/<lesson_id>/approve")
     def lesson_approve(lesson_id: str) -> tuple[dict, int]:
         profile = ctx.require_profile()
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         approved_by = str(profile.get("username", "")).strip() or "owner"
         row = orch.learning_engine.approve_lesson(lesson_id=lesson_id, approved_by=approved_by)
         if row is None:
@@ -75,7 +75,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
     @bp.post("/api/lessons/<lesson_id>/reject")
     def lesson_reject(lesson_id: str) -> tuple[dict, int]:
         profile = ctx.require_profile()
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rejected_by = str(profile.get("username", "")).strip() or "owner"
         row = orch.learning_engine.reject_lesson(lesson_id=lesson_id, rejected_by=rejected_by)
         if row is None:
@@ -85,7 +85,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
     @bp.post("/api/lessons/<lesson_id>/expire")
     def lesson_expire(lesson_id: str) -> tuple[dict, int]:
         profile = ctx.require_profile()
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         row = orch.learning_engine.expire_lesson(lesson_id=lesson_id)
         if row is None:
             return {"ok": False, "message": "Lesson not found."}, 404
@@ -97,7 +97,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
 
         profile = ctx.require_profile()
         limit = parse_optional_int(request.args.get("limit"), default=20, minimum=1, maximum=200)
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = orch.handoff_queue.monitor_threads(limit=limit)
         return {"handoffs": rows}, 200
 
@@ -107,7 +107,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
 
         profile = ctx.require_profile()
         limit = parse_optional_int(request.args.get("limit"), default=40, minimum=1, maximum=300)
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = orch.handoff_queue.monitor_threads(limit=500)
         outbox_rows = [row for row in rows if str(row.get("outbox_path", "")).strip()]
         outbox_rows.sort(key=lambda row: str(row.get("created_at", "")), reverse=True)
@@ -121,7 +121,7 @@ def register_panel_routes(bp: Blueprint, ctx: AppContext) -> None:
         profile = ctx.require_profile()
         cache_scope = str(profile.get("id", ""))
         limit = parse_optional_int(request.args.get("limit"), default=40, minimum=1, maximum=200)
-        orch = ctx.new_orch(profile)
+        orch = ctx.orch_for(profile)
         rows = ctx.cache_get(
             cache_scope,
             f"panel_projects:{limit}",

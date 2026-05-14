@@ -5,7 +5,7 @@ import unittest
 from tests.common import ROOT  # noqa: F401
 from orchestrator.intent_router import IntentRouter
 from orchestrator.services.policy import RoutingPolicy, classify_query_mode, estimate_query_complexity
-from shared_tools.query_router import recommend_lane_override, should_run_full_foraging
+from orchestrator.services.policy import recommend_lane_override, should_run_full_foraging
 
 
 class RoutingConsolidationTests(unittest.TestCase):

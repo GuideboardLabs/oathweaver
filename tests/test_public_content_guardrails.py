@@ -5,6 +5,7 @@ import unittest
 from tests.common import ROOT  # noqa: F401
 from agents_make.content_pool import _run_compositor as content_run_compositor
 from agents_make.content_pool import _run_planner as content_run_planner
+from agents_make.content_pool import _quality_gate as content_quality_gate
 from agents_make.longform_pool import _run_compositor as longform_run_compositor
 from agents_make.longform_pool import _run_planner as longform_run_planner
 
@@ -57,6 +58,16 @@ class PublicContentGuardrailTests(unittest.TestCase):
             research_context="",
         )
         self.assertIn("PUBLIC-CONTENT GUARDRAIL", client.last_system_prompt)
+
+    def test_social_post_quality_gate_rejects_overlong_output(self) -> None:
+        ok, issues = content_quality_gate("word " * 400, "social_post")
+        self.assertFalse(ok)
+        self.assertTrue(any("Too long" in issue for issue in issues))
+
+    def test_content_quality_gate_rejects_placeholder_links(self) -> None:
+        ok, issues = content_quality_gate("Read more at [link] today.", "social_post")
+        self.assertFalse(ok)
+        self.assertTrue(any("placeholder" in issue.lower() for issue in issues))
 
 
 if __name__ == "__main__":

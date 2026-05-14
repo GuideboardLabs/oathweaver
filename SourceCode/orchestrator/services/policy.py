@@ -374,6 +374,28 @@ class RoutingPolicy:
         )
 
 
+def should_route_web_fetch(
+    text: str,
+    prior_messages: list[dict[str, str]],
+    *,
+    repo_root: Path,
+    trigger_reason: str = "keyword",
+) -> bool:
+    """Consolidated web-routing gate entrypoint for orchestrator usage."""
+    try:
+        from orchestrator.services.chat_routing_gate import check_web_routing
+
+        result = check_web_routing(
+            text,
+            prior_messages,
+            trigger_reason=trigger_reason,
+            repo_root=repo_root,
+        )
+        return str(result.get("route", "web")).strip().lower() == "web"
+    except Exception:
+        return True
+
+
 __all__ = [
     "IntentRouter",
     "RoutingDecision",
@@ -384,4 +406,5 @@ __all__ = [
     "recommend_pipeline_override",
     "should_run_full_research",
     "should_run_full_foraging",
+    "should_route_web_fetch",
 ]

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from shared_tools.continuous_improvement import ContinuousImprovementEngine
 from shared_tools.embedding_memory import EmbeddingMemory
 from shared_tools.external_requests import ExternalRequestStore, ExternalToolsSettings
 from shared_tools.feedback_learning import FeedbackLearningEngine
@@ -77,10 +76,9 @@ class OrchestratorInfraRuntime:
         return self._cache["pipeline_store"]
 
     @property
-    def improvement_engine(self) -> ContinuousImprovementEngine:
-        if "improvement_engine" not in self._cache:
-            self._cache["improvement_engine"] = ContinuousImprovementEngine(self.repo_root)
-        return self._cache["improvement_engine"]
+    def improvement_engine(self) -> FeedbackLearningEngine:
+        # Consolidated improvement surface now rides on the learning engine.
+        return self.learning_engine
 
     @property
     def learning_engine(self) -> FeedbackLearningEngine:

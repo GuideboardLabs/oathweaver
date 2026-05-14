@@ -32,6 +32,7 @@ from typing import Any, Callable
 
 from shared_tools.feedback_learning import FeedbackLearningEngine
 from shared_tools.fidelity_policy import FidelityLevel, fidelity_for, writer_constraint_block, evidence_key_block, thin_research_warning
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
 
@@ -197,13 +198,13 @@ def _sections_for(topic_type: str, target: str) -> list[tuple[str, str]]:
 # Model routing helpers
 # ---------------------------------------------------------------------------
 
-_MODEL_OUTLINE    = "qwen2.5:7b"
+_MODEL_OUTLINE    = "qwen3:8b"
 _MODEL_WRITER     = "qwen3:8b"
 _MODEL_CRITIC     = "deepseek-r1:8b"
-_MODEL_COMPOSITOR = "qwen2.5:7b"
+_MODEL_COMPOSITOR = "qwen3:8b"
 
 # Underground: abliterated-only throughout — no filtered models anywhere
-_MODEL_UNRESTRICTED = "huihui_ai/qwen3-abliterated:8b-Q4_K_M"
+_MODEL_UNRESTRICTED = "qwen3:8b"
 
 
 def _models_for(topic_type: str) -> tuple[str, str, str, str]:
@@ -227,6 +228,74 @@ def _trim(text: str, max_chars: int) -> str:
         return body
     cut = body[:max_chars].rsplit("\n", 1)[0].strip()
     return cut or body[:max_chars]
+
+
+def _chat_retry(
+    client: OllamaClient,
+    *,
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float,
+    num_ctx: int,
+    think: bool,
+    timeout: int,
+    retry_attempts: int,
+    retry_backoff_sec: float,
+    validator: Callable[[str], str | None] | None = None,
+    self_fix_attempts: int = 2,
+) -> str:
+    result = chat_with_self_fix_retry(
+        client,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        num_ctx=num_ctx,
+        think=think,
+        timeout=timeout,
+        retry_attempts=retry_attempts,
+        retry_backoff_sec=retry_backoff_sec,
+        validator=validator,
+        max_self_fix_attempts=self_fix_attempts,
+    )
+    return str(result.text or "").strip()
+
+
+def _outline_validator(section_names: list[str]) -> Callable[[str], str | None]:
+    expected = [str(name).strip().lower() for name in section_names if str(name).strip()]
+
+    def _validate(text: str) -> str | None:
+        body = str(text or "").strip()
+        if not body:
+            return "Outline output was empty."
+        if "###" not in body:
+            return "Outline must use '### [Section Name]' headings."
+        low = body.lower()
+        matches = sum(1 for name in expected if name and name in low)
+        minimum = max(2, min(len(expected), (len(expected) + 1) // 2))
+        if matches < minimum:
+            return f"Outline did not cover enough required sections ({matches}/{len(expected)})."
+        return None
+
+    return _validate
+
+
+def _notes_validator(approved_phrase: str) -> Callable[[str], str | None]:
+    approved_low = str(approved_phrase or "").strip().lower()
+
+    def _validate(text: str) -> str | None:
+        body = str(text or "").strip()
+        if not body:
+            return "Review output was empty."
+        low = body.lower()
+        if approved_low and approved_low in low:
+            return None
+        if "###" in body and ":" in body:
+            return None
+        return "Review output must either explicitly approve or return section-scoped notes."
+
+    return _validate
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +334,8 @@ def _run_outline(
         f"{sources_block}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -275,6 +345,8 @@ def _run_outline(
             timeout=300,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            validator=_outline_validator([name for name, _ in sections]),
+            self_fix_attempts=3,
         )
         return str(result or "").strip()
     except Exception as exc:
@@ -322,7 +394,8 @@ def _run_section_writer(
         f"{sources_block}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -366,7 +439,8 @@ def _run_critic(
         f"{fact_block}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -376,6 +450,8 @@ def _run_critic(
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_notes_validator("No major issues found."),
+            self_fix_attempts=3,
         )
         return str(result or "").strip()
     except Exception as exc:
@@ -402,7 +478,8 @@ def _run_section_revision(
         f"Original request context: {question}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -449,7 +526,8 @@ def _run_compositor(
         f"Sections to assemble:\n\n{assembled}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -495,7 +573,8 @@ def _run_proofreader(
         f"Assembled essay:\n{_trim(assembled_essay, 18000)}"
     )
     try:
-        result = client.chat(
+        result = _chat_retry(
+            client,
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -505,6 +584,8 @@ def _run_proofreader(
             timeout=300,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_notes_validator("Proofreading passed."),
+            self_fix_attempts=3,
         )
         return str(result or "").strip()
     except Exception as exc:
@@ -736,7 +817,8 @@ def run_essay_pool(
                 f"Essay to fix:\n{_trim(final_body, 16000)}"
             )
             try:
-                fixed = client.chat(
+                fixed = _chat_retry(
+                    client,
                     model=compositor_model,
                     system_prompt=fix_system,
                     user_prompt=fix_user,
@@ -746,6 +828,13 @@ def run_essay_pool(
                     timeout=480,
                     retry_attempts=3,
                     retry_backoff_sec=1.5,
+                    validator=lambda candidate: (
+                        "Corrected essay looks incomplete."
+                        if (len(str(candidate or "").strip()) < max(800, int(len(final_body) * 0.6))
+                            or str(candidate or "").strip().endswith(("...", "…")))
+                        else None
+                    ),
+                    self_fix_attempts=2,
                 )
                 fixed_str = str(fixed or "").strip()
                 # Only replace if the fix looks complete (≥ 60% of original length)

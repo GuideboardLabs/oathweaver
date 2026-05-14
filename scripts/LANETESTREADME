@@ -1,0 +1,185 @@
+LANE SMOKE TEST
+===============
+
+Script: scripts/routing_smoke.py
+Purpose: Stress-test pipeline routing across chat, research, and all make lanes
+         using a small fast model. Tests wiring and routing — not output quality.
+
+
+QUICK START
+-----------
+
+    cd ~/Oathweaver
+    source .venv/bin/activate
+
+    python scripts/routing_smoke.py --mode chat
+    python scripts/routing_smoke.py --mode research
+    python scripts/routing_smoke.py --mode make --make-type blog
+    python scripts/routing_smoke.py --all
+
+
+ALL OPTIONS
+-----------
+
+--mode chat
+    Runs a single prompt through the chat/conversation lane.
+    Uses conversation_reply() directly — no routing gate involved.
+
+    python scripts/routing_smoke.py --mode chat
+
+--mode research
+    Runs a single prompt through the full research pipeline
+    (foraging → synthesis). Uses force_research=True.
+
+    python scripts/routing_smoke.py --mode research
+
+--mode make --make-type <TYPE>
+    Runs a single prompt through a specific make lane.
+    Uses force_make=True with the given type_id as the delivery target.
+    Each type has a canned prompt built in — override with --prompt.
+
+    python scripts/routing_smoke.py --mode make --make-type blog
+    python scripts/routing_smoke.py --mode make --make-type tool
+    python scripts/routing_smoke.py --mode make --make-type email
+    python scripts/routing_smoke.py --mode make --make-type tool --prompt "write a script that counts files"
+
+--all
+    Runs chat + research + every make type sequentially.
+    Prints a live one-liner per lane as it finishes, then a summary table.
+    Exits 1 if any lane failed.
+
+    python scripts/routing_smoke.py --all
+    python scripts/routing_smoke.py --all --model phi4-mini:3.8b
+    python scripts/routing_smoke.py --all --prompt "write something short about coffee"
+
+--model <MODEL>
+    Ollama model to use for all layers. Defaults to qwen3:4b.
+    Any small model available in Ollama works here.
+
+    python scripts/routing_smoke.py --mode chat --model phi4-mini:3.8b
+    python scripts/routing_smoke.py --all --model gemma3:4b
+
+--prompt <TEXT>
+    Override the default canned prompt for the selected lane or type.
+    In --all mode, applies the same prompt to every lane.
+
+    python scripts/routing_smoke.py --mode research --prompt "what causes inflation?"
+    python scripts/routing_smoke.py --mode make --make-type newsletter --prompt "write about AI trends"
+
+--list-types
+    Print all available make type IDs grouped by lane, then exit.
+
+    python scripts/routing_smoke.py --list-types
+
+
+MAKE TYPE IDS
+-------------
+
+Lane: make_content
+    blog              Blog Post
+    email             Email
+    social_post       Social Post
+
+Lane: make_creative
+    book_chapter      Book Chapter
+    memoir_chapter    Memoir Chapter
+    novel_chapter     Novel Chapter
+    screenplay        Screenplay
+
+Lane: make_desktop_app
+    desktop_app       Desktop App
+
+Lane: make_longform
+    essay_long        Long-Form Essay
+    essay_short       Short-Form Essay
+    guide             Guide
+    newsletter        Newsletter
+    press_release     Press Release
+    tutorial          Tutorial
+    video_script      Video Script
+
+Lane: make_specialist
+    finance           Financial Analysis
+    game_design_doc   Game Design Doc
+    history           Historical Essay
+    medical           Medical Report
+    sports            Sports Analysis
+
+Lane: make_tool
+    tool              Tool / Script
+
+Lane: make_app
+    web_app           Web App
+
+
+HOW IT WORKS
+------------
+
+The script patches load_model_routing() in-process before the Orchestrator
+boots, replacing the real routing config with a minimal version that points
+every layer at the chosen small model (2k context, 1 retry, no premium gates,
+no reflection loops, research pool parallelism = 1).
+
+No config files are modified. The real model_routing.json is never touched.
+
+In --all mode, each lane gets a fresh Orchestrator instance so state does
+not bleed between runs.
+
+
+OUTPUT
+------
+
+Single lane (--mode): verbose stage trace with elapsed times, then result.
+On failure, the full exception message and traceback are printed showing the
+exact function and file that raised.
+
+    [  0.3s] lane_routed                    Pipeline: make_content | mode=write
+    [  2.1s] make_content_draft             ...
+
+    PASS  4.7s  Pipeline: make_content | mode=write
+
+    --- on failure ---
+
+    FAIL  0.3s
+
+    ERROR: unable to load model: qwen3:4b
+
+    --- Traceback ---
+    Traceback (most recent call last):
+      File "/home/sc/Oathweaver/scripts/routing_smoke.py", line 200, in run_one
+        reply = runner(orch, prompt, on_progress)
+      File "/home/sc/Oathweaver/SourceCode/orchestrator/main.py", line 4511, in handle_message
+        ...
+    RuntimeError: unable to load model: qwen3:4b
+
+--all mode: one live line per lane as it finishes, then a summary table.
+Failed lanes print their full error message and traceback after the table.
+
+    ✓  chat                            2.1s
+    ✓  research                        18.4s
+    ✓  make:blog (Blog Post)           6.2s
+    ✗  make:web_app (Web App)          0.3s
+
+    ============================================================
+      SUMMARY  23/24 passed
+
+      ✓  chat                            2.1s
+      ✓  research                       18.4s
+      ...
+      ✗  make:web_app (Web App)          0.3s
+
+    ============================================================
+      FAILURES
+
+      ✗  make:web_app (Web App)
+         Error: unable to load model: qwen3:4b
+
+         Traceback (most recent call last):
+           File ".../routing_smoke.py", line 200, in run_one
+             reply = runner(orch, prompt, on_progress)
+           File ".../orchestrator/main.py", line 4511, in handle_message
+             ...
+         RuntimeError: unable to load model: qwen3:4b
+    ============================================================
+
+Exit code 0 = all passed. Exit code 1 = one or more failures.

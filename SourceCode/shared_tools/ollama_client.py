@@ -1,5 +1,6 @@
 import json
 import logging
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -49,6 +50,65 @@ class OllamaClient:
         except json.JSONDecodeError as exc:
             raise RuntimeError("Ollama returned non-JSON response") from exc
 
+    def _post_json_stream_chat(
+        self,
+        payload: dict[str, Any],
+        *,
+        timeout: int | float | None = 300,
+        idle_timeout_sec: int | float = 20,
+    ) -> str:
+        url = f"{self.base_url}/api/chat"
+        body = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url=url,
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        overall_timeout = float(timeout) if timeout is not None and float(timeout) > 0 else None
+        inactivity_timeout = max(2.0, float(idle_timeout_sec))
+        request_timeout = inactivity_timeout if overall_timeout is None else min(inactivity_timeout, overall_timeout)
+        started = time.monotonic()
+        chunks: list[str] = []
+        try:
+            with urllib.request.urlopen(req, timeout=request_timeout) as resp:
+                for raw_line in resp:
+                    if overall_timeout is not None and (time.monotonic() - started) > overall_timeout:
+                        raise RuntimeError(
+                            f"Ollama stream timed out after {int(overall_timeout)}s total runtime."
+                        )
+                    line = raw_line.decode("utf-8", errors="ignore").strip()
+                    if not line:
+                        continue
+                    try:
+                        frame = json.loads(line)
+                    except Exception:
+                        continue
+                    message = frame.get("message") or {}
+                    content = message.get("content")
+                    if isinstance(content, str) and content:
+                        chunks.append(content)
+                    if bool(frame.get("done", False)):
+                        break
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"Ollama HTTP {exc.code}: {detail}") from exc
+        except socket.timeout as exc:
+            raise RuntimeError(
+                f"Ollama stream stalled for {int(request_timeout)}s without new tokens."
+            ) from exc
+        except urllib.error.URLError as exc:
+            reason = str(getattr(exc, "reason", "") or exc).lower()
+            if "timed out" in reason or "timeout" in reason:
+                raise RuntimeError(
+                    f"Ollama stream stalled for {int(request_timeout)}s without new tokens."
+                ) from exc
+            raise RuntimeError("Could not connect to Ollama at http://127.0.0.1:11434") from exc
+        text = "".join(chunks).strip()
+        if not text:
+            raise RuntimeError("Ollama returned empty streamed content")
+        return text
+
     def _get_json(self, path: str, timeout: int = 30) -> dict[str, Any]:
         url = f"{self.base_url}{path}"
         req = urllib.request.Request(url=url, method="GET")
@@ -63,10 +123,13 @@ class OllamaClient:
             raise RuntimeError("Ollama returned non-JSON response") from exc
 
     _REASONING_PREFIXES = ("deepseek-r1", "qwen3")
+    _NON_REASONING_PREFIXES = ("qwen3-coder", "qwen3-embedding")
 
     @staticmethod
     def _is_reasoning_model(model_name: str) -> bool:
         low = str(model_name or "").strip().lower().split(":")[0].split("/")[-1]
+        if any(low.startswith(p) for p in OllamaClient._NON_REASONING_PREFIXES):
+            return False
         return any(low.startswith(p) for p in OllamaClient._REASONING_PREFIXES)
 
     def chat(
@@ -129,7 +192,7 @@ class OllamaClient:
         for model_name in models:
             payload: dict[str, Any] = {
                 "model": model_name,
-                "stream": False,
+                "stream": True,
                 "messages": messages,
                 "keep_alive": str(keep_alive) if keep_alive is not None else "10m",
                 "options": {
@@ -146,12 +209,11 @@ class OllamaClient:
 
             for attempt in range(1, attempts + 1):
                 try:
-                    response = self._post_json("/api/chat", payload, timeout=timeout)
-                    message = response.get("message") or {}
-                    content = message.get("content")
-                    if not isinstance(content, str):
-                        raise RuntimeError("Ollama response missing message content")
-                    clean = content.strip()
+                    clean = self._post_json_stream_chat(
+                        payload,
+                        timeout=timeout,
+                        idle_timeout_sec=20,
+                    )
                     if not clean:
                         raise RuntimeError("Ollama returned empty message content")
                     self._record_success(model_name)

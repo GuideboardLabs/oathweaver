@@ -63,11 +63,17 @@ class Entity:
         if not _SNAKE_RE.match(primary_key):
             raise ValueError("primary_key must be snake_case")
         raw_fields = payload.get("fields") or []
-        if not isinstance(raw_fields, list) or not raw_fields:
-            raise ValueError("entity.fields must not be empty")
-        fields = [FieldModel.from_dict(dict(item)) for item in raw_fields if isinstance(item, dict)]
-        if not fields:
-            raise ValueError("entity.fields must not be empty")
+        if not isinstance(raw_fields, list):
+            raise ValueError("entity.fields must be an array")
+        seen_field_names: set[str] = set()
+        fields: list[FieldModel] = []
+        for item in raw_fields:
+            if not isinstance(item, dict):
+                continue
+            f = FieldModel.from_dict(dict(item))
+            if f.name not in seen_field_names:
+                fields.append(f)
+                seen_field_names.add(f.name)
         return cls(name=name, fields=fields, primary_key=primary_key)
 
     def to_dict(self) -> dict[str, Any]:
@@ -99,7 +105,8 @@ class Route:
         handler_name = str(payload.get("handler_name", "")).strip()
         if not _SNAKE_RE.match(handler_name):
             raise ValueError("handler_name must be snake_case")
-        entity = str(payload.get("entity", "")).strip() or None
+        raw_entity = payload.get("entity", "")
+        entity = ("" if raw_entity is None else str(raw_entity)).strip() or None
         summary = str(payload.get("summary", "")).strip()
         if path.endswith("/<int:id>") and method not in {"GET", "PUT", "DELETE"}:
             raise ValueError("id routes must use GET, PUT, or DELETE")
@@ -128,7 +135,8 @@ class View:
         name = str(payload.get("name", "")).strip()
         if not _KEBAB_RE.match(name):
             raise ValueError("view name must be kebab-case")
-        entity = str(payload.get("entity", "")).strip() or None
+        raw_entity = payload.get("entity", "")
+        entity = ("" if raw_entity is None else str(raw_entity)).strip() or None
         purpose = str(payload.get("purpose", "")).strip()
         return cls(name=name, entity=entity, purpose=purpose)
 

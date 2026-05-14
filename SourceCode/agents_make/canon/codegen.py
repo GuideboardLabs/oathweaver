@@ -138,7 +138,24 @@ def _handler_fields(entity: Entity) -> list[str]:
     return [f.name for f in _non_pk_fields(entity)]
 
 
+def _has_field(entity: Entity, name: str) -> bool:
+    return any(field.name == name for field in _non_pk_fields(entity))
+
+
 def _render_list(entity: Entity, route: Route, table: str) -> str:
+    if _has_field(entity, "user_id"):
+        return (
+            f"@app.get(\"{route.path}\")\n"
+            f"def {route.handler_name}():\n"
+            f"    \"\"\"List all {table}, optionally filtered by user_id.\"\"\"\n"
+            "    db = get_db()\n"
+            "    user_id = request.args.get(\"user_id\", type=int)\n"
+            "    if user_id:\n"
+            f"        rows = db.execute(\"SELECT * FROM {table} WHERE user_id = ? ORDER BY id DESC\", (user_id,)).fetchall()\n"
+            "    else:\n"
+            f"        rows = db.execute(\"SELECT * FROM {table} ORDER BY id DESC\").fetchall()\n"
+            "    return ok_items([row_to_dict(row) for row in rows])"
+        )
     return (
         f"@app.get(\"{route.path}\")\n"
         f"def {route.handler_name}():\n"
@@ -260,6 +277,41 @@ def _render_delete(entity: Entity, route: Route, table: str) -> str:
 def _render_generic(route: Route) -> str:
     """Render non-entity route handlers deterministically so required endpoints always exist."""
     method = str(route.method).upper()
+    path = str(route.path).strip()
+    if method == "POST" and path == "/api/signup":
+        return (
+            "@app.post(\"/api/signup\")\n"
+            f"def {route.handler_name}():\n"
+            "    \"\"\"Create a user account and return the created user.\"\"\"\n"
+            "    body = request.get_json(silent=True) or {}\n"
+            "    email = str(body.get(\"email\", \"\")).strip().lower()\n"
+            "    password = str(body.get(\"password\", \"\")).strip()\n"
+            "    if not email or not password:\n"
+            "        return err(\"VALIDATION_ERROR\", \"email and password are required\", status=400)\n"
+            "    db = get_db()\n"
+            "    existing = db.execute(\"SELECT id FROM users WHERE email = ?\", (email,)).fetchone()\n"
+            "    if existing is not None:\n"
+            "        return err(\"CONFLICT\", \"email already exists\", status=409)\n"
+            "    password_hash = generate_password_hash(password)\n"
+            "    cur = db.execute(\"INSERT INTO users (email, password_hash) VALUES (?, ?)\", (email, password_hash))\n"
+            "    db.commit()\n"
+            "    row = db.execute(\"SELECT id, email FROM users WHERE id = ?\", (cur.lastrowid,)).fetchone()\n"
+            "    return ok_item(row_to_dict(row), status=201)"
+        )
+    if method == "POST" and path == "/api/login":
+        return (
+            "@app.post(\"/api/login\")\n"
+            f"def {route.handler_name}():\n"
+            "    \"\"\"Validate a user login and return the user.\"\"\"\n"
+            "    body = request.get_json(silent=True) or {}\n"
+            "    email = str(body.get(\"email\", \"\")).strip().lower()\n"
+            "    password = str(body.get(\"password\", \"\")).strip()\n"
+            "    db = get_db()\n"
+            "    row = db.execute(\"SELECT * FROM users WHERE email = ?\", (email,)).fetchone()\n"
+            "    if row is None or not check_password_hash(row[\"password_hash\"], password):\n"
+            "        return err(\"AUTH_FAILED\", \"invalid email or password\", status=401)\n"
+            "    return ok_item({\"id\": row[\"id\"], \"email\": row[\"email\"]})"
+        )
     by_id = "<int:id>" in str(route.path)
     if method == "GET" and not by_id:
         body = "    return ok_items([])"

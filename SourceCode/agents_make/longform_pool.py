@@ -22,9 +22,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from agents_research.synthesizer import run_skeptic_pass_with_severity
+from core.output_contracts import OutputContract, OutputContractAuditor
 from shared_tools.feedback_learning import FeedbackLearningEngine
 from shared_tools.fidelity_policy import FidelityLevel, fidelity_for, writer_constraint_block, evidence_key_block, critic_fabrication_block, planner_grounding_rule, thin_research_warning
 from shared_tools.inference_router import InferenceRouter
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.loop_controller import run_draft_critique_revise
 from shared_tools.model_routing import lane_model_config
 
@@ -37,6 +39,7 @@ _MODEL_PLANNER    = "qwen3:8b"
 _MODEL_WRITER     = "qwen3:8b"
 _MODEL_CRITIC     = "deepseek-r1:8b"
 _MODEL_COMPOSITOR = "qwen3:8b"
+_CONTRACT_AUDITOR = OutputContractAuditor()
 
 
 def _today() -> str:
@@ -49,6 +52,34 @@ def _trim(text: str, max_chars: int) -> str:
         return body
     cut = body[:max_chars].rsplit("\n", 1)[0].strip()
     return cut or body[:max_chars]
+
+
+def _contract_validator(
+    *,
+    stage: str,
+    required_markers: tuple[str, ...] = tuple(),
+    forbidden_markers: tuple[str, ...] = tuple(),
+    min_chars: int = 0,
+) -> Callable[[str], str | None]:
+    required = tuple(str(x) for x in required_markers if str(x))
+    forbidden = tuple(str(x) for x in forbidden_markers if str(x))
+    contract = OutputContract(stage=stage, must_include=required, must_not_include=forbidden)
+
+    def _validate(text: str) -> str | None:
+        raw = str(text or "").strip()
+        if len(raw) < int(min_chars):
+            return f"{stage}:too_short:{len(raw)}<{int(min_chars)}"
+        payload: dict[str, Any] = {}
+        for marker in required:
+            payload[marker] = marker if marker in raw else ""
+        for marker in forbidden:
+            payload[marker] = marker if marker in raw else ""
+        audit = _CONTRACT_AUDITOR.validate(stage, payload, contract)
+        if audit.ok:
+            return None
+        return f"{stage}:missing={','.join(audit.missing_fields)};forbidden={','.join(audit.forbidden_fields)}"
+
+    return _validate
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +264,8 @@ def _run_planner(
         f"Research context:\n{_trim(research_context, 7000)}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_PLANNER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -243,8 +275,13 @@ def _run_planner(
             timeout=240,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="longform_planner",
+                required_markers=("###",),
+                min_chars=100,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Planner failed: {exc}]"
 
@@ -288,7 +325,8 @@ def _run_section_writer(
         f"\nResearch context:{ev_key}\n{_trim(research_context, 5000)}",
     ])
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt="\n".join(user_prompt_parts),
@@ -298,8 +336,12 @@ def _run_section_writer(
             timeout=300,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="longform_section_writer",
+                min_chars=220,
+            ),
         )
-        return section_name, str(result or "").strip()
+        return section_name, str(result.text or "").strip()
     except Exception as exc:
         return section_name, f"[Section '{section_name}' failed: {exc}]"
 
@@ -330,7 +372,8 @@ def _run_critic(
         "Be blunt. Only flag real problems."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_CRITIC,
             system_prompt=system_prompt,
             user_prompt=f"Original request: {question}\n\nDraft:\n{_trim(assembled, 10000)}{raw_block}",
@@ -340,8 +383,12 @@ def _run_critic(
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=2.0,
+            validator=_contract_validator(
+                stage="longform_critic",
+                min_chars=24,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception:
         return "Approved."
 
@@ -368,7 +415,8 @@ def _run_revisor(
         f"Section to revise:\n{section_body}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -378,8 +426,12 @@ def _run_revisor(
             timeout=240,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="longform_revisor",
+                min_chars=120,
+            ),
         )
-        revised = str(result or "").strip()
+        revised = str(result.text or "").strip()
         return revised if revised and len(revised) >= len(section_body) * 0.4 else section_body
     except Exception:
         return section_body
@@ -418,7 +470,8 @@ def _run_compositor(
         "Return the complete assembled document in markdown. No meta-commentary."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_COMPOSITOR,
             system_prompt=system_prompt,
             user_prompt=f"Original request: {question}\n\n{sections_text}",
@@ -428,8 +481,13 @@ def _run_compositor(
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="longform_compositor",
+                required_markers=("##",),
+                min_chars=320,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         # Fallback: just join sections
         return "\n\n".join(f"## {n}\n\n{b}" for n, b in sections if b)
@@ -718,7 +776,8 @@ def run_longform_pool(
                 "\n".join(f"- {i}" for i in gate_issues) +
                 f"\n\nPlease fix these issues in the document below and return the corrected version:\n\n{_trim(final_body, 12000)}"
             )
-            fixed = client.chat(
+            fix_result = chat_with_self_fix_retry(
+                client,
                 model=_MODEL_COMPOSITOR,
                 system_prompt=f"You are a {type_id.replace('_', ' ')} editor. Fix the issues listed. Return the complete corrected document.",
                 user_prompt=fix_prompt,
@@ -728,8 +787,10 @@ def run_longform_pool(
                 timeout=300,
                 retry_attempts=2,
                 retry_backoff_sec=1.5,
+                max_self_fix_attempts=3,
+                validator=lambda candidate: "\n".join(_quality_gate(candidate, type_id)[1]) or None,
             )
-            fixed = str(fixed or "").strip()
+            fixed = str(fix_result.text or "").strip()
             if fixed and len(fixed) > len(final_body) * 0.8:
                 final_body = fixed
                 passed, gate_issues = _quality_gate(final_body, type_id)

@@ -7,6 +7,8 @@ to a TurboQuant-enabled llama.cpp server; everything else goes through Ollama as
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import threading
 import time
@@ -26,6 +28,9 @@ class InferenceRouter:
     _shared_lock = threading.Lock()
     _shared_backoff_until: dict[str, float] = {}
     _shared_models_cache: dict[str, dict[str, Any]] = {}
+    _shared_response_cache: dict[str, dict[str, Any]] = {}
+    _shared_response_cache_lock = threading.Lock()
+    _MAX_RESPONSE_CACHE_ENTRIES = 300
 
     def __init__(self, repo_root: Path | None = None) -> None:
         self._ollama = OllamaClient()
@@ -133,6 +138,88 @@ class InferenceRouter:
             out.append(key)
         return out
 
+    @staticmethod
+    def _cache_ttl_for_call(*, task_class: str, temperature: float, think: bool | None) -> int:
+        task = str(task_class or "").strip().lower()
+        if task in {"intent", "routing", "classifier"}:
+            return 900
+        if task in {"contract", "contract_retry", "planner", "critic", "reflection"}:
+            return 300
+        if think:
+            return 0
+        if float(temperature or 0.0) <= 0.15:
+            return 120
+        return 0
+
+    @staticmethod
+    def _response_cache_key(
+        *,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        prior_messages: list[dict[str, str]] | None,
+        user_images: list[str] | None,
+        temperature: float,
+        num_ctx: int,
+        think: bool | None,
+        num_predict: int | None,
+        task_class: str,
+    ) -> str:
+        payload = {
+            "model": str(model or ""),
+            "system_prompt": str(system_prompt or ""),
+            "user_prompt": str(user_prompt or ""),
+            "prior_messages": prior_messages or [],
+            "user_images": user_images or [],
+            "temperature": float(temperature or 0.0),
+            "num_ctx": int(num_ctx or 0),
+            "think": bool(think) if think is not None else None,
+            "num_predict": int(num_predict if num_predict is not None else -1),
+            "task_class": str(task_class or "").strip().lower(),
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _cache_get(cls, key: str) -> str | None:
+        now = time.monotonic()
+        with cls._shared_response_cache_lock:
+            row = cls._shared_response_cache.get(key)
+            if not isinstance(row, dict):
+                return None
+            expires_at = float(row.get("expires_at", 0.0) or 0.0)
+            if expires_at <= now:
+                cls._shared_response_cache.pop(key, None)
+                return None
+            value = str(row.get("value", ""))
+            if not value:
+                return None
+            row["last_access_at"] = now
+            return value
+
+    @classmethod
+    def _cache_put(cls, key: str, value: str, ttl_sec: int) -> None:
+        if ttl_sec <= 0:
+            return
+        now = time.monotonic()
+        with cls._shared_response_cache_lock:
+            cls._shared_response_cache[key] = {
+                "value": str(value or ""),
+                "created_at": now,
+                "last_access_at": now,
+                "expires_at": now + max(1, int(ttl_sec)),
+            }
+            if len(cls._shared_response_cache) <= cls._MAX_RESPONSE_CACHE_ENTRIES:
+                return
+            # Evict oldest access first to keep cache bounded.
+            ordered = sorted(
+                cls._shared_response_cache.items(),
+                key=lambda item: float((item[1] or {}).get("last_access_at", 0.0)),
+            )
+            overflow = len(cls._shared_response_cache) - cls._MAX_RESPONSE_CACHE_ENTRIES
+            for idx in range(max(0, overflow)):
+                cls._shared_response_cache.pop(ordered[idx][0], None)
+
     def chat(
         self,
         model: str,
@@ -168,6 +255,29 @@ class InferenceRouter:
             retry_attempts=retry_attempts,
             retry_backoff_sec=retry_backoff_sec,
         )
+        cache_ttl = self._cache_ttl_for_call(
+            task_class=str(task_class or ""),
+            temperature=float(temperature or 0.0),
+            think=think,
+        )
+        cache_key = ""
+        if cache_ttl > 0:
+            cache_key = self._response_cache_key(
+                model=model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                prior_messages=prior_messages,
+                user_images=user_images,
+                temperature=temperature,
+                num_ctx=num_ctx,
+                think=think,
+                num_predict=num_predict,
+                task_class=str(task_class or ""),
+            )
+            cached = self._cache_get(cache_key)
+            if cached is not None:
+                LOGGER.debug("inference_call cache_hit model=%s task_class=%s", model, _task_class)
+                return cached
         errors: list[str] = []
         _call_start = time.perf_counter()
         for _cand_idx, candidate in enumerate(self._candidate_models(model, fallback_models)):
@@ -194,6 +304,8 @@ class InferenceRouter:
                     round(time.perf_counter() - _call_start, 3),
                     _cand_idx + 1, _cand_idx > 0,
                 )
+                if cache_key and cache_ttl > 0 and str(result or "").strip():
+                    self._cache_put(cache_key, str(result), cache_ttl)
                 return result
             except RuntimeError as exc:
                 _attempt_elapsed = round(time.perf_counter() - _attempt_start, 3)
@@ -224,6 +336,8 @@ class InferenceRouter:
                                 round(time.perf_counter() - _call_start, 3),
                                 _cand_idx + 1,
                             )
+                            if cache_key and cache_ttl > 0 and str(result or "").strip():
+                                self._cache_put(cache_key, str(result), cache_ttl)
                             return result
                         except RuntimeError as ollama_exc:
                             errors.append(f"{candidate} via ollama fallback: {ollama_exc}")
@@ -236,6 +350,30 @@ class InferenceRouter:
 
         tail = " | ".join(errors[-8:]) if errors else "No model candidates were available."
         raise RuntimeError(f"InferenceRouter chat failed after routed retries/fallbacks: {tail}")
+
+    def warmup_models(self, models: list[str]) -> None:
+        """Fire lightweight prompts to warm model runtime caches."""
+        for model in models:
+            name = str(model or "").strip()
+            if not name:
+                continue
+            try:
+                self.chat(
+                    name,
+                    "Return exactly: warm",
+                    "warm",
+                    temperature=0.0,
+                    num_ctx=256,
+                    think=False,
+                    timeout=20,
+                    retry_attempts=1,
+                    retry_backoff_sec=0.2,
+                    fallback_models=[],
+                    keep_alive="20m",
+                    task_class="warmup",
+                )
+            except Exception:
+                continue
 
     def wait_for_available(
         self,

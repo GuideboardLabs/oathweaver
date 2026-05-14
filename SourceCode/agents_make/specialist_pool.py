@@ -19,7 +19,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from core.output_contracts import OutputContract, OutputContractAuditor
 from shared_tools.fidelity_policy import FidelityLevel, writer_constraint_block, evidence_key_block, critic_fabrication_block, thin_research_warning
+from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
@@ -27,6 +29,7 @@ _MODEL_OUTLINE    = "qwen3:8b"
 _MODEL_WRITER     = "qwen3:8b"
 _MODEL_CRITIC     = "deepseek-r1:8b"
 _MODEL_COMPOSITOR = "qwen3:8b"
+_CONTRACT_AUDITOR = OutputContractAuditor()
 
 
 def _today() -> str:
@@ -39,6 +42,34 @@ def _trim(text: str, max_chars: int) -> str:
         return body
     cut = body[:max_chars].rsplit("\n", 1)[0].strip()
     return cut or body[:max_chars]
+
+
+def _contract_validator(
+    *,
+    stage: str,
+    required_markers: tuple[str, ...] = tuple(),
+    forbidden_markers: tuple[str, ...] = tuple(),
+    min_chars: int = 0,
+) -> Callable[[str], str | None]:
+    required = tuple(str(x) for x in required_markers if str(x))
+    forbidden = tuple(str(x) for x in forbidden_markers if str(x))
+    contract = OutputContract(stage=stage, must_include=required, must_not_include=forbidden)
+
+    def _validate(text: str) -> str | None:
+        raw = str(text or "").strip()
+        if len(raw) < int(min_chars):
+            return f"{stage}:too_short:{len(raw)}<{int(min_chars)}"
+        payload: dict[str, Any] = {}
+        for marker in required:
+            payload[marker] = marker if marker in raw else ""
+        for marker in forbidden:
+            payload[marker] = marker if marker in raw else ""
+        audit = _CONTRACT_AUDITOR.validate(stage, payload, contract)
+        if audit.ok:
+            return None
+        return f"{stage}:missing={','.join(audit.missing_fields)};forbidden={','.join(audit.forbidden_fields)}"
+
+    return _validate
 
 
 # ---------------------------------------------------------------------------
@@ -200,7 +231,8 @@ def _run_outline(
         "Focus on the literal request and supplied research only."
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_OUTLINE,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -210,8 +242,13 @@ def _run_outline(
             timeout=300,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="specialist_outline",
+                required_markers=("###",),
+                min_chars=100,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception:
         return "\n".join(f"### {name}\n{hint}" for name, hint in sections)
 
@@ -246,7 +283,8 @@ def _run_section_writer(
         f"{sources_block}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -256,8 +294,12 @@ def _run_section_writer(
             timeout=300,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="specialist_section_writer",
+                min_chars=220,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Section generation failed: {exc}]"
 
@@ -286,7 +328,8 @@ def _run_domain_critic(
         f"{fabrication_block}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_CRITIC,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -296,8 +339,12 @@ def _run_domain_critic(
             timeout=420,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="specialist_domain_critic",
+                min_chars=24,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception as exc:
         return f"[Domain critic failed: {exc}]"
 
@@ -319,7 +366,8 @@ def _run_section_revision(
         f"Critic notes:\n{_trim(critic_notes, 1500)}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_WRITER,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -329,8 +377,12 @@ def _run_section_revision(
             timeout=240,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            validator=_contract_validator(
+                stage="specialist_section_revision",
+                min_chars=120,
+            ),
         )
-        return str(result or "").strip() or section_text
+        return str(result.text or "").strip() or section_text
     except Exception:
         return section_text
 
@@ -365,7 +417,8 @@ def _run_compositor(
         f"Sections to assemble:\n\n{assembled}"
     )
     try:
-        result = client.chat(
+        result = chat_with_self_fix_retry(
+            client,
             model=_MODEL_COMPOSITOR,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -375,8 +428,13 @@ def _run_compositor(
             timeout=480,
             retry_attempts=4,
             retry_backoff_sec=2.0,
+            validator=_contract_validator(
+                stage="specialist_compositor",
+                required_markers=("##",),
+                min_chars=320,
+            ),
         )
-        return str(result or "").strip()
+        return str(result.text or "").strip()
     except Exception:
         fallback_lines = [f"# {question[:80]}", ""]
         for name, _ in sections:
@@ -539,7 +597,8 @@ def run_specialist_pool(
             "Return the complete corrected document in markdown. Do not truncate."
         )
         try:
-            fixed = client.chat(
+            fixed = chat_with_self_fix_retry(
+                client,
                 model=_MODEL_COMPOSITOR,
                 system_prompt=fix_system,
                 user_prompt=f"Document to fix:\n{_trim(final_body, 16000)}",
@@ -549,8 +608,12 @@ def run_specialist_pool(
                 timeout=300,
                 retry_attempts=2,
                 retry_backoff_sec=1.5,
+                validator=_contract_validator(
+                    stage="specialist_quality_fix",
+                    min_chars=220,
+                ),
             )
-            fixed_str = str(fixed or "").strip()
+            fixed_str = str(fixed.text or "").strip()
             if fixed_str and len(fixed_str) >= len(final_body) * 0.6:
                 final_body = fixed_str
         except Exception:

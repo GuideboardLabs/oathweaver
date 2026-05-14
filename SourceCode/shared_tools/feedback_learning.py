@@ -13,6 +13,7 @@ from shared_tools.db import connect, row_to_dict, transaction
 from shared_tools.migrations import initialize_database
 from shared_tools.inference_router import InferenceRouter
 from shared_tools.ollama_client import OllamaClient
+from shared_tools.continuous_improvement import ContinuousImprovementEngine
 
 
 ORIGIN_MANUAL_FEEDBACK = "manual_feedback"
@@ -104,6 +105,86 @@ class FeedbackLearningEngine:
 
         initialize_database(repo_root)
         self.lock = Lock()
+        # Consolidation bridge: keep continuous-quality scoring behind the same
+        # runtime engine surface used for lesson extraction.
+        self._continuous = ContinuousImprovementEngine(repo_root)
+
+    # ------------------------------------------------------------------
+    # Consolidated improvement-engine surface (delegates to continuous engine)
+    # ------------------------------------------------------------------
+
+    def is_enabled(self) -> bool:
+        return self._continuous.is_enabled()
+
+    def should_refresh_facts(
+        self,
+        *,
+        project: str,
+        history_user_count: int,
+        facts_count: int,
+        facts_updated_at: str | None,
+    ) -> tuple[bool, str]:
+        return self._continuous.should_refresh_facts(
+            project=project,
+            history_user_count=history_user_count,
+            facts_count=facts_count,
+            facts_updated_at=facts_updated_at,
+        )
+
+    def note_fact_refresh(self, *, project: str, reason: str, refresh_result: dict[str, Any]) -> None:
+        self._continuous.note_fact_refresh(project=project, reason=reason, refresh_result=refresh_result)
+
+    def evaluate_turn(
+        self,
+        *,
+        user_text: str,
+        assistant_text: str,
+        lane: str,
+        worker_result: dict[str, Any] | None,
+        context_feedback: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._continuous.evaluate_turn(
+            user_text=user_text,
+            assistant_text=assistant_text,
+            lane=lane,
+            worker_result=worker_result,
+            context_feedback=context_feedback,
+        )
+
+    def decide_reinforcement_direction(self, score: float) -> str:
+        return self._continuous.decide_reinforcement_direction(score)
+
+    def should_trigger_reflection(self, score: float) -> bool:
+        return self._continuous.should_trigger_reflection(score)
+
+    def note_turn(
+        self,
+        *,
+        project: str,
+        lane: str,
+        quality_score: float,
+        outcome: str,
+        notes: list[str] | None = None,
+        context_score: float = 0.5,
+        reinforcement_direction: str = "",
+        reinforcement_lesson_id: str = "",
+    ) -> None:
+        self._continuous.note_turn(
+            project=project,
+            lane=lane,
+            quality_score=quality_score,
+            outcome=outcome,
+            notes=notes,
+            context_score=context_score,
+            reinforcement_direction=reinforcement_direction,
+            reinforcement_lesson_id=reinforcement_lesson_id,
+        )
+
+    def status_snapshot(self, project: str) -> dict[str, Any]:
+        return self._continuous.status_snapshot(project)
+
+    def status_text(self, project: str) -> str:
+        return self._continuous.status_text(project)
 
     def _get_conn(self):
         return connect(self.repo_root)
