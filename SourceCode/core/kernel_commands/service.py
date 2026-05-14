@@ -11,6 +11,11 @@ from benchmarks.paths import default_cag_bench_results_root
 from cag.memory_store import CAGMemoryStore
 from orchestrator.main import OathweaverOrchestrator
 from orchestrator.pipelines import replay_turn
+from shared_tools.hardware_profiles import (
+    hardware_profile_summary,
+    hardware_profile_to_scheduler,
+    resolve_active_hardware_profile,
+)
 
 
 class KernelCommandService:
@@ -226,11 +231,19 @@ class KernelCommandService:
         return evaluator.evaluate_run(run_id=target_run, hardware_profile_name=hardware_profile)
 
     def apply_hardware_profile(self, *, profile_name: str = "8gb_vram_16gb_ram") -> dict[str, Any]:
+        active = resolve_active_hardware_profile(self.repo_root, profile_name)
+        summary = hardware_profile_summary(active)
+        if hasattr(self.orchestrator, "resource_budget_manager"):
+            self.orchestrator.resource_budget_manager.profile = hardware_profile_to_scheduler(active)
+        if hasattr(self.orchestrator, "hardware_profile"):
+            self.orchestrator.hardware_profile = active
+        if not summary.get("resolution_warnings"):
+            return {"ok": True, "profile": summary}
+
         profile = profile_by_name(profile_name)
-        # Phase-12 guarantee: scheduler and context budget honor benchmark profile.
         if hasattr(self.orchestrator, "resource_budget_manager"):
             self.orchestrator.resource_budget_manager.profile = profile.to_scheduler_profile()
-        return {"ok": True, "profile": profile.as_dict()}
+        return {"ok": True, "profile": profile.as_dict(), "warnings": summary.get("resolution_warnings", [])}
 
     def stage_resume(
         self,
