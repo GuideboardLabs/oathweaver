@@ -25,6 +25,11 @@ from shared_tools.context_policy import analyze_query_context, build_context_usa
 from shared_tools.domain_reputation import DomainReputation
 from shared_tools.feedback_learning import ORIGIN_REFLECTION
 from shared_tools.handoff_queue import HandoffQueue
+from shared_tools.hardware_profiles import (
+    hardware_profile_summary,
+    hardware_profile_to_scheduler,
+    resolve_active_hardware_profile,
+)
 from shared_tools.model_routing import load_model_routing, lane_model_config
 from shared_tools.inference_router import InferenceRouter
 from shared_tools.web_research import build_web_progress_payload
@@ -266,7 +271,10 @@ class OathweaverOrchestrator:
         self.model_runtime = build_model_runtime(repo_root)
         self.context_pack_store = ContextPackStore(repo_root)
         self.context_compiler = ContextCompiler(context_pack_store=self.context_pack_store)
-        self.resource_budget_manager = ResourceBudgetManager()
+        self.hardware_profile = resolve_active_hardware_profile(repo_root)
+        self.resource_budget_manager = ResourceBudgetManager(
+            profile=hardware_profile_to_scheduler(self.hardware_profile)
+        )
         self.specialist_registry = SpecialistRegistry()
         self.bench_manager = BenchManager(repo_root)
         self.on_deck_runtime = OnDeckRuntime(
@@ -685,7 +693,7 @@ class OathweaverOrchestrator:
             "mode": mode,
             "history": list(history or []),
             "hardware_token_budget": adaptive_stage_budget,
-            "hardware_profile": self.resource_budget_manager.profile.as_dict(),
+            "hardware_profile": hardware_profile_summary(self.hardware_profile),
         }
         scratch: dict[str, Any] = {
             "web_note": "",
@@ -1167,7 +1175,7 @@ class OathweaverOrchestrator:
                 "stage_outputs": dict(stage_outputs),
                 "stage_audits": dict(stage_audits),
                 "stage_timings_ms": dict(stage_timings_ms),
-                "hardware_profile": self.resource_budget_manager.profile.as_dict(),
+                "hardware_profile": hardware_profile_summary(self.hardware_profile),
                 "promoted_memory_ids": list(promoted_memory_ids),
                 "started_at": started_at,
                 "finished_at": finished_at,
@@ -1267,7 +1275,7 @@ class OathweaverOrchestrator:
                 stage_outputs=stage_outputs,
                 stage_audits=stage_audits,
                 stage_timings_ms=stage_timings_ms,
-                hardware_profile=self.resource_budget_manager.profile.as_dict(),
+                hardware_profile=hardware_profile_summary(self.hardware_profile),
                 promoted_memory_ids=promoted_memory_ids,
                 started_at=started_at,
                 finished_at=finished_at,

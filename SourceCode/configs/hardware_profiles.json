@@ -1,0 +1,52 @@
+{
+  "default_profile": "8gb_vram_16gb_ram",
+  "profiles": {
+    "8gb_vram_16gb_ram": {
+      "name": "8gb_vram_16gb_ram",
+      "display_name": "Default: 8GB VRAM / 16GB RAM",
+      "description": "Conservative default local profile.",
+      "hardware": {
+        "system_ram_gb": 16,
+        "gpu_backend": "generic",
+        "gpu_vram_gb": 8,
+        "unified_memory": false
+      },
+      "scheduler": {
+        "max_context_tokens": 4096,
+        "warning_context_tokens": 4096,
+        "max_stage_context_tokens": 1800,
+        "max_parallel_models": 1,
+        "max_active_model_calls": 1,
+        "on_deck_depth": 1,
+        "warm_depth": 1,
+        "allow_neural_prefetch": true
+      },
+      "inference": {
+        "preferred_backends": ["ollama", "llama.cpp"],
+        "default_keep_alive": "10m",
+        "heavy_keep_alive": "0",
+        "release_heavy_after_call": true,
+        "max_loaded_models": 1
+      },
+      "model_policy": {
+        "normal_max_b": 9,
+        "heavy_max_b": 14,
+        "premium_min_b": 24,
+        "allow_premium": false,
+        "premium_requires_manual": true,
+        "allow_14b_with_warning": true,
+        "reject_heavier_fallbacks": false
+      },
+      "lane_caps": {},
+      "validation": {
+        "startup_mode": "warn",
+        "strict_mode_available": true,
+        "warn_on_missing_models": true,
+        "warn_on_unreachable_backends": true,
+        "warn_on_context_over_cap": true,
+        "warn_on_parallelism_over_cap": true,
+        "warn_on_premium_auto_escalation": true
+      }
+    }
+  }
+}

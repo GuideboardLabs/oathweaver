@@ -18,6 +18,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from shared_tools.hardware_profiles import active_router_policy_from_env, hardware_profile_to_router_policy
 from shared_tools.llamacpp_client import LlamaCppClient
 from shared_tools.model_routing import load_model_routing
 from shared_tools.ollama_client import OllamaClient
@@ -591,6 +592,8 @@ class InferenceRouter:
         profile: dict[str, Any] | str | None = None,
     ) -> dict[str, Any]:
         """Conservative policy estimate, not a hardware memory calculator."""
+        if profile is None:
+            profile = active_router_policy_from_env(self.repo_root)
         name = str(model or "").strip()
         caps = self.capabilities(name)
         warnings: list[str] = []
@@ -695,10 +698,31 @@ class InferenceRouter:
             "warnings": warnings,
         }
 
-    def validate_config(self, *, strict: bool = False, check_remote: bool = True) -> dict[str, Any]:
+    def validate_config(
+        self,
+        *,
+        strict: bool = False,
+        check_remote: bool = True,
+        profile: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         errors: list[str] = []
         warnings: list[str] = []
         referenced = self._configured_model_names()
+        profile_policy: dict[str, Any] | None = None
+        if isinstance(profile, dict):
+            if "scheduler" in profile or "model_policy" in profile:
+                profile_policy = hardware_profile_to_router_policy(profile)
+            else:
+                profile_policy = dict(profile)
+        else:
+            profile_policy = active_router_policy_from_env(self.repo_root)
+        profile_name = str((profile_policy or {}).get("name") or "").strip()
+        max_context = int((profile_policy or {}).get("max_context") or 32768)
+        warning_context = int((profile_policy or {}).get("warning_context") or 16384)
+        max_concurrency = int((profile_policy or {}).get("max_concurrency") or 2)
+        allow_premium = bool((profile_policy or {}).get("allow_premium", False))
+        lane_caps = (profile_policy or {}).get("lane_caps")
+        lane_caps = lane_caps if isinstance(lane_caps, dict) else {}
 
         servers = self._routing.get("llama_cpp_servers")
         if servers is not None and not isinstance(servers, dict):
@@ -747,16 +771,50 @@ class InferenceRouter:
                 ctx = int(cfg.get("num_ctx") or 0)
             except Exception:
                 ctx = 0
-            if ctx > 32768:
-                errors.append(f"{path}.num_ctx={ctx} exceeds the default hard cap 32768.")
-            elif ctx > 16384:
-                warnings.append(f"{path}.num_ctx={ctx} exceeds the conservative local warning threshold 16384.")
+            if ctx > max_context:
+                if profile_name:
+                    warnings.append(f"{path}.num_ctx={ctx} exceeds hardware profile {profile_name} cap {max_context}.")
+                else:
+                    errors.append(f"{path}.num_ctx={ctx} exceeds the default hard cap 32768.")
+            elif ctx > warning_context:
+                if profile_name:
+                    warnings.append(
+                        f"{path}.num_ctx={ctx} exceeds hardware profile {profile_name} warning threshold {warning_context}."
+                    )
+                else:
+                    warnings.append(f"{path}.num_ctx={ctx} exceeds the conservative local warning threshold 16384.")
             try:
                 parallel = int(cfg.get("parallel_agents") or 0)
             except Exception:
                 parallel = 0
-            if parallel > 2:
-                warnings.append(f"{path}.parallel_agents={parallel} exceeds the conservative local default 2.")
+            if parallel > max_concurrency:
+                if profile_name:
+                    warnings.append(
+                        f"{path}.parallel_agents={parallel} exceeds hardware profile {profile_name} concurrency {max_concurrency}."
+                    )
+                else:
+                    warnings.append(f"{path}.parallel_agents={parallel} exceeds the conservative local default 2.")
+            lane_key = str(path).split(".", 1)[0]
+            cap = lane_caps.get(lane_key)
+            cap = cap if isinstance(cap, dict) else {}
+            try:
+                lane_max_ctx = int(cap.get("max_context_tokens") or 0)
+            except Exception:
+                lane_max_ctx = 0
+            if lane_max_ctx and ctx > lane_max_ctx:
+                warnings.append(f"{path}.num_ctx={ctx} exceeds {profile_name or 'profile'} lane cap {lane_max_ctx}.")
+            try:
+                lane_max_parallel = int(cap.get("max_parallel_agents") or 0)
+            except Exception:
+                lane_max_parallel = 0
+            if lane_max_parallel and parallel > lane_max_parallel:
+                warnings.append(
+                    f"{path}.parallel_agents={parallel} exceeds {profile_name or 'profile'} lane cap {lane_max_parallel}."
+                )
+            if cap.get("allow_premium") is False and (primary in premium_models or self._weight_class(primary) == "premium"):
+                warnings.append(f"{path}.model uses premium model {primary}, but {profile_name or 'profile'} lane policy disallows premium.")
+            if profile_name and not allow_premium and (primary in premium_models or self._weight_class(primary) == "premium"):
+                warnings.append(f"{path}.model uses premium model {primary}, but hardware profile {profile_name} disallows premium.")
 
         if check_remote:
             backends = self.list_backends()
@@ -785,6 +843,7 @@ class InferenceRouter:
             "errors": errors,
             "warnings": warnings,
             "model_count": len(referenced),
+            "profile": profile_name,
         }
 
     def explain_route(
