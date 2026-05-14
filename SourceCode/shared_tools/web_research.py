@@ -9,6 +9,7 @@ import sqlite3
 import time
 from collections import deque
 from html.parser import HTMLParser
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -42,8 +43,10 @@ class _InMemoryResponse:
         self.status = 200
         self.headers: dict[str, Any] = {}
 
-    def read(self) -> bytes:
-        return bytes(self._payload)
+    def read(self, amt: int = -1) -> bytes:
+        if amt is None or int(amt) < 0:
+            return bytes(self._payload)
+        return bytes(self._payload[: max(0, int(amt))])
 
     def __enter__(self):
         return self
@@ -53,6 +56,55 @@ class _InMemoryResponse:
         _ = exc
         _ = tb
         return False
+
+
+class _CappedResponse:
+    def __init__(self, response: Any, max_bytes: int) -> None:
+        self._response = response
+        self._max_bytes = max(1, int(max_bytes))
+        self._consumed = 0
+
+    def read(self, amt: int = -1) -> bytes:
+        remaining = self._max_bytes - self._consumed
+        if remaining <= 0:
+            return b""
+        read_size = remaining if amt is None or int(amt) < 0 else min(int(amt), remaining)
+        chunk = self._response.read(read_size)
+        try:
+            consumed = len(chunk)
+        except Exception:
+            consumed = 0
+        self._consumed += consumed
+        return chunk
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._response, name)
+
+    def __enter__(self):
+        self._response.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        return bool(self._response.__exit__(exc_type, exc, tb))
+
+
+class _LimitedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def __init__(self, max_redirects: int) -> None:
+        super().__init__()
+        self._max_redirects = max(1, int(max_redirects))
+        self._redirect_count = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        self._redirect_count += 1
+        if self._redirect_count > self._max_redirects:
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                f"Too many redirects ({self._max_redirects})",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class _PageExtractor(HTMLParser):
@@ -1129,6 +1181,18 @@ class WebResearchEngine:
 
         Requires PySocks (pip install PySocks) for SOCKS5 support.
         """
+        effective_settings = settings or self._load_settings()
+        try:
+            max_response_bytes = int(effective_settings.get("max_response_bytes", 5_000_000))
+        except (TypeError, ValueError):
+            max_response_bytes = 5_000_000
+        max_response_bytes = max(64_000, min(max_response_bytes, 20_000_000))
+        try:
+            max_redirects = int(effective_settings.get("max_redirects", 5))
+        except (TypeError, ValueError):
+            max_redirects = 5
+        max_redirects = max(1, min(max_redirects, 10))
+
         try:
             routing = load_model_routing(self.repo_root)
             use_fetch_mcp = bool(routing.get("mcp.use_fetch", False)) if isinstance(routing, dict) else False
@@ -1147,11 +1211,12 @@ class WebResearchEngine:
                 except Exception:
                     body = None
                 if isinstance(body, (bytes, bytearray)):
-                    return _InMemoryResponse(bytes(body))
+                    return _InMemoryResponse(bytes(body[:max_response_bytes]))
 
         _tor = use_tor if use_tor is not None else self._tor_active
+        redirect_handler = _LimitedRedirectHandler(max_redirects=max_redirects)
         if _tor:
-            _s = settings or self._load_settings()
+            _s = effective_settings
             if _s.get("tor_proxy_enabled", False):
                 proxy_url = str(_s.get("tor_proxy_url", "socks5h://127.0.0.1:9050")).strip()
                 multiplier = float(_s.get("tor_timeout_multiplier", 2.5))
@@ -1160,11 +1225,15 @@ class WebResearchEngine:
                     "http": proxy_url,
                     "https": proxy_url,
                 })
-                opener = urllib.request.build_opener(proxy_handler)
-                return opener.open(req, timeout=max(timeout, 1))
+                opener = urllib.request.build_opener(proxy_handler, redirect_handler)
+                response = opener.open(req, timeout=max(timeout, 1))
+                return _CappedResponse(response, max_bytes=max_response_bytes)
+        opener = urllib.request.build_opener(redirect_handler)
         if timeout <= 0:
-            return urllib.request.urlopen(req)
-        return urllib.request.urlopen(req, timeout=timeout)
+            response = opener.open(req)
+            return _CappedResponse(response, max_bytes=max_response_bytes)
+        response = opener.open(req, timeout=timeout)
+        return _CappedResponse(response, max_bytes=max_response_bytes)
 
     def get_mode(self) -> str:
         with self.lock:

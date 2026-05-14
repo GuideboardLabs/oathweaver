@@ -53,6 +53,7 @@ from shared_tools.web_push import (
     subscribe_user as subscribe_web_push_user,
     unsubscribe_user as unsubscribe_web_push_user,
 )
+from shared_tools.secret_files import write_secret_text
 
 from web_gui.routes import (
     create_chat_blueprint,
@@ -123,9 +124,8 @@ def _load_or_create_secret(path: Path) -> str:
                 return value
     except OSError:
         pass
-    path.parent.mkdir(parents=True, exist_ok=True)
     value = secrets.token_urlsafe(48)
-    path.write_text(value, encoding="utf-8")
+    write_secret_text(path, value)
     return value
 
 
@@ -162,8 +162,8 @@ def create_app() -> Flask:
         session_secret = _load_or_create_secret(ROOT / "Runtime" / "web" / "session_secret.txt")
     app.secret_key = session_secret
     app.config["SESSION_COOKIE_HTTPONLY"] = True
-    app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-    app.config["SESSION_COOKIE_SECURE"] = False
+    app.config["SESSION_COOKIE_SAMESITE"] = "Strict"
+    app.config["SESSION_COOKIE_SECURE"] = str(os.getenv("OATHWEAVER_HTTPS", "false")).strip().lower() in {"1", "true", "yes", "on"}
     _session_hours = max(1, int(os.environ.get("OATHWEAVER_SESSION_HOURS", "24")))
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=_session_hours)
 
@@ -242,7 +242,7 @@ if __name__ == "__main__":
     # so bots connect immediately on startup rather than waiting for the first web request.
     _ensure_background_services_started(app)
 
-    host = os.environ.get("OATHWEAVER_WEB_HOST", "0.0.0.0").strip() or "0.0.0.0"
+    host = os.environ.get("OATHWEAVER_WEB_HOST", "127.0.0.1").strip() or "127.0.0.1"
     try:
         port = int(os.environ.get("OATHWEAVER_WEB_PORT", "5050").strip())
     except ValueError:

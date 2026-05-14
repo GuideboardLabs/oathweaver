@@ -848,5 +848,38 @@ class WatchtowerEngine:
             chars_used += len(entry) + 1
         return "\n".join(lines) if len(lines) > 1 else ""
 
+    def recent_queued_card_context(self, limit: int = 2, max_chars: int = 600) -> str:
+        try:
+            cards = self.list_cards(limit=max(10, limit * 4), status="queued")
+        except Exception:
+            return ""
+        if not cards:
+            return ""
+        lines: list[str] = ["[Watchtower — queued research cards]"]
+        chars_used = len(lines[0])
+        for row in cards[: max(1, int(limit))]:
+            title = str(row.get("title", "")).strip() or "Watchtower card"
+            summary = str(row.get("summary", "")).strip()
+            scope = row.get("scope", {}) if isinstance(row.get("scope", {}), dict) else {}
+            domain = str(scope.get("domain", "")).strip()
+            topic = str(scope.get("topic", "")).strip()
+            scope_hint = " / ".join([x for x in (domain, topic) if x]) or str(row.get("scope_level", "")).strip()
+            entry = f"• {title}"
+            if scope_hint:
+                entry += f" ({scope_hint})"
+            if summary:
+                entry += f"\n  {summary}"
+            if chars_used + len(entry) + 1 > max_chars:
+                break
+            lines.append(entry)
+            chars_used += len(entry) + 1
+        return "\n".join(lines) if len(lines) > 1 else ""
+
     def recent_research_card_context(self, limit: int = 2, max_chars: int = 600) -> str:
-        return self.recent_briefing_context(limit=limit, max_chars=max_chars)
+        briefing = self.recent_briefing_context(limit=limit, max_chars=max_chars)
+        remaining = max(120, max_chars - len(briefing)) if briefing else max_chars
+        queued = self.recent_queued_card_context(limit=limit, max_chars=remaining)
+        if briefing and queued:
+            combined = briefing + "\n\n" + queued
+            return combined[:max_chars].rstrip()
+        return briefing or queued

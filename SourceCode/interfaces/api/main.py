@@ -13,7 +13,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=11435)
     args = parser.parse_args()
 
-    app = create_openai_compatible_app(Path(args.repo_root).resolve())
+    app = create_openai_compatible_app(Path(args.repo_root).resolve(), bind_host=str(args.host))
     app.run(host=str(args.host), port=int(args.port), debug=False)
 
 

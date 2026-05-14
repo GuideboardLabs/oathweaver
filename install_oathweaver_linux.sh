@@ -20,6 +20,11 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEARX_SETTINGS="$REPO_ROOT/Runtime/services/searxng/settings.yml"
 UBUNTU_CODENAME="$(lsb_release -cs 2>/dev/null || echo 'noble')"
+INSTALL_LIB="$REPO_ROOT/tools/install/lib.sh"
+if [[ -f "$INSTALL_LIB" ]]; then
+    # shellcheck disable=SC1090
+    source "$INSTALL_LIB"
+fi
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -236,7 +241,16 @@ step "Step 3/9 — Installing Ollama..."
 if ! command_exists ollama; then
     info "Downloading and running the official Ollama install script..."
     info "(Ollama auto-detects CUDA or ROCm if installed — no extra config needed.)"
-    curl -fsSL https://ollama.com/install.sh | sh
+    OLLAMA_INSTALL_URL="${OATHWEAVER_OLLAMA_INSTALL_URL:-https://ollama.com/install.sh}"
+    OLLAMA_INSTALL_SHA256="${OATHWEAVER_OLLAMA_INSTALL_SHA256:-25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f}"
+    if [[ -n "$OLLAMA_INSTALL_SHA256" ]] && ! declare -F ow_verify_sha256 >/dev/null 2>&1; then
+        die "Checksum pinning requested but tools/install/lib.sh is unavailable."
+    fi
+    if declare -F ow_install_ollama_script >/dev/null 2>&1; then
+        ow_install_ollama_script "$OLLAMA_INSTALL_URL" "$OLLAMA_INSTALL_SHA256" || die "Ollama installer failed."
+    else
+        curl -fsSL "$OLLAMA_INSTALL_URL" | sh
+    fi
     success "Ollama installed."
 else
     success "Ollama already installed: $(ollama --version 2>/dev/null || echo 'unknown version')"
@@ -247,6 +261,15 @@ if ! systemctl is-active --quiet ollama 2>/dev/null; then
     info "Starting Ollama service..."
     sudo systemctl enable --now ollama
 fi
+
+info "Applying Ollama loopback-only bind (127.0.0.1:11434) for safer default access..."
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+sudo tee /etc/systemd/system/ollama.service.d/oathweaver.conf >/dev/null <<'EOF'
+[Service]
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart ollama
 
 # Wait for the Ollama API to be reachable
 info "Waiting for Ollama API to be ready..."
@@ -281,7 +304,14 @@ if [[ ! -d "$VENV_DIR" ]]; then
 fi
 PYTHON_BIN="$VENV_DIR/bin/python"
 "$PYTHON_BIN" -m pip install --upgrade pip -q
-"$PYTHON_BIN" -m pip install -r "$REQUIREMENTS" -q
+if declare -F ow_install_python_requirements >/dev/null 2>&1; then
+    if [[ "$REQUIREMENTS" == *"requirements.lock" ]] && ! grep -q -- "--hash=" "$REQUIREMENTS"; then
+        warn "requirements.lock has no hashes. Regenerate via ./tools/install/regenerate_hashed_lock.sh (or set OATHWEAVER_ALLOW_UNHASHED_LOCK=1)."
+    fi
+    ow_install_python_requirements "$PYTHON_BIN" "$REQUIREMENTS" "1"
+else
+    "$PYTHON_BIN" -m pip install -r "$REQUIREMENTS" -q
+fi
 success "Python dependencies installed in .venv"
 
 # ------------------------------------------------------------------------------

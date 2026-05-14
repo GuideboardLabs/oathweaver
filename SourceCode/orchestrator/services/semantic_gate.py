@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import hmac
 import hashlib
 import json
 import logging
 import math
-import pickle
+import secrets
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
 from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
+from shared_tools.secret_files import ensure_secret_mode, write_secret_text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -61,7 +63,9 @@ class SemanticGate:
         embed_cfg = lane_model_config(repo_root, "embeddings")
         self.embed_model = str(embed_cfg.get("model", "qwen3-embedding:4b")).strip() or "qwen3-embedding:4b"
         self._client = OllamaClient()
-        self._cache_path = repo_root / "Runtime" / "routing" / "semantic_routes.pkl"
+        self._cache_path = repo_root / "Runtime" / "routing" / "semantic_routes.json"
+        self._legacy_cache_path = repo_root / "Runtime" / "routing" / "semantic_routes.pkl"
+        self._hmac_key_path = repo_root / "Runtime" / "state" / "semantic_routes_hmac.key"
         self._cache_path.parent.mkdir(parents=True, exist_ok=True)
         self._index_lock = Lock()
         self._index: dict[str, list[tuple[str, list[float]]]] = {}
@@ -132,10 +136,17 @@ class SemanticGate:
 
     def _try_load_cache(self) -> bool:
         if not self._cache_path.exists():
+            # Explicitly ignore the legacy pickle cache and rebuild safely.
+            if self._legacy_cache_path.exists():
+                LOGGER.info("SemanticGate rebuilding legacy pickle cache as signed JSON.")
             return False
         try:
-            with self._cache_path.open("rb") as fh:
-                payload = pickle.load(fh)
+            raw = self._cache_path.read_bytes()
+            mac_hex, payload_json = raw.split(b"\n", 1)
+            expected = hmac.new(self._hmac_key(), payload_json, hashlib.sha256).hexdigest().encode("ascii")
+            if not hmac.compare_digest(mac_hex.strip(), expected):
+                return False
+            payload = json.loads(payload_json.decode("utf-8"))
             if not isinstance(payload, dict):
                 return False
             if str(payload.get("signature", "")) != self._signature:
@@ -149,7 +160,7 @@ class SemanticGate:
                     continue
                 valid_rows: list[tuple[str, list[float]]] = []
                 for item in rows:
-                    if not isinstance(item, tuple) or len(item) != 2:
+                    if not isinstance(item, (list, tuple)) or len(item) != 2:
                         continue
                     phrase, vec = item
                     if not isinstance(phrase, str) or not isinstance(vec, list):
@@ -174,13 +185,30 @@ class SemanticGate:
                 "signature": self._signature,
                 "index": self._index,
             }
+        payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8")
+        mac_hex = hmac.new(self._hmac_key(), payload_json, hashlib.sha256).hexdigest()
+        body = f"{mac_hex}\n".encode("ascii") + payload_json
         tmp = self._cache_path.with_suffix(".tmp")
         try:
-            with tmp.open("wb") as fh:
-                pickle.dump(payload, fh)
+            write_secret_text(tmp, body.decode("utf-8"))
             tmp.replace(self._cache_path)
+            ensure_secret_mode(self._cache_path)
         except Exception:
             try:
                 tmp.unlink(missing_ok=True)
             except Exception:
                 pass
+
+    def _hmac_key(self) -> bytes:
+        try:
+            if self._hmac_key_path.exists():
+                key_hex = self._hmac_key_path.read_text(encoding="utf-8").strip()
+                key = bytes.fromhex(key_hex)
+                if key:
+                    ensure_secret_mode(self._hmac_key_path)
+                    return key
+        except Exception:
+            pass
+        key = secrets.token_bytes(32)
+        write_secret_text(self._hmac_key_path, key.hex())
+        return key

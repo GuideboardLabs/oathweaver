@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from cag.memory_store import CAGMemoryStore
 from shared_tools.conversation_store import ConversationStore
+from shared_tools.topic_memory import TopicMemory
 
 MemoryCategory = Literal["episodic", "semantic", "procedural"]
 _TOKEN_RE = re.compile(r"[a-z0-9]{3,}")
@@ -100,6 +101,7 @@ class CAGMemoryFacade:
         self.repo_root = Path(repo_root)
         self.store = CAGMemoryStore(self.repo_root)
         self.conversation_store = ConversationStore(self.repo_root)
+        self.topic_memory = TopicMemory(self.repo_root)
 
     @staticmethod
     def _status_for_category(category: MemoryCategory) -> list[str]:
@@ -194,6 +196,71 @@ class CAGMemoryFacade:
             )
         return out
 
+    def _records_from_topic_memory(self, query: str) -> list[MemoryRecord]:
+        query_tokens = _tokens(query)
+        if not query_tokens:
+            return []
+        out: list[MemoryRecord] = []
+        try:
+            topics = self.topic_memory.list_topics()
+        except Exception:
+            return []
+        for meta in topics[:200]:
+            if int(meta.get("canon_count", 0) or 0) <= 0:
+                continue
+            topic_key = _clean_text(meta.get("key", ""))
+            if not topic_key:
+                continue
+            title = _clean_text(meta.get("title", topic_key)) or topic_key
+            subtopics = [
+                _clean_text(x)
+                for x in (meta.get("subtopics", []) if isinstance(meta.get("subtopics", []), list) else [])
+                if _clean_text(x)
+            ]
+            topic_haystack = " ".join([topic_key, title, " ".join(subtopics)])
+            topic_tokens = _tokens(topic_haystack)
+            overlap = len(query_tokens & topic_tokens)
+            if overlap <= 0:
+                continue
+            try:
+                topic = self.topic_memory.get_topic(topic_key) or {}
+            except Exception:
+                topic = {}
+            facts = topic.get("facts", []) if isinstance(topic.get("facts", []), list) else []
+            for fact in facts:
+                if not isinstance(fact, dict):
+                    continue
+                if _clean_text(fact.get("status", "")).lower() != "canon":
+                    continue
+                claim = _clean_text(fact.get("claim", ""))
+                if not claim:
+                    continue
+                updated_at = _clean_text(fact.get("updated_at", "")) or _clean_text(meta.get("updated_at", ""))
+                confidence = float(fact.get("confidence", 0.0) or 0.0)
+                topicality = min(0.25, float(overlap) / max(1.0, float(len(query_tokens))))
+                out.append(
+                    MemoryRecord(
+                        category="semantic",
+                        key=f"topic:{topic_key}",
+                        value=claim,
+                        source="topic_memory",
+                        source_score=topicality + _recency_bonus(updated_at),
+                        updated_at=updated_at,
+                        confidence=confidence,
+                        record_id=_clean_text(fact.get("id", "")),
+                        conflict_key=f"topic:{topic_key}:{claim[:80].lower()}",
+                        meta={
+                            "status": "canon",
+                            "topic": title,
+                            "topic_key": topic_key,
+                            "subtopics": subtopics,
+                            "project": _clean_text(fact.get("project", "general")) or "general",
+                            "memory_type": "fact",
+                        },
+                    )
+                )
+        return out
+
     @staticmethod
     def resolve_semantic_conflicts(records: list[MemoryRecord]) -> tuple[list[MemoryRecord], list[dict[str, Any]]]:
         grouped: dict[str, list[MemoryRecord]] = {}
@@ -240,6 +307,7 @@ class CAGMemoryFacade:
 
         cag_records = self._records_from_cag(query_text, project)
         semantic_pool = [r for r in cag_records if r.category == "semantic"]
+        semantic_pool.extend(self._records_from_topic_memory(query_text))
         episodic_pool = [r for r in cag_records if r.category == "episodic"]
         procedural_pool = [r for r in cag_records if r.category == "procedural"]
         episodic_pool.extend(self._episodic_from_conversation(query_text, conversation_id=conversation_id))
@@ -272,4 +340,3 @@ class CAGMemoryFacade:
             },
             "conflicts": conflicts,
         }
-

@@ -312,8 +312,40 @@ def _migration_012_job_state(conn: sqlite3.Connection) -> None:
     )
 
 
+_MIGRATION_IDENTIFIER_TABLES = frozenset(
+    {
+        "app_meta",
+        "lessons",
+        "project_facts",
+        "approvals",
+        "users",
+        "cloud_requests",
+        "workspace_actions",
+        "project_pipeline_states",
+        "watchtower_watches",
+        "watchtower_briefings",
+        "job_runs",
+        "job_events",
+        "domain_reputation",
+        "forage_cards",
+        "bot_user_mappings",
+        "library_items",
+        "library_chunks",
+        "web_cache_chunks",
+    }
+)
+
+
+def _safe_identifier_table(table: str) -> str:
+    key = str(table or "").strip()
+    if key not in _MIGRATION_IDENTIFIER_TABLES:
+        raise ValueError(f"Unsupported migration table identifier: {key!r}")
+    return key
+
+
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    rows = conn.execute(f"PRAGMA table_info({table});").fetchall()
+    safe_table = _safe_identifier_table(table)
+    rows = conn.execute(f"PRAGMA table_info({safe_table});").fetchall()
     target = str(column or "").strip().lower()
     for row in rows:
         try:
@@ -328,7 +360,8 @@ def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
 def _add_column_if_missing(conn: sqlite3.Connection, table: str, definition: str, column: str) -> None:
     if _column_exists(conn, table, column):
         return
-    conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition};")
+    safe_table = _safe_identifier_table(table)
+    conn.execute(f"ALTER TABLE {safe_table} ADD COLUMN {definition};")
 
 
 def _migration_014_domain_reputation(conn: sqlite3.Connection) -> None:

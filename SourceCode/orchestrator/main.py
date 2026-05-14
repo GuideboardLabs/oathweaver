@@ -669,6 +669,9 @@ class OathweaverOrchestrator:
         if spec is None:
             return None
 
+        default_stage_budget = int(self.resource_budget_manager.stage_context_budget())
+        adaptive_hint = int(self.bench_manager.recommended_stage_budget(default_budget=default_stage_budget))
+        adaptive_stage_budget = int(self.resource_budget_manager.stage_context_budget(requested_tokens=adaptive_hint))
         pipeline_context: dict[str, Any] = {
             "text": text,
             "project_slug": self.project_slug,
@@ -681,7 +684,7 @@ class OathweaverOrchestrator:
             "query_complexity": query_complexity,
             "mode": mode,
             "history": list(history or []),
-            "hardware_token_budget": int(self.resource_budget_manager.stage_context_budget()),
+            "hardware_token_budget": adaptive_stage_budget,
             "hardware_profile": self.resource_budget_manager.profile.as_dict(),
         }
         scratch: dict[str, Any] = {
@@ -1036,7 +1039,7 @@ class OathweaverOrchestrator:
             except Exception:
                 parsed_budget = None
 
-            return self.context_compiler.compile(
+            context_pack = self.context_compiler.compile(
                 run_id=run_id,
                 pipeline=pipeline,
                 stage=stage,
@@ -1049,6 +1052,20 @@ class OathweaverOrchestrator:
                 output_contract=contract_for_stage(stage).stage,
                 hardware_token_budget=parsed_budget,
             )
+            domain = str(payload.get("domain", "general_research")).strip() or "general_research"
+            make_type = str(payload.get("target", payload.get("make_type", "model_runtime_system"))).strip() or "model_runtime_system"
+            research_focus = str(payload.get("query_mode", "implementation_focused")).strip() or "implementation_focused"
+            manifest = self.specialist_registry.manifest_for_stage(
+                stage=stage,
+                pipeline=pipeline,
+                next_stage="",
+                domain=domain,
+                make_type=make_type,
+                research_focus=research_focus,
+            )
+            context_pack["specialist_role"] = manifest.specialist_role
+            context_pack["specialist_manifest"] = manifest.as_dict()
+            return context_pack
 
         def _on_deck_planner(
             stage: str,
@@ -3660,6 +3677,22 @@ class OathweaverOrchestrator:
         except Exception:
             return ""
 
+    @staticmethod
+    def _personal_context_detected(analysis: dict[str, Any]) -> bool:
+        if not isinstance(analysis, dict):
+            return False
+        return any(
+            bool(analysis.get(flag, False))
+            for flag in (
+                "explicit_memory_query",
+                "family_query",
+                "pet_query",
+                "profile_query",
+                "preference_query",
+                "routine_query",
+            )
+        )
+
     def _context_bundle_for_query(
         self,
         text: str,
@@ -4434,6 +4467,13 @@ class OathweaverOrchestrator:
             lane = _make_lane_for_target(inferred_target)
         elif turn_plan.lane_override and lane in {"research", "project", "personal"}:
             lane = turn_plan.lane_override
+        if lane in {"research", "project"} and self._personal_context_detected(_context_analysis):
+            lane = "conversation"
+            self.bus.emit(
+                "orchestrator",
+                "personal_context_guard",
+                {"project": self.project_slug, "reason": "context_gate_forced_conversation"},
+            )
         resolved_domain = self._resolved_pipeline_domain(turn_plan)
         query_mode = turn_plan.query_mode
         query_complexity = turn_plan.complexity

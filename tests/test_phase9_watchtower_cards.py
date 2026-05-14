@@ -78,6 +78,9 @@ class Phase9WatchtowerCardsTests(unittest.TestCase):
         )
         self.assertEqual(str(queued.get("card_type", "")), "research_card")
         self.assertEqual(str(queued.get("status", "")), "queued")
+        context = self.watchtower.recent_research_card_context(limit=2, max_chars=500)
+        self.assertIn("queued research cards", context.lower())
+        self.assertIn("Local runtime scheduler update", context)
 
         accepted = self.watchtower.set_card_status(
             str(queued.get("id", "")),

@@ -6,10 +6,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Defaults (override via env or flags) ---
-OLLAMA_HOST_VAL="${OLLAMA_HOST:-0.0.0.0:11434}"
+OLLAMA_HOST_VAL="${OLLAMA_HOST:-127.0.0.1:11434}"
 OLLAMA_MODELS_VAL="${OLLAMA_MODELS:-}"
 OLLAMA_LOG_LEVEL_VAL="${OLLAMA_LOG_LEVEL:-info}"
-WEB_HOST="${OATHWEAVER_WEB_HOST:-0.0.0.0}"
+WEB_HOST="${OATHWEAVER_WEB_HOST:-127.0.0.1}"
 WEB_PORT="${OATHWEAVER_WEB_PORT:-5050}"
 WEB_PASSWORD="${OATHWEAVER_WEB_PASSWORD:-}"
 NO_RESTART_OLLAMA=0
@@ -58,7 +58,7 @@ resolve_ollama() {
 
 OLLAMA_EXE="$(resolve_ollama)" || {
     echo "ERROR: Ollama executable not found."
-    echo "Install Ollama: curl -fsSL https://ollama.ai/install.sh | sh"
+    echo "Install Ollama: curl -fsSL https://ollama.com/install.sh | sh"
     exit 1
 }
 

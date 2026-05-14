@@ -3,7 +3,12 @@ from __future__ import annotations
 import unittest
 
 from tests.common import ROOT  # noqa: F401
-from orchestrator.pipelines.turn_graph import _derive_context_gate, _normalize_precomputed_route, _select_lane
+from orchestrator.pipelines.turn_graph import (
+    _apply_context_gate_to_lane,
+    _derive_context_gate,
+    _normalize_precomputed_route,
+    _select_lane,
+)
 
 
 class _StubOrchestrator:
@@ -58,6 +63,28 @@ class TurnGraphAdjustmentTests(unittest.TestCase):
             precomputed_route={"lane_hint": "conversation"},
         )
         self.assertEqual(lane, "conversation")
+
+    def test_apply_context_gate_forces_conversation_for_personal_research(self) -> None:
+        lane, reason = _apply_context_gate_to_lane(
+            "research",
+            {
+                "context_gate": {"personal_context": True},
+                "foraging_plan": {"eligible": False},
+            },
+        )
+        self.assertEqual(lane, "conversation")
+        self.assertEqual(reason, "personal_context_guard")
+
+    def test_apply_context_gate_forces_conversation_when_foraging_not_eligible(self) -> None:
+        lane, reason = _apply_context_gate_to_lane(
+            "project",
+            {
+                "context_gate": {"personal_context": False},
+                "foraging_plan": {"eligible": False},
+            },
+        )
+        self.assertEqual(lane, "conversation")
+        self.assertEqual(reason, "foraging_ineligible_guard")
 
 
 if __name__ == "__main__":

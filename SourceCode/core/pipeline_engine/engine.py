@@ -102,25 +102,36 @@ class PipelineEngine:
                 stage_payload = dict(payload)
                 if context_pack:
                     stage_payload["context_pack"] = dict(context_pack)
+                    specialist_manifest = context_pack.get("specialist_manifest", {})
+                    if isinstance(specialist_manifest, dict):
+                        stage_payload["specialist_manifest"] = dict(specialist_manifest)
                 if on_deck_plan:
                     stage_payload["on_deck_plan"] = dict(on_deck_plan)
                 output = stage_runner(stage, dict(stage_state), stage_payload)
                 if not isinstance(output, dict):
                     raise RuntimeError(f"Stage '{stage}' returned non-dict output.")
                 audit = self.auditor.validate(stage, output, contract_for_stage(stage))
+                specialist_audit = self._specialist_audit(
+                    stage=stage,
+                    output=output,
+                    contract=contract_for_stage(stage),
+                    specialist_manifest=stage_payload.get("specialist_manifest", {}),
+                )
+                audit_row = audit.as_dict()
+                audit_row["specialist_audit"] = specialist_audit
                 if not audit.ok:
                     ok = False
                 outputs[stage] = dict(output)
                 context_packs[stage] = dict(context_pack)
                 on_deck_plans[stage] = dict(on_deck_plan)
-                stage_audits[stage] = audit.as_dict()
+                stage_audits[stage] = audit_row
                 stage_timings_ms[stage] = int((perf_counter() - stage_t0) * 1000)
                 stage_state[stage] = dict(output)
                 self.state_store.write_stage_state(
                     run_id=run_id,
                     stage=stage,
                     state=dict(output),
-                    contract_audit=audit.as_dict(),
+                    contract_audit=audit_row,
                     context_pack=dict(context_pack),
                     on_deck_plan=dict(on_deck_plan),
                 )
@@ -201,3 +212,46 @@ class PipelineEngine:
         if spec.name.endswith("_pipeline"):
             row.setdefault("pipeline", spec.name)
         return row
+
+    @staticmethod
+    def _specialist_audit(
+        *,
+        stage: str,
+        output: dict[str, Any],
+        contract: Any,
+        specialist_manifest: Any,
+    ) -> dict[str, Any]:
+        manifest = specialist_manifest if isinstance(specialist_manifest, dict) else {}
+        schema_id = str(manifest.get("output_schema", "")).strip().lower()
+        rubric_id = str(manifest.get("verifier_rubric", "")).strip().lower()
+        missing: list[str] = []
+        warnings: list[str] = []
+        if not schema_id:
+            missing.append("output_schema")
+        if not rubric_id:
+            missing.append("verifier_rubric")
+        stage_key = str(stage or "").strip().lower()
+        if schema_id and stage_key and stage_key not in schema_id:
+            warnings.append("schema_stage_mismatch")
+        if rubric_id and not rubric_id.endswith("_v1"):
+            warnings.append("rubric_version_unpinned")
+        if "specificity" in rubric_id:
+            richness = 0
+            for value in (output or {}).values():
+                if isinstance(value, str) and value.strip():
+                    richness += 1
+                elif isinstance(value, (dict, list, tuple)) and value:
+                    richness += 1
+            if richness <= 0:
+                warnings.append("low_output_specificity")
+        contract_keys = list(getattr(contract, "must_include", tuple()) or tuple())
+        contract_ok = all(key in output for key in contract_keys)
+        return {
+            "ok": not missing and contract_ok,
+            "specialist_role": str(manifest.get("specialist_role", "")).strip(),
+            "schema_id": schema_id,
+            "rubric_id": rubric_id,
+            "missing_fields": missing,
+            "warnings": warnings,
+            "contract_keys_present": contract_ok,
+        }

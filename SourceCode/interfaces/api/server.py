@@ -1,14 +1,49 @@
 from __future__ import annotations
 
+import hmac
+import ipaddress
+import os
+import secrets
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from core.kernel_commands import KernelCommandService
+from shared_tools.secret_files import ensure_secret_mode, write_secret_text
 
 
-def create_openai_compatible_app(repo_root: Path):
+def _is_loopback_host(host: str) -> bool:
+    text = str(host or "").strip().lower()
+    if not text:
+        return True
+    if text in {"localhost", "127.0.0.1", "::1"}:
+        return True
+    if ":" in text and not text.startswith("[") and text.count(":") == 1:
+        text = text.rsplit(":", 1)[0].strip()
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return False
+
+
+def _load_or_create_api_token(path: Path) -> str:
+    try:
+        if path.exists():
+            token = path.read_text(encoding="utf-8").strip()
+            if token:
+                ensure_secret_mode(path)
+                return token
+    except OSError:
+        pass
+    token = secrets.token_urlsafe(48)
+    write_secret_text(path, token)
+    return token
+
+
+def create_openai_compatible_app(repo_root: Path, *, bind_host: str | None = None):
     """Create a minimal OpenAI-compatible local API wrapper over kernel commands.
 
     Flask is imported lazily so this module can be imported in environments
@@ -22,6 +57,20 @@ def create_openai_compatible_app(repo_root: Path):
 
     app = Flask(__name__)
     service = KernelCommandService(Path(repo_root))
+    resolved_bind_host = str(bind_host or os.getenv("OATHWEAVER_API_HOST", "127.0.0.1")).strip() or "127.0.0.1"
+    require_auth = not _is_loopback_host(resolved_bind_host)
+    token_path = Path(repo_root) / "Runtime" / "state" / "api_token"
+    api_token = _load_or_create_api_token(token_path)
+
+    @app.before_request
+    def _auth_gate():  # type: ignore[no-untyped-def]
+        if not require_auth:
+            return None
+        auth_header = str(request.headers.get("Authorization", "")).strip()
+        expected = f"Bearer {api_token}"
+        if not auth_header or not hmac.compare_digest(auth_header, expected):
+            return jsonify({"error": {"message": "Unauthorized"}}), 401
+        return None
 
     @app.get("/v1/models")
     def list_models():

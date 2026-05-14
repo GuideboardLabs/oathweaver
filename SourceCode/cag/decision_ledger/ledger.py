@@ -117,6 +117,8 @@ class DecisionLedger:
 
     def _ensure_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS decision_ledger(
@@ -141,6 +143,10 @@ class DecisionLedger:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_project ON decision_ledger(project)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_thread ON decision_ledger(thread)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_decision_memory ON decision_ledger(memory_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_decision_ledger_project_updated "
+                "ON decision_ledger(project, updated_at DESC)"
+            )
             conn.commit()
 
     def _append_event(self, payload: dict[str, Any]) -> None:

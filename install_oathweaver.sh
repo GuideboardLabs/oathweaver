@@ -5,6 +5,11 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
+INSTALL_LIB="$REPO_ROOT/tools/install/lib.sh"
+if [[ -f "$INSTALL_LIB" ]]; then
+    # shellcheck disable=SC1090
+    source "$INSTALL_LIB"
+fi
 
 SKIP_NODE=0
 SKIP_PREREQ_INSTALL=0
@@ -104,7 +109,16 @@ ensure_ollama() {
         fi
         echo "Ollama is required but was not found."
         if confirm "Install Ollama now?"; then
-            curl -fsSL https://ollama.ai/install.sh | sh
+            local install_url="${OATHWEAVER_OLLAMA_INSTALL_URL:-https://ollama.com/install.sh}"
+            local expected_sha="${OATHWEAVER_OLLAMA_INSTALL_SHA256:-25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f}"
+            if [[ -n "$expected_sha" ]] && ! declare -F ow_verify_sha256 >/dev/null 2>&1; then
+                die "Checksum pinning requested but tools/install/lib.sh is unavailable."
+            fi
+            if declare -F ow_install_ollama_script >/dev/null 2>&1; then
+                ow_install_ollama_script "$install_url" "$expected_sha" || die "Ollama installer failed."
+            else
+                curl -fsSL "$install_url" | sh
+            fi
             # Refresh PATH in case the installer added a new location
             export PATH="$HOME/.local/bin:$PATH"
             OLLAMA_EXE="$(resolve_ollama)" || die "Ollama install completed but executable not found. Open a new terminal and rerun."
@@ -172,7 +186,14 @@ install_python_deps() {
         REQUIREMENTS="$REPO_ROOT/requirements.txt"
     fi
     [[ -f "$REQUIREMENTS" ]] || die "No requirements file found at $REPO_ROOT"
-    "$PYTHON_CMD" -m pip install -r "$REQUIREMENTS"
+    if declare -F ow_install_python_requirements >/dev/null 2>&1; then
+        if [[ "$REQUIREMENTS" == *"requirements.lock" ]] && ! grep -q -- "--hash=" "$REQUIREMENTS"; then
+            warn "requirements.lock has no hashes. Regenerate via ./tools/install/regenerate_hashed_lock.sh (or set OATHWEAVER_ALLOW_UNHASHED_LOCK=1)."
+        fi
+        ow_install_python_requirements "$PYTHON_CMD" "$REQUIREMENTS" "0"
+    else
+        "$PYTHON_CMD" -m pip install -r "$REQUIREMENTS"
+    fi
 }
 
 # --- Ollama readiness ---
@@ -191,7 +212,7 @@ ensure_ollama_running() {
         return
     fi
     step "Starting Ollama service..."
-    nohup "$OLLAMA_EXE" serve > /dev/null 2>&1 &
+    OLLAMA_HOST="127.0.0.1:11434" nohup "$OLLAMA_EXE" serve > /dev/null 2>&1 &
     wait_for_ollama 90 || die "Ollama did not become ready in time."
     item "Ollama is ready."
 }

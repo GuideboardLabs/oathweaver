@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from shared_tools.secret_files import ensure_secret_mode, write_secret_text
+
 _CONFIG_REL = Path("Runtime") / "config" / "bot_config.json"
 
 _DEFAULTS: dict[str, Any] = {
@@ -31,6 +33,7 @@ def load_bot_config(repo_root: Path) -> dict[str, Any]:
     if not path.exists():
         return _deep_copy_defaults()
     try:
+        ensure_secret_mode(path)
         data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return _deep_copy_defaults()
@@ -50,7 +53,7 @@ def save_bot_config(repo_root: Path, config: dict[str, Any]) -> None:
     for platform in existing:
         if isinstance(config.get(platform), dict):
             existing[platform].update(config[platform])
-    path.write_text(json.dumps(existing, indent=2, ensure_ascii=True), encoding="utf-8")
+    write_secret_text(path, json.dumps(existing, indent=2, ensure_ascii=True))
 
 
 def _deep_copy_defaults() -> dict[str, Any]:

@@ -42,6 +42,9 @@ After installer completion:
 powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1
 ```
 
+Security default: the launcher binds Ollama to `127.0.0.1:11434` (localhost only).
+If you intentionally need LAN/Tailscale access, pass `-OllamaHost "0.0.0.0:11434"` explicitly.
+
 Open:
 
 ```text

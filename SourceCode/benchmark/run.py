@@ -37,6 +37,7 @@ sys.path.insert(0, str(_SOURCECODE))
 
 from agents_research.deep_researcher import run_research_pool  # noqa: E402
 from agents_research.synthesizer import _is_valid_synthesis  # noqa: E402
+from core.capability_registry import CapabilityRegistry  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Question suite
@@ -307,6 +308,25 @@ def _rel_str(rel: dict) -> str:
 def _print_summary(results: list[dict[str, Any]]) -> None:
     print()
     print("=" * 88)
+
+
+def _benchmark_capability_score(results: list[dict[str, Any]]) -> float:
+    if not results:
+        return 0.0
+    quality_terms: list[float] = []
+    for row in results:
+        rel = row.get("reliability", {}) if isinstance(row.get("reliability", {}), dict) else {}
+        good = float(rel.get("good", 0) or 0)
+        weak = float(rel.get("weak", 0) or 0)
+        failed = float(rel.get("failed", 0) or 0)
+        total = max(1.0, good + weak + failed)
+        reliability_score = max(0.0, min(1.0, (good + (0.5 * weak)) / total))
+        synth_score = 1.0 if bool(row.get("synthesis_valid", False)) else 0.0
+        section_found = float(row.get("synthesis_sections_found", 0) or 0)
+        section_total = max(1.0, float(row.get("synthesis_sections_total", 1) or 1))
+        coverage_score = max(0.0, min(1.0, section_found / section_total))
+        quality_terms.append((0.5 * reliability_score) + (0.35 * synth_score) + (0.15 * coverage_score))
+    return round(sum(quality_terms) / len(quality_terms), 4)
     print("  GUIDEBOARD BENCHMARK RESULTS")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 88)
@@ -483,6 +503,19 @@ def main() -> None:
         )
 
     _print_summary(results)
+    try:
+        registry = CapabilityRegistry(repo_root)
+        capability_score = _benchmark_capability_score(results)
+        registry.record_run_observation(
+            claim_text="8B + CAG + pipeline can approach 70B quality on long-running architecture work",
+            run_id=f"benchmark_{ts}",
+            pipeline="benchmark.run",
+            final_score=float(capability_score),
+            benchmark_id="benchmark_run_v1",
+            status="hypothesis",
+        )
+    except Exception as exc:
+        print(f"  [warn] capability registry update skipped: {exc}")
     print(f"\n  Full results: {out_path}\n")
 
 

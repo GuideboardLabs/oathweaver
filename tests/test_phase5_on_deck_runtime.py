@@ -159,6 +159,19 @@ class Phase5OnDeckRuntimeTests(unittest.TestCase):
         self.assertEqual(call_counts.get("evidence_analysis", 0), 1)
         self.assertEqual(len(result.get("on_deck_plans", {})), len(spec.stages))
 
+    def test_bench_manager_budget_hint_reacts_to_cold_pressure(self) -> None:
+        _ = self.bench.build_snapshot(
+            run_id="run_pressure_1",
+            pipeline="research_pipeline",
+            stage="synthesis",
+            current_manifest={"specialist_role": "synthesizer"},
+            on_deck_entries=[],
+            warm_entries=[],
+            cold_entries=[{"stage": "a"}, {"stage": "b"}, {"stage": "c"}, {"stage": "d"}],
+        )
+        hinted = self.bench.recommended_stage_budget(default_budget=1800)
+        self.assertLess(hinted, 1800)
+
 
 if __name__ == "__main__":
     unittest.main()

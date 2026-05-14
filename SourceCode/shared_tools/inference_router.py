@@ -165,20 +165,27 @@ class InferenceRouter:
         num_predict: int | None,
         task_class: str,
     ) -> str:
-        payload = {
+        base_payload = {
             "model": str(model or ""),
-            "system_prompt": str(system_prompt or ""),
-            "user_prompt": str(user_prompt or ""),
-            "prior_messages": prior_messages or [],
-            "user_images": user_images or [],
+            "system_prompt_hash": hashlib.sha256(str(system_prompt or "").encode("utf-8")).hexdigest(),
+            "user_prompt_hash": hashlib.sha256(str(user_prompt or "").encode("utf-8")).hexdigest(),
             "temperature": float(temperature or 0.0),
             "num_ctx": int(num_ctx or 0),
-            "think": bool(think) if think is not None else None,
-            "num_predict": int(num_predict if num_predict is not None else -1),
             "task_class": str(task_class or "").strip().lower(),
         }
-        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        base_raw = json.dumps(base_payload, sort_keys=True, ensure_ascii=True)
+        base_key = hashlib.sha256(base_raw.encode("utf-8")).hexdigest()
+        extras_needed = bool(prior_messages) or bool(user_images) or think is not None or int(num_predict if num_predict is not None else -1) != -1
+        if not extras_needed:
+            return base_key
+        extra_payload = {
+            "prior_messages": prior_messages or [],
+            "user_images": user_images or [],
+            "think": bool(think) if think is not None else None,
+            "num_predict": int(num_predict if num_predict is not None else -1),
+        }
+        extra_raw = json.dumps(extra_payload, sort_keys=True, ensure_ascii=True)
+        return f"{base_key}:{hashlib.sha256(extra_raw.encode('utf-8')).hexdigest()}"
 
     @classmethod
     def _cache_get(cls, key: str) -> str | None:

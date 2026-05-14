@@ -6,6 +6,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
 
+from shared_tools.secret_files import ensure_secret_mode, write_secret_text
+
 _CONFIG_REL = Path("Runtime") / "config" / "email_config.json"
 
 _DEFAULTS: dict[str, Any] = {
@@ -25,6 +27,7 @@ def load_email_config(root: Path) -> dict[str, Any]:
     if not path.exists():
         return dict(_DEFAULTS)
     try:
+        ensure_secret_mode(path)
         data = json.loads(path.read_text(encoding="utf-8"))
         return {**_DEFAULTS, **data} if isinstance(data, dict) else dict(_DEFAULTS)
     except Exception:
@@ -44,7 +47,7 @@ def save_email_config(root: Path, config: dict[str, Any]) -> None:
         "dnd_start": str(config.get("dnd_start", "22:00")).strip() or "22:00",
         "dnd_end": str(config.get("dnd_end", "08:00")).strip() or "08:00",
     }
-    path.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+    write_secret_text(path, json.dumps(clean, indent=2, ensure_ascii=True))
 
 
 def is_configured(config: dict[str, Any]) -> bool:

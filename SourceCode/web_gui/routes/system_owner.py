@@ -25,7 +25,7 @@ def register_owner_routes(bp: Blueprint, ctx: AppContext) -> None:
             "ok": True,
             "settings": {
                 "notification_email": cfg.get("notification_email", ""),
-                "smtp_user": cfg.get("smtp_user", ""),
+                "smtp_user_configured": bool(str(cfg.get("smtp_user", "")).strip()),
                 "smtp_configured": is_configured(cfg),
                 "dnd_enabled": bool(cfg.get("dnd_enabled", False)),
                 "dnd_start": cfg.get("dnd_start", "22:00"),

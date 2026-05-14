@@ -16,7 +16,7 @@ class ApprovalGate:
     def __init__(self, repo_root: Path) -> None:
         self.repo_root = Path(repo_root)
         initialize_database(self.repo_root)
-        self.enabled = str(os.getenv("OATHWEAVER_APPROVAL_GATE", "0")).strip().lower() in {"1", "true", "yes", "on"}
+        self.enabled = str(os.getenv("OATHWEAVER_APPROVAL_GATE", "1")).strip().lower() in {"1", "true", "yes", "on"}
         self.action_keywords = {
             "send",
             "email",

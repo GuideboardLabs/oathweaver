@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import urllib.error
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -36,6 +37,29 @@ class OllamaStreamWatchdogTests(unittest.TestCase):
     def test_stream_chat_raises_on_idle_timeout(self) -> None:
         client = OllamaClient()
         with patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._post_json_stream_chat(
+                    {"model": "qwen3:8b", "stream": True, "messages": []},
+                    timeout=30,
+                    idle_timeout_sec=4,
+                )
+        self.assertIn("stalled", str(ctx.exception).lower())
+
+    def test_stream_chat_raises_on_empty_content_after_frames(self) -> None:
+        client = OllamaClient()
+        lines = [
+            b"not-json\n",
+            b'{"message":{"content":""},"done":false}\n',
+            b'{"done":true}\n',
+        ]
+        with patch("urllib.request.urlopen", return_value=_FakeStreamResponse(lines)):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._post_json_stream_chat({"model": "qwen3:8b", "stream": True, "messages": []}, timeout=30)
+        self.assertIn("empty streamed content", str(ctx.exception).lower())
+
+    def test_stream_chat_treats_timeout_urlerror_as_stalled(self) -> None:
+        client = OllamaClient()
+        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
             with self.assertRaises(RuntimeError) as ctx:
                 client._post_json_stream_chat(
                     {"model": "qwen3:8b", "stream": True, "messages": []},

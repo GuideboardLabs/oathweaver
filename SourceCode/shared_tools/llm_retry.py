@@ -13,6 +13,7 @@ class RetryResult:
     attempts_used: int
     validation_error: str
     corrected: bool
+    validated: bool
 
 
 def chat_with_self_fix_retry(
@@ -50,6 +51,7 @@ def chat_with_self_fix_retry(
 
     latest_text = ""
     latest_error = ""
+    validated = False
     for idx in range(attempts):
         current_user = base_user
         current_system = base_system
@@ -60,7 +62,7 @@ def chat_with_self_fix_retry(
                 "Previous output that failed validation:\n"
                 f"```text\n{_trim_for_retry(latest_text, 8000)}\n```\n\n"
                 "Validation error(s):\n"
-                f"{latest_error}\n\n"
+                f"{_trim_for_retry(latest_error, 1500)}\n\n"
                 "Return a fully corrected output now. Do not explain."
             )
         kwargs: dict[str, Any] = {
@@ -81,12 +83,42 @@ def chat_with_self_fix_retry(
         raw = client.chat(**kwargs)
         latest_text = str(raw or "").strip()
         if validator is None:
-            return RetryResult(text=latest_text, attempts_used=idx + 1, validation_error="", corrected=idx > 0)
-        latest_error = str(validator(latest_text) or "").strip()
+            return RetryResult(
+                text=latest_text,
+                attempts_used=idx + 1,
+                validation_error="",
+                corrected=idx > 0,
+                validated=True,
+            )
+        try:
+            latest_error = str(validator(latest_text) or "").strip()
+        except Exception as exc:
+            # Fail open if the validator itself is broken; caller still gets the
+            # latest model output instead of a hard crash.
+            return RetryResult(
+                text=latest_text,
+                attempts_used=idx + 1,
+                validation_error=f"validator_exception:{type(exc).__name__}",
+                corrected=idx > 0,
+                validated=False,
+            )
         if not latest_error:
-            return RetryResult(text=latest_text, attempts_used=idx + 1, validation_error="", corrected=idx > 0)
+            validated = True
+            return RetryResult(
+                text=latest_text,
+                attempts_used=idx + 1,
+                validation_error="",
+                corrected=idx > 0,
+                validated=validated,
+            )
 
-    return RetryResult(text=latest_text, attempts_used=attempts, validation_error=latest_error, corrected=attempts > 1)
+    return RetryResult(
+        text=latest_text,
+        attempts_used=attempts,
+        validation_error=latest_error,
+        corrected=attempts > 1,
+        validated=validated,
+    )
 
 
 def _trim_for_retry(text: str, max_chars: int) -> str:

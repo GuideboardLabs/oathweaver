@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -67,6 +68,19 @@ def _derive_context_gate(orchestrator: Any, *, text: str, lane: str) -> dict[str
     }
 
 
+def _apply_context_gate_to_lane(lane: str, state: dict[str, Any]) -> tuple[str, str]:
+    lane_key = str(lane or "").strip().lower() or "conversation"
+    gate = state.get("context_gate", {}) if isinstance(state.get("context_gate", {}), dict) else {}
+    foraging_plan = state.get("foraging_plan", {}) if isinstance(state.get("foraging_plan", {}), dict) else {}
+    personal_context = bool(gate.get("personal_context", False))
+    foraging_eligible = bool(foraging_plan.get("eligible", True))
+    if lane_key in {"research", "project"} and personal_context:
+        return "conversation", "personal_context_guard"
+    if lane_key in {"research", "project"} and not foraging_eligible:
+        return "conversation", "foraging_ineligible_guard"
+    return lane_key, ""
+
+
 def _checkpoint_path(repo_root: Path) -> Path:
     path = Path(repo_root) / "Runtime" / "state" / "turn_checkpoints.sqlite"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -100,10 +114,14 @@ def _graph_version_hash() -> str:
 
 
 def _assert_serializable(state_update: dict[str, Any], node_name: str) -> dict[str, Any]:
-    try:
-        json.dumps(state_update, ensure_ascii=True)
-    except Exception as exc:
-        raise TypeError(f"TurnGraph node '{node_name}' emitted non-serializable state: {exc}") from exc
+    if not isinstance(state_update, dict):
+        raise TypeError(f"TurnGraph node '{node_name}' emitted non-dict state.")
+    strict = str(os.getenv("OATHWEAVER_DEV_STRICT", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    if strict:
+        try:
+            json.dumps(state_update, ensure_ascii=True)
+        except Exception as exc:
+            raise TypeError(f"TurnGraph node '{node_name}' emitted non-serializable state: {exc}") from exc
     return state_update
 
 
@@ -248,12 +266,14 @@ def compile_chat_turn_graph(
 
     def lane_execute(state: dict[str, Any]) -> dict[str, Any]:
         lane = str(state.get("lane", "conversation")).strip().lower() or "conversation"
+        lane, guard_reason = _apply_context_gate_to_lane(lane, state)
         if lane != "conversation":
             return _assert_serializable(
                 {
+                    "lane": lane,
                     "routing_redirect": {
                         "lane": lane,
-                        "reason": "turn_graph_chat_only",
+                        "reason": f"turn_graph_chat_only:{guard_reason}" if guard_reason else "turn_graph_chat_only",
                     },
                     "agent_findings": [],
                     "composed_answer": "",
@@ -268,7 +288,7 @@ def compile_chat_turn_graph(
             cancel_checker=cancel_checker,
             progress_callback=progress_callback,
         )
-        return _assert_serializable({"agent_findings": [], "composed_answer": reply}, "lane_execute")
+        return _assert_serializable({"lane": lane, "agent_findings": [], "composed_answer": reply}, "lane_execute")
 
     def compose(state: dict[str, Any]) -> dict[str, Any]:
         return _assert_serializable({"composed_answer": str(state.get("composed_answer", "")).strip()}, "compose")

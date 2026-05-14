@@ -258,6 +258,8 @@ class CAGMemoryStore:
 
     def _ensure_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS memory_rows(
@@ -292,6 +294,10 @@ class CAGMemoryStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_rows_scope_level ON memory_rows(scope_level)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_rows_status ON memory_rows(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_rows_type ON memory_rows(type)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_memory_rows_project_scope_status_updated "
+                "ON memory_rows(project, scope_level, status, updated_at DESC)"
+            )
             conn.commit()
 
     @staticmethod

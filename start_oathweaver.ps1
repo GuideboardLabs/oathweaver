@@ -1,7 +1,7 @@
 param(
     [string]$OllamaExe = "",
     [string]$OllamaModels = "",
-    [string]$OllamaHost = "0.0.0.0:11434",
+    [string]$OllamaHost = "127.0.0.1:11434",
     [string]$OllamaLogLevel = "info",
     [switch]$EnableVulkan,
     [switch]$NoRestartOllama

@@ -32,6 +32,7 @@ class LlmRetryTests(unittest.TestCase):
         self.assertEqual(result.text, '{"ok": "yes"}')
         self.assertEqual(result.attempts_used, 2)
         self.assertTrue(result.corrected)
+        self.assertTrue(result.validated)
         self.assertEqual(len(client.calls), 2)
         self.assertIn("failed validation", str(client.calls[1].get("user_prompt", "")).lower())
 
@@ -48,6 +49,7 @@ class LlmRetryTests(unittest.TestCase):
         self.assertEqual(result.text, "bad-two")
         self.assertEqual(result.validation_error, "still invalid")
         self.assertEqual(result.attempts_used, 2)
+        self.assertFalse(result.validated)
 
     def test_no_validator_uses_single_attempt(self) -> None:
         client = _FakeClient(["ready"])
@@ -61,6 +63,41 @@ class LlmRetryTests(unittest.TestCase):
         self.assertEqual(result.text, "ready")
         self.assertEqual(result.attempts_used, 1)
         self.assertFalse(result.corrected)
+        self.assertTrue(result.validated)
+
+    def test_validator_exception_fails_open_without_crashing(self) -> None:
+        client = _FakeClient(["output"])
+
+        def _validator(_text: str) -> str | None:
+            raise RuntimeError("validator blew up")
+
+        result = chat_with_self_fix_retry(
+            client,
+            model="qwen3:8b",
+            system_prompt="x",
+            user_prompt="y",
+            validator=_validator,
+            max_self_fix_attempts=3,
+        )
+        self.assertEqual(result.text, "output")
+        self.assertEqual(result.attempts_used, 1)
+        self.assertIn("validator_exception", result.validation_error)
+        self.assertFalse(result.validated)
+
+    def test_retry_prompt_trims_large_validation_error_context(self) -> None:
+        client = _FakeClient(["bad", '{"ok": true}'])
+        long_error = "x" * 12000
+        result = chat_with_self_fix_retry(
+            client,
+            model="qwen3:8b",
+            system_prompt="return json",
+            user_prompt="make payload",
+            validator=lambda text: None if text.strip().startswith("{") else long_error,
+            max_self_fix_attempts=2,
+        )
+        self.assertEqual(result.attempts_used, 2)
+        second_prompt = str(client.calls[1].get("user_prompt", ""))
+        self.assertLess(len(second_prompt), 12000)
 
 
 if __name__ == "__main__":
