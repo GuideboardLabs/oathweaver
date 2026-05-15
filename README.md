@@ -256,11 +256,10 @@ Optional bot adapters in [SourceCode/bots/](SourceCode/bots/) wrap the kernel fo
 | Orchestration / reasoning | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL (`think=true`) | 12,288 |
 | Research & synthesis | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL | 12,288 |
 | Creative writing | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL | 12,288 |
-| Unrestricted-topic content | huihui_ai/qwen3-abliterated:8b-Q4_K_M | 8,192 |
-| Premium / longform (when available) | deepseek-r1:8b (quality escalation), qwen3-coder:30b-a3b-q4_K_M (coding premium lock) | 16,384 |
+| Premium / longform (when available) | hf.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M (reasoning premium), deepseek-r1:8b (fallback), qwen3-coder:30b-a3b-q4_K_M (coding premium lock) | 16,384 |
 | Code (web apps) | qwen3-coder:30b-a3b-q4_K_M | 12,288 |
 | Desktop app scaffold | qwen3-coder:30b-a3b-q4_K_M | 16,384 |
-| Plan mode (plan-only lane) | qwen3-coder:30b-a3b-q4_K_M (`think=true`) | 16,384 |
+| Plan mode (plan-only lane) | hf.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M (`think=true`) | 16,384 |
 | Intent gate | qwen3:4b | 4,096 |
 | Routing context gate | qwen3:4b | 4,096 |
 | Embeddings / RAG / semantic routing | qwen3-embedding:4b | — |
