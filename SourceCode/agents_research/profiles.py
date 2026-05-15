@@ -51,8 +51,8 @@ LEGAL_ANALYSIS_DIRECTIVE = (
     "Focus on legal and compliance constraints, jurisdiction caveats, and explicit risk language. "
     "Flag where professional legal counsel is required."
 )
-STATISTICAL_ANALYSIS_MODEL = "qwen3:8b"
-LEGAL_ANALYSIS_MODEL = "qwen3:8b"
+STATISTICAL_ANALYSIS_MODEL = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+LEGAL_ANALYSIS_MODEL = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 
 TOPIC_TYPE_TO_PROFILE: dict[str, str] = {
     "sports": ANALYSIS_PROFILE_SPORTS,

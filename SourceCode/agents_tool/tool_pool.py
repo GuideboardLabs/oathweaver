@@ -17,6 +17,8 @@ from shared_tools.ollama_client import OllamaClient
 _MAX_FIX_CYCLES = 3
 _RUN_TIMEOUT_SEC = 30
 _CODE_FENCE_RE = re.compile(r"```(?:python)?\n(.*?)```", re.DOTALL)
+_CODER_MODEL = "qwen3-coder:30b-a3b-q4_K_M"
+_CODER_FALLBACK_MODELS: list[str] = []
 
 _PYTHON_CLI_PATTERNS = """\
 # Validated against: Python 3.12+
@@ -49,7 +51,7 @@ Python gotchas to avoid:
 _TOOL_AGENTS = [
     {
         "persona": "tool_architect",
-        "model": "qwen2.5-coder:7b",
+        "model": _CODER_MODEL,
         "directive": (
             "Design the tool's structure, interface, and dependencies. "
             "Specify inputs, outputs, data flow, and error handling approach. "
@@ -59,7 +61,7 @@ _TOOL_AGENTS = [
     },
     {
         "persona": "tool_implementer",
-        "model": "qwen2.5-coder:7b",
+        "model": _CODER_MODEL,
         "directive": (
             "Produce the complete, runnable implementation. "
             "Write clean, well-commented code. Include a usage example at the bottom. "
@@ -140,7 +142,7 @@ def _run_fix_agent(
     )
     try:
         result = client.chat(
-            model="qwen2.5-coder:7b",
+            model=_CODER_MODEL,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.1,
@@ -149,6 +151,7 @@ def _run_fix_agent(
             timeout=300,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            fallback_models=_CODER_FALLBACK_MODELS,
         )
         fixed = _extract_code(str(result or "").strip())
         return fixed if fixed else code
@@ -196,7 +199,7 @@ def _generate_test_harness(
     )
     try:
         result = client.chat(
-            model="qwen2.5-coder:7b",
+            model=_CODER_MODEL,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.15,
@@ -205,6 +208,7 @@ def _generate_test_harness(
             timeout=120,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            fallback_models=_CODER_FALLBACK_MODELS,
         )
         return _extract_code(str(result or "").strip())
     except Exception:
@@ -221,7 +225,7 @@ def _run_tool_agent(
 ) -> dict[str, str]:
     persona = str(agent_cfg.get("persona", "tool_agent")).strip()
     directive = str(agent_cfg.get("directive", "")).strip()
-    model = str(agent_cfg.get("model", "qwen2.5-coder:7b")).strip()
+    model = str(agent_cfg.get("model", _CODER_MODEL)).strip()
 
     system_prompt = (
         f"Today's date: {_today()}. "
@@ -259,6 +263,7 @@ def _run_tool_agent(
             timeout=300,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            fallback_models=_CODER_FALLBACK_MODELS,
         )
         return {"agent": persona, "finding": str(result or "").strip()}
     except Exception as exc:

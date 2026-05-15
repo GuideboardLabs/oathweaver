@@ -1,7 +1,7 @@
 """Intent Confirmer — cheap LLM gate between prompt digestion and Make lane routing.
 
 Prevents casual phrases ("make me some tea") from firing expensive multi-agent
-Make pools. Uses gemma3:4b for fast (<2s) inference.
+Make pools. Uses qwen3:4b for fast (<2s) inference.
 
 Rules:
 - If UI mode == "make" AND make_type is explicitly set → skip (user was deliberate).
@@ -28,7 +28,7 @@ from .make_types import MAKE_TYPES, make_types_prompt_fragment, normalize_make_t
 
 LOGGER = logging.getLogger(__name__)
 
-_MODEL = "gemma3:4b"
+_MODEL = "qwen3:4b"
 _TEMPERATURE = 0.1
 _NUM_CTX = 4096
 _TIMEOUT = 30

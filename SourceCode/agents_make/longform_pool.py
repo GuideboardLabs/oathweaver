@@ -35,10 +35,10 @@ from shared_tools.model_routing import lane_model_config
 # Models
 # ---------------------------------------------------------------------------
 
-_MODEL_PLANNER    = "qwen3:8b"
-_MODEL_WRITER     = "qwen3:8b"
+_MODEL_PLANNER    = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_WRITER     = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _MODEL_CRITIC     = "deepseek-r1:8b"
-_MODEL_COMPOSITOR = "qwen3:8b"
+_MODEL_COMPOSITOR = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _CONTRACT_AUDITOR = OutputContractAuditor()
 
 

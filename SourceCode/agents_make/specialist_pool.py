@@ -2,11 +2,11 @@
 
 Pipeline:
     1. Research Integration — reads all project research context
-    2. Outline             — qwen3:8b uses domain-specific section templates
-    3. Section Writer      — qwen3:8b writes sections in parallel (max 3)
+    2. Outline             — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL uses domain-specific section templates
+    3. Section Writer      — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL writes sections in parallel (max 3)
     4. Domain Critic       — deepseek-r1:8b (think mode) validates domain-specific requirements
-    5. Revision Pass       — qwen3:8b applies critic notes
-    6. Compositor          — qwen3:8b assembles final document
+    5. Revision Pass       — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL applies critic notes
+    6. Compositor          — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL assembles final document
     7. Quality Gate        — validates length, disclaimers, truncation
 
 Reuses section templates from essay_pool for domain-specific structure.
@@ -25,10 +25,10 @@ from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
-_MODEL_OUTLINE    = "qwen3:8b"
-_MODEL_WRITER     = "qwen3:8b"
+_MODEL_OUTLINE    = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_WRITER     = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _MODEL_CRITIC     = "deepseek-r1:8b"
-_MODEL_COMPOSITOR = "qwen3:8b"
+_MODEL_COMPOSITOR = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _CONTRACT_AUDITOR = OutputContractAuditor()
 
 

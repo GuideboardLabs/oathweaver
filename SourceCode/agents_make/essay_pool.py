@@ -3,13 +3,13 @@
 Pipeline:
     1. Outline       — qwen2.5:7b reads research context + request, produces
                         section-by-section thesis map.
-    2. Section write — qwen3:8b writes sections in parallel (max 3 workers,
+    2. Section write — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL writes sections in parallel (max 3 workers,
                         ~400 words each), each receiving its specific thesis
                         + research context so it stays grounded.
     3. Critic        — deepseek-r1:8b reads all
                         sections and flags gaps, repetition, unsupported claims,
                         thesis drift. Skipped for "brief" target.
-    4. Revision      — qwen3:8b applies critic notes to flagged sections.
+    4. Revision      — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL applies critic notes to flagged sections.
                         Skipped for "brief" target.
     5. Compositor    — qwen2.5:7b assembles final document: title, smooth
                         transitions, consistent voice, final conclusion.
@@ -198,13 +198,13 @@ def _sections_for(topic_type: str, target: str) -> list[tuple[str, str]]:
 # Model routing helpers
 # ---------------------------------------------------------------------------
 
-_MODEL_OUTLINE    = "qwen3:8b"
-_MODEL_WRITER     = "qwen3:8b"
+_MODEL_OUTLINE    = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_WRITER     = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _MODEL_CRITIC     = "deepseek-r1:8b"
-_MODEL_COMPOSITOR = "qwen3:8b"
+_MODEL_COMPOSITOR = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 
 # Underground: abliterated-only throughout — no filtered models anywhere
-_MODEL_UNRESTRICTED = "qwen3:8b"
+_MODEL_UNRESTRICTED = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 
 
 def _models_for(topic_type: str) -> tuple[str, str, str, str]:

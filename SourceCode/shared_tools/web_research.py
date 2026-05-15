@@ -1784,7 +1784,7 @@ class WebResearchEngine:
         try:
             router = InferenceRouter(self.repo_root)
             raw = router.chat(
-                model="qwen3:8b",
+                model="hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 system_prompt=self._SMART_QUERY_SYSTEM,
                 user_prompt=user_prompt,
                 temperature=0.0,
@@ -2044,7 +2044,7 @@ class WebResearchEngine:
         try:
             router = InferenceRouter(self.repo_root)
             raw = router.chat(
-                model="qwen3:8b",
+                model="hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 system_prompt=self._DECOMPOSE_SYSTEM,
                 user_prompt=base,
                 temperature=0.0,
@@ -2225,7 +2225,7 @@ class WebResearchEngine:
         try:
             router = InferenceRouter(self.repo_root)
             raw = router.chat(
-                model="qwen3:8b",
+                model="hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 system_prompt=self._FOLLOWUP_SYSTEM,
                 user_prompt=user_prompt,
                 temperature=0.0,

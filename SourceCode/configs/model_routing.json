@@ -3,55 +3,46 @@
     "turbo_deepseek": {
       "base_url": "http://127.0.0.1:8180",
       "models": [
-        "qwen3:8b",
+        "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
         "deepseek-r1:8b",
-        "qwen2.5-coder:7b"
+        "qwen3-coder:30b-a3b-q4_K_M"
       ],
       "fallback_to_ollama": true
     }
   },
-
   "premium_models": [
-    "mistral-small3.1:24b",
-    "phi4:14b",
-    "qwen3-coder:30b-a3b-q4_K_M",
-    "qwen3:30b-a3b-q4_K_M"
+    "qwen3-coder:30b-a3b-q4_K_M"
   ],
-
   "chat_layer": {
     "purpose": "User-facing messenger layer above the internal orchestrator",
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.6,
     "num_ctx": 8192,
     "timeout_sec": 180,
     "retry_attempts": 3,
     "retry_backoff_sec": 1.2,
     "fallback_models": [
-      "phi4-mini:3.8b",
       "deepseek-r1:8b"
     ]
   },
-
   "conversation_layer": {
     "purpose": "Legacy direct conversational fallback",
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.55,
     "num_ctx": 8192,
     "timeout_sec": 180,
     "retry_attempts": 3,
     "retry_backoff_sec": 1.2,
     "fallback_models": [
-      "phi4-mini:3.8b",
       "deepseek-r1:8b"
     ]
   },
-
   "orchestrator_reasoning": {
     "purpose": "Internal task planning, routing, and execution synthesis",
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.15,
     "num_ctx": 12288,
     "think": true,
@@ -59,30 +50,25 @@
     "retry_attempts": 3,
     "retry_backoff_sec": 2.0,
     "fallback_models": [
-      "deepseek-r1:8b",
-      "qwen2.5-coder:7b"
+      "deepseek-r1:8b"
     ],
-
     "synthesis_timeout_sec": 240,
     "synthesis_retry_attempts": 4,
     "synthesis_retry_backoff_sec": 2.0,
     "synthesis_validation_cycles": 2,
     "synthesis_fallback_models": [
-      "mistral-small3.1:24b",
       "deepseek-r1:8b"
     ],
-
     "reflection_gate_open_limit": 2,
     "reflection_temperature": 0.15,
     "reflection_num_ctx": 12288,
     "reflection_think": true,
     "reflection_timeout_sec": 240
   },
-
   "research_pool": {
     "purpose": "Foraging and evidence synthesis — reading web crawl output and general reasoning",
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "parallel_agents": 2,
     "temperature": 0.3,
     "num_ctx": 12288,
@@ -91,33 +77,27 @@
     "retry_backoff_sec": 2.0,
     "validation_cycles": 2,
     "gap_fill_enabled": false,
-
     "draft_critique_revise": {
       "enabled": true,
       "critic_lane": "synthesis",
       "max_revise_loops": 2
     },
-
     "fallback_models": [
-      "deepseek-r1:8b",
-      "qwen2.5-coder:7b"
+      "deepseek-r1:8b"
     ],
-
     "agent_mix": [
       {
         "persona": "market_analyst",
-        "model": "qwen3:8b",
+        "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
         "directive": "Focus on market dynamics, alternatives, and strategic positioning. Read between the lines of sources.",
         "num_ctx": 12288,
         "retry_attempts": 6,
         "retry_backoff_sec": 2.0,
         "fallback_models": [
-          "deepseek-r1:8b",
-          "qwen2.5-coder:7b"
+          "deepseek-r1:8b"
         ],
         "validation_cycles": 2
       },
-
       {
         "persona": "technical_researcher",
         "model": "deepseek-r1:8b",
@@ -126,7 +106,6 @@
         "directive": "Focus on technical feasibility, architecture tradeoffs, math, science, and engineering bottlenecks.",
         "validation_cycles": 2
       },
-
       {
         "persona": "risk_researcher",
         "model": "deepseek-r1:8b",
@@ -135,67 +114,55 @@
         "directive": "Focus on risks, failure modes, constraints, and mitigation plans.",
         "validation_cycles": 2
       },
-
       {
         "persona": "execution_planner",
-        "model": "qwen3:8b",
+        "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
         "directive": "Focus on practical sequencing, milestones, and resource-fit execution.",
         "validation_cycles": 2
       }
     ]
   },
-
   "synthesis": {
     "purpose": "Cross-agent synthesis — unified narrative output",
     "provider": "ollama",
-
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.2,
     "num_ctx": 12288,
     "timeout_sec": 420,
-
     "synthesis_retry_attempts": 3,
     "synthesis_validation_cycles": 2,
     "synthesis_retry_backoff_sec": 2.0,
-
     "synthesis_fallback_models": [
-      "deepseek-r1:8b",
-      "qwen2.5-coder:7b"
+      "deepseek-r1:8b"
     ],
-
     "tier_default": {
-      "model": "qwen3:8b",
+      "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
       "num_ctx": 12288,
       "temperature": 0.2,
       "timeout_sec": 420,
       "retry_attempts": 3,
       "retry_backoff_sec": 2.0,
       "fallback_models": [
-        "deepseek-r1:8b",
-        "qwen2.5-coder:7b"
+        "deepseek-r1:8b"
       ]
     },
-
     "tier_premium": {
-      "model": "mistral-small3.1:24b",
-      "num_ctx": 32768,
+      "model": "hf.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M",
+      "num_ctx": 16384,
       "temperature": 0.2,
-      "num_gpu": 24,
+      "num_gpu": 12,
       "keep_alive": "0",
       "timeout_sec": 900,
       "retry_attempts": 2,
       "retry_backoff_sec": 2.0,
-
       "fallback_models": [
-        "qwen3:30b-a3b-q4_K_M",
-        "phi4:14b"
+        "deepseek-r1:8b",
+        "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
       ],
-
       "synthesis_retry_attempts": 2,
       "synthesis_retry_backoff_sec": 2.0,
       "synthesis_validation_cycles": 2
     },
-
     "escalation_policy": {
       "enabled": true,
       "importance_min": "high",
@@ -206,34 +173,28 @@
       "cooloff_sec": 60
     }
   },
-
   "make_longform": {
     "purpose": "Long-form essays, scripts, guides, tutorials, newsletters",
     "provider": "ollama",
-
-    "model": "mistral-small3.1:24b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.55,
-    "num_ctx": 32768,
+    "num_ctx": 12288,
     "timeout_sec": 600,
     "retry_attempts": 4,
     "retry_backoff_sec": 2.0,
-    "num_gpu": 24,
-
+    "num_gpu": 10,
     "fallback_models": [
-      "qwen3:30b-a3b-q4_K_M",
-      "qwen3:8b"
+      "deepseek-r1:8b"
     ],
-
     "tier_premium": {
-      "model": "qwen3:30b-a3b-q4_K_M",
-      "num_ctx": 24576,
-      "num_gpu": 28,
+      "model": "deepseek-r1:8b",
+      "num_ctx": 16384,
+      "num_gpu": 12,
       "keep_alive": "0",
       "timeout_sec": 900,
       "retry_attempts": 2,
       "retry_backoff_sec": 2.0
     },
-
     "escalation_policy": {
       "enabled": true,
       "importance_min": "high",
@@ -242,76 +203,62 @@
       "max_revise_loops": 1
     }
   },
-
   "ui_pool": {
     "purpose": "Flask + vanilla JS implementation planning and code generation",
     "provider": "ollama",
-    "model": "qwen2.5-coder:7b",
+    "model": "qwen3-coder:30b-a3b-q4_K_M",
     "parallel_agents": 3,
     "temperature": 0.15,
-    "num_ctx": 8192,
+    "num_ctx": 12288,
     "timeout_sec": 240
   },
-
   "embeddings": {
     "purpose": "RAG and memory embeddings",
     "provider": "ollama",
     "model": "qwen3-embedding:4b"
   },
-
   "make_creative": {
     "purpose": "Long-form creative writing",
     "provider": "ollama",
-
-    "model": "mistral-small3.1:24b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.75,
-    "num_ctx": 24576,
+    "num_ctx": 12288,
     "timeout_sec": 600,
     "retry_attempts": 4,
     "retry_backoff_sec": 2.0,
-
     "fallback_models": [
-      "qwen3:8b"
+      "deepseek-r1:8b"
     ]
   },
-
   "make_content": {
     "purpose": "Short-form content: blogs, social media, emails",
     "provider": "ollama",
-
-    "model": "qwen3:8b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.8,
     "num_ctx": 8192,
     "timeout_sec": 180,
     "retry_attempts": 3,
     "retry_backoff_sec": 1.2,
-
     "fallback_models": [
-      "phi4-mini:3.8b"
+      "deepseek-r1:8b"
     ]
   },
-
   "make_specialist": {
     "purpose": "Domain-expert deliverables",
     "provider": "ollama",
-
-    "model": "mistral-small3.1:24b",
+    "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
     "temperature": 0.2,
-    "num_ctx": 24576,
+    "num_ctx": 12288,
     "timeout_sec": 600,
     "retry_attempts": 4,
     "retry_backoff_sec": 2.0,
-
     "fallback_models": [
-      "deepseek-r1:8b",
-      "qwen3:8b"
+      "deepseek-r1:8b"
     ]
   },
-
   "make_tool": {
     "purpose": "Shell or single-file Python scripts with smoke test",
     "provider": "ollama",
-
     "model": "qwen3-coder:30b-a3b-q4_K_M",
     "temperature": 0.15,
     "num_ctx": 16384,
@@ -319,17 +266,11 @@
     "retry_attempts": 4,
     "retry_backoff_sec": 1.8,
     "num_gpu": 24,
-
-    "fallback_models": [
-      "qwen2.5-coder:7b",
-      "qwen3:8b"
-    ]
+    "fallback_models": []
   },
-
   "make_desktop_app": {
     "purpose": ".NET 8 + Avalonia UI desktop application scaffold",
     "provider": "ollama",
-
     "model": "qwen3-coder:30b-a3b-q4_K_M",
     "temperature": 0.15,
     "num_ctx": 16384,
@@ -337,57 +278,52 @@
     "retry_attempts": 4,
     "retry_backoff_sec": 2.0,
     "num_gpu": 24,
-
+    "fallback_models": []
+  },
+  "make_plan": {
+    "purpose": "Plan-only implementation design lane (no code generation)",
+    "provider": "ollama",
+    "model": "hf.co/bartowski/DeepSeek-R1-Distill-Qwen-32B-GGUF:Q4_K_M",
+    "temperature": 0.1,
+    "num_ctx": 16384,
+    "think": true,
+    "timeout_sec": 420,
+    "retry_attempts": 4,
+    "retry_backoff_sec": 1.8,
+    "num_gpu": 24,
     "fallback_models": [
-      "qwen2.5-coder:7b",
-      "qwen3:8b"
+      "qwen3-coder:30b-a3b-q4_K_M"
     ]
   },
-
   "intent_confirmer": {
     "purpose": "Fast intent classification gate",
     "provider": "ollama",
-
-    "model": "gemma3:4b",
+    "model": "qwen3:4b",
     "temperature": 0.05,
     "num_ctx": 4096,
     "timeout_sec": 20,
-
     "retry_attempts": 2,
     "retry_backoff_sec": 1.0,
-
-    "fallback_models": [
-      "qwen3:4b"
-    ]
+    "fallback_models": []
   },
-
   "chat_routing_gate": {
     "purpose": "Lightweight context gate",
     "provider": "ollama",
-
     "model": "qwen3:4b",
     "temperature": 0.0,
     "num_ctx": 4096,
     "timeout_sec": 10,
-
     "retry_attempts": 1,
     "retry_backoff_sec": 0.5,
-
-    "fallback_models": [
-      "gemma3:4b"
-    ]
+    "fallback_models": []
   },
-
   "orchestrator.chat_via_graph": true,
   "orchestrator.checkpoint_retention_days": 30,
-
   "mcp.http_enabled": false,
   "mcp.use_fetch": false,
   "mcp.acknowledge_unsafe_http": false,
-
   "make_type_classifier.enabled": true,
   "make_type_classifier.confidence_threshold": 0.7,
-
   "research_pool.max_handoffs": 2,
   "research.citation_cosine_threshold": 0.45
 }

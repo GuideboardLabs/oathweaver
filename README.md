@@ -204,9 +204,9 @@ The optional **Web research stack** (SearXNG + Crawl4AI, Docker) provides live w
 
 ## Conversation Surface (Chat Layer)
 
-User-facing messaging is mediated by the **chat layer** (`dolphin3:8b`, configured under `chat_layer` in `model_routing.json`). The chat layer is *not* the orchestrator — it sits above the kernel and dispatches into pipelines.
+User-facing messaging is mediated by the **chat layer** (`hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL`, configured under `chat_layer` in `model_routing.json`). The chat layer is *not* the orchestrator — it sits above the kernel and dispatches into pipelines.
 
-**Two-stage routing gate.** Every incoming request is first scored by a semantic-router layer (embedding lookup against known web vs. no-web exemplars, ~20ms) and only falls through to the `gemma3:4b` intent confirmer for genuinely ambiguous messages. A second `qwen3:4b` context gate validates the routing decision against full conversation history before a research pipeline fires.
+**Two-stage routing gate.** Every incoming request is first scored by a semantic-router layer (embedding lookup against known web vs. no-web exemplars, ~20ms) and only falls through to the `qwen3:4b` intent confirmer for genuinely ambiguous messages. A second `qwen3:4b` context gate validates the routing decision against full conversation history before a research pipeline fires.
 
 **Fixed-stack capability injection.** For coding make_types, stack/framework/database choice is treated as system-fixed by default:
 
@@ -252,18 +252,19 @@ Optional bot adapters in [SourceCode/bots/](SourceCode/bots/) wrap the kernel fo
 
 | Task | Model | Context |
 |---|---|---|
-| Chat layer (user-facing weavers) | dolphin3:8b | 8,192 |
-| Orchestration / reasoning | deepseek-r1:8b (`think=true`) | 12,288 |
-| Research & synthesis | qwen3:8b | 12,288 |
-| Creative writing | qwen3:8b | 12,288 |
+| Chat layer (user-facing weavers) | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL | 8,192 |
+| Orchestration / reasoning | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL (`think=true`) | 12,288 |
+| Research & synthesis | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL | 12,288 |
+| Creative writing | hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL | 12,288 |
 | Unrestricted-topic content | huihui_ai/qwen3-abliterated:8b-Q4_K_M | 8,192 |
-| Premium / longform (when available) | qwen2.5:32b, deepseek-r1:14b, qwen2.5-coder:14b | 16k–24k |
-| Code (web apps) | qwen2.5-coder:7b / :14b | 12,288 |
-| Desktop app scaffold | qwen2.5-coder:14b | 16,384 |
-| Intent gate | gemma3:4b | 4,096 |
+| Premium / longform (when available) | deepseek-r1:8b (quality escalation), qwen3-coder:30b-a3b-q4_K_M (coding premium lock) | 16,384 |
+| Code (web apps) | qwen3-coder:30b-a3b-q4_K_M | 12,288 |
+| Desktop app scaffold | qwen3-coder:30b-a3b-q4_K_M | 16,384 |
+| Plan mode (plan-only lane) | qwen3-coder:30b-a3b-q4_K_M (`think=true`) | 16,384 |
+| Intent gate | qwen3:4b | 4,096 |
 | Routing context gate | qwen3:4b | 4,096 |
 | Embeddings / RAG / semantic routing | qwen3-embedding:4b | — |
-| Make-type classifier | SetFit over sentence-transformers | CPU |
+| Make-type classifier | Keyword model (artifact-backed) | CPU |
 
 All models run locally via Ollama or llama.cpp. Assignments are configurable in [SourceCode/configs/model_routing.json](SourceCode/configs/model_routing.json).
 
@@ -312,8 +313,8 @@ Enforcement is **advisory-first**: profile mismatches surface as warnings throug
                   └──────────────┬──────────────────────────┘
                                  │
                   ┌──────────────▼──────────────────────────┐
-                  │   Chat Layer (dolphin3:8b)               │
-                  │   semantic-router → intent (gemma3:4b)   │
+                  │   Chat Layer (Qwen3-8B UD-Q5_K_XL)       │
+                  │   semantic-router → intent (qwen3:4b)    │
                   │   → context gate (qwen3:4b)              │
                   │   → self-query gate → self-state inject  │
                   └──────────────┬──────────────────────────┘
@@ -391,7 +392,7 @@ Enforcement is **advisory-first**: profile mismatches surface as warnings throug
 - **Python 3.10+**
 - **Ollama** running locally (required)
 - **Docker** (optional — for web research stack: SearXNG + Crawl4AI)
-- **Core Python deps** (via `requirements.lock`): LangGraph + SqliteSaver for turn orchestration, semantic-router for fast routing, SetFit + sentence-transformers for Make-type classification, MCP SDK for tool surface
+- **Core Python deps** (via `requirements.lock`): LangGraph + SqliteSaver for turn orchestration, semantic-router for fast routing, a lightweight keyword classifier for Make-type routing, MCP SDK for tool surface
 - **Optional extras**
   - `requirements-optional-docs.txt` — PDF / DOCX / OCR helpers
   - `requirements-optional-bots.txt` — Discord bot support
@@ -489,7 +490,7 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 | `SourceCode/benchmarks/` | Hardware profiles and CAG benchmark adapter |
 | `SourceCode/configs/model_routing.json` | Model assignments, inference servers, fallback config |
 | `SourceCode/configs/hardware_profiles.json` | Hardware profile definitions (capacity, scheduler caps, model policy, lane caps) |
-| `scripts/` | ML training scripts for the SetFit make-type classifier and low-confidence flagging |
+| `scripts/` | Training utilities for the make-type keyword classifier and low-confidence flagging |
 | `tests/` | Test suite |
 | `docs/` | Architecture notes, changelogs, planning artifacts |
 | `tools/` | Utility scripts: health checks, developer tooling |
@@ -554,7 +555,7 @@ Maintenance utilities:
 ```bash
 python3 tools/refresh_requirements_lock.py   # regenerate requirements.lock
 python3 tools/reset_environment.py           # reset local dev environment
-python3 scripts/train_make_classifier.py     # retrain the SetFit make-type classifier
+python3 scripts/train_make_classifier.py     # retrain the make-type keyword classifier
 python3 scripts/flag_low_confidence.py       # flag low-confidence classifier predictions
 ```
 

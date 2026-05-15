@@ -34,6 +34,7 @@ def lane_to_pipeline(lane: str) -> str:
         "conversation": "conversation_pipeline",
         "make_app": "build_pipeline",
         "make_doc": "build_pipeline",
+        "make_plan": "build_pipeline",
         "make_tool": "build_pipeline",
         "make_creative": "build_pipeline",
         "make_content": "build_pipeline",

@@ -269,9 +269,9 @@ def check_web_routing(
         temperature = float(cfg.get("temperature", 0.0))
         num_ctx = int(cfg.get("num_ctx", 4096))
         timeout = int(cfg.get("timeout_sec", 12))
-        fallback_models = cfg.get("fallback_models", ["gemma3:4b"])
+        fallback_models = cfg.get("fallback_models", ["qwen3:4b"])
         if not isinstance(fallback_models, list):
-            fallback_models = ["gemma3:4b"]
+            fallback_models = ["qwen3:4b"]
 
         history_lines: list[str] = []
         for row in prior_messages[-6:]:

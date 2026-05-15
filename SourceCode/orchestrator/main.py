@@ -536,8 +536,11 @@ class OathweaverOrchestrator:
         label: str,
         system_prompt: str,
         user_prompt: str,
+        lane_key: str = "orchestrator_reasoning",
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        cfg = lane_model_config(self.repo_root, "orchestrator_reasoning")
+        cfg = lane_model_config(self.repo_root, str(lane_key or "orchestrator_reasoning").strip())
+        if not cfg:
+            cfg = lane_model_config(self.repo_root, "orchestrator_reasoning")
         model = str(cfg.get("model", "")).strip()
         started = time.monotonic()
         if not model:
@@ -579,7 +582,15 @@ class OathweaverOrchestrator:
             self.bus.emit("orchestrator", "build_stage_llm_failed", {"label": label, "error": str(exc)[:220]})
             return {}, detail
 
-    def _llm_extract_requirements(self, *, text: str, topic_type: str, target: str, lane: str) -> dict[str, Any]:
+    def _llm_extract_requirements(
+        self,
+        *,
+        text: str,
+        topic_type: str,
+        target: str,
+        lane: str,
+        lane_key: str = "orchestrator_reasoning",
+    ) -> dict[str, Any]:
         system_prompt = (
             "Extract concrete build requirements. Return JSON only with keys: "
             "entities (list[str]), actions (list[str]), constraints (list[str]). "
@@ -590,7 +601,10 @@ class OathweaverOrchestrator:
             f"Topic type: {topic_type}\nTarget: {target}\nLane: {lane}\n"
         )
         parsed, call_meta = self._stage_llm_json_call(
-            label="requirements", system_prompt=system_prompt, user_prompt=user_prompt
+            label="requirements",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            lane_key=lane_key,
         )
         entities = [str(x).strip() for x in parsed.get("entities", []) if str(x).strip()] if isinstance(parsed.get("entities", []), list) else []
         actions = [str(x).strip() for x in parsed.get("actions", []) if str(x).strip()] if isinstance(parsed.get("actions", []), list) else []
@@ -602,7 +616,14 @@ class OathweaverOrchestrator:
             "llm_sub_calls": [call_meta],
         }
 
-    def _llm_propose_architecture(self, *, request: str, make_type: str, requirements: dict[str, Any]) -> dict[str, Any]:
+    def _llm_propose_architecture(
+        self,
+        *,
+        request: str,
+        make_type: str,
+        requirements: dict[str, Any],
+        lane_key: str = "orchestrator_reasoning",
+    ) -> dict[str, Any]:
         system_prompt = (
             "Propose a concise architecture outline. Return JSON only with keys: "
             "stack_summary (str), modules (list[object with name and responsibility])."
@@ -613,7 +634,10 @@ class OathweaverOrchestrator:
             f"Requirements JSON:\n{json.dumps(requirements, ensure_ascii=True)[:3000]}"
         )
         parsed, call_meta = self._stage_llm_json_call(
-            label="architecture", system_prompt=system_prompt, user_prompt=user_prompt
+            label="architecture",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            lane_key=lane_key,
         )
         modules_raw = parsed.get("modules", [])
         modules: list[dict[str, str]] = []
@@ -628,7 +652,13 @@ class OathweaverOrchestrator:
         stack_summary = str(parsed.get("stack_summary", "")).strip()
         return {"stack_summary": stack_summary, "modules": modules, "llm_sub_calls": [call_meta]}
 
-    def _llm_propose_implementation_plan(self, *, request: str, architecture: dict[str, Any]) -> dict[str, Any]:
+    def _llm_propose_implementation_plan(
+        self,
+        *,
+        request: str,
+        architecture: dict[str, Any],
+        lane_key: str = "orchestrator_reasoning",
+    ) -> dict[str, Any]:
         system_prompt = (
             "Create an ordered implementation plan. Return JSON only with keys: "
             "steps (list[str]), files (list[str])."
@@ -638,7 +668,10 @@ class OathweaverOrchestrator:
             f"Architecture JSON:\n{json.dumps(architecture, ensure_ascii=True)[:3500]}"
         )
         parsed, call_meta = self._stage_llm_json_call(
-            label="implementation_plan", system_prompt=system_prompt, user_prompt=user_prompt
+            label="implementation_plan",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            lane_key=lane_key,
         )
         steps = [str(x).strip() for x in parsed.get("steps", []) if str(x).strip()] if isinstance(parsed.get("steps", []), list) else []
         files = [str(x).strip() for x in parsed.get("files", []) if str(x).strip()] if isinstance(parsed.get("files", []), list) else []
@@ -648,7 +681,7 @@ class OathweaverOrchestrator:
         lane_key = str(lane or "").strip().lower()
         if lane_key in {"research", "project"}:
             return "research_pipeline"
-        if lane_key in {"make_app", "make_doc", "make_tool", "make_creative", "make_content", "make_specialist", "make_longform", "make_desktop_app", "ui"}:
+        if lane_key in {"make_app", "make_doc", "make_plan", "make_tool", "make_creative", "make_content", "make_specialist", "make_longform", "make_desktop_app", "ui"}:
             if str(query_mode or "").strip().lower() == "workspace_code":
                 return "code_fix_pipeline"
             return "build_pipeline"
@@ -885,12 +918,14 @@ class OathweaverOrchestrator:
                     }
 
             if pipeline_name == "build_pipeline":
+                plan_lane_key = "make_plan" if str(payload.get("lane", "")).strip().lower() == "make_plan" else "orchestrator_reasoning"
                 if stage == "requirements":
                     extracted = self._llm_extract_requirements(
                         text=payload["text"],
                         topic_type=str(payload.get("topic_type", "general")),
                         target=str(payload.get("target", "")),
                         lane=str(payload.get("lane", "")),
+                        lane_key=plan_lane_key,
                     )
                     return {
                         "requirements": {
@@ -910,6 +945,7 @@ class OathweaverOrchestrator:
                         request=payload["text"],
                         make_type=str(execution.get("make_type", payload.get("target", "web_app"))),
                         requirements=stage_state.get("requirements", {}),
+                        lane_key=plan_lane_key,
                     )
                     return {
                         "architecture_outline": {
@@ -925,6 +961,7 @@ class OathweaverOrchestrator:
                     implementation = self._llm_propose_implementation_plan(
                         request=payload["text"],
                         architecture=stage_state.get("architecture_outline", {}),
+                        lane_key=plan_lane_key,
                     )
                     return {
                         "implementation_plan": {
@@ -940,16 +977,26 @@ class OathweaverOrchestrator:
                     self._last_project_mode = self.pipeline_store.get(self.project_slug)
                     self._last_progress_callback = progress_callback
                     self._last_cancel_checker = cancel_checker
-                    out = self._run_make_delivery(
-                        text=payload["text"],
-                        history=payload["history"],
-                        target=payload["target"],
-                        mode=payload["mode"],
-                        seed_artifact_text="",
-                        upstream_requirements=stage_state.get("requirements", {}),
-                        upstream_architecture=stage_state.get("architecture_outline", {}),
-                        upstream_implementation_plan=stage_state.get("implementation_plan", {}),
-                    )
+                    if str(payload.get("lane", "")).strip().lower() == "make_plan":
+                        out = self._run_make_plan(
+                            text=payload["text"],
+                            target=payload["target"],
+                            mode=payload["mode"],
+                            upstream_requirements=stage_state.get("requirements", {}),
+                            upstream_architecture=stage_state.get("architecture_outline", {}),
+                            upstream_implementation_plan=stage_state.get("implementation_plan", {}),
+                        )
+                    else:
+                        out = self._run_make_delivery(
+                            text=payload["text"],
+                            history=payload["history"],
+                            target=payload["target"],
+                            mode=payload["mode"],
+                            seed_artifact_text="",
+                            upstream_requirements=stage_state.get("requirements", {}),
+                            upstream_architecture=stage_state.get("architecture_outline", {}),
+                            upstream_implementation_plan=stage_state.get("implementation_plan", {}),
+                        )
                     scratch["worker_result"] = dict(out)
                     return {"worker_result": dict(out)}
                 if stage == "verification":
@@ -1746,7 +1793,7 @@ class OathweaverOrchestrator:
 
         cfg = lane_model_config(self.repo_root, "orchestrator_reasoning")
         model = str(cfg.get("model", "")).strip() or "deepseek-r1:8b"
-        fallback_models = cfg.get("fallback_models", []) if isinstance(cfg.get("fallback_models", []), list) else ["qwen3:8b"]
+        fallback_models = cfg.get("fallback_models", []) if isinstance(cfg.get("fallback_models", []), list) else ["hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"]
         system_prompt = (
             "You are doing a light copyedit pass on assistant text. "
             "Fix only obvious spelling, spacing, punctuation, and capitalization issues. "
@@ -3861,6 +3908,119 @@ class OathweaverOrchestrator:
     def _infer_delivery_target(self, text: str, explicit_target: str, mode: str = "research") -> str:
         return infer_delivery_target(text, explicit_target, mode)
 
+    def _run_make_plan(
+        self,
+        *,
+        text: str,
+        target: str,
+        mode: str = "make",
+        upstream_requirements: dict[str, Any] | None = None,
+        upstream_architecture: dict[str, Any] | None = None,
+        upstream_implementation_plan: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        current_mode = str(mode or "make").strip().lower()
+        kind = self._infer_delivery_target(text, target, mode=current_mode)
+        requirements = dict(upstream_requirements or {})
+        architecture = dict(upstream_architecture or {})
+        implementation = dict(upstream_implementation_plan or {})
+
+        extracted_entities = requirements.get("extracted_entities", []) if isinstance(requirements, dict) else []
+        extracted_actions = requirements.get("extracted_actions", []) if isinstance(requirements, dict) else []
+        extracted_constraints = requirements.get("extracted_constraints", []) if isinstance(requirements, dict) else []
+        module_breakdown = architecture.get("module_breakdown", []) if isinstance(architecture, dict) else []
+        ordered_steps = implementation.get("ordered_steps", []) if isinstance(implementation, dict) else []
+        deliverable_files = implementation.get("deliverable_files", []) if isinstance(implementation, dict) else []
+
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        safe_kind = re.sub(r"[^a-z0-9_]+", "_", str(kind or "plan").strip().lower()).strip("_") or "plan"
+        out_root = self.repo_root / "Projects" / "Plans" / self.project_slug
+        out_root.mkdir(parents=True, exist_ok=True)
+        out_path = out_root / f"{stamp}_{safe_kind}_plan.md"
+
+        lines: list[str] = [
+            f"# Implementation Plan: {safe_kind.replace('_', ' ').title()}",
+            "",
+            "## Request",
+            text.strip(),
+            "",
+            "## Requirements",
+        ]
+        if extracted_entities:
+            lines.append("### Entities")
+            lines.extend([f"- {str(item).strip()}" for item in extracted_entities if str(item).strip()])
+            lines.append("")
+        if extracted_actions:
+            lines.append("### Actions")
+            lines.extend([f"- {str(item).strip()}" for item in extracted_actions if str(item).strip()])
+            lines.append("")
+        if extracted_constraints:
+            lines.append("### Constraints")
+            lines.extend([f"- {str(item).strip()}" for item in extracted_constraints if str(item).strip()])
+            lines.append("")
+        if not extracted_entities and not extracted_actions and not extracted_constraints:
+            lines.append("- (No structured requirements extracted.)")
+            lines.append("")
+
+        lines.append("## Architecture")
+        stack_summary = str(architecture.get("stack_summary", "")).strip() if isinstance(architecture, dict) else ""
+        if stack_summary:
+            lines.append(stack_summary)
+            lines.append("")
+        modules = module_breakdown if isinstance(module_breakdown, list) else []
+        if modules:
+            for module in modules:
+                if not isinstance(module, dict):
+                    continue
+                name = str(module.get("name", "")).strip()
+                responsibility = str(module.get("responsibility", "")).strip()
+                if name and responsibility:
+                    lines.append(f"- **{name}:** {responsibility}")
+                elif name:
+                    lines.append(f"- **{name}**")
+            lines.append("")
+        else:
+            lines.append("- (No module breakdown extracted.)")
+            lines.append("")
+
+        lines.append("## Implementation Steps")
+        if ordered_steps:
+            for idx, step in enumerate(ordered_steps, start=1):
+                step_text = str(step).strip()
+                if step_text:
+                    lines.append(f"{idx}. {step_text}")
+            lines.append("")
+        else:
+            lines.append("1. (No ordered implementation steps extracted.)")
+            lines.append("")
+
+        lines.append("## Candidate Files")
+        if deliverable_files:
+            lines.extend([f"- `{str(path).strip()}`" for path in deliverable_files if str(path).strip()])
+        else:
+            lines.append("- (No file suggestions extracted.)")
+        lines.append("")
+
+        out_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+        self.bus.emit(
+            "orchestrator",
+            "make_deliverable_written",
+            {"project": self.project_slug, "kind": "plan", "path": str(out_path), "delivery_kind": "plan"},
+        )
+        return {
+            "ok": True,
+            "message": "Plan generated. Review steps before code execution.",
+            "path": str(out_path),
+            "delivery_kind": "plan",
+            "type_id": safe_kind,
+            "requirements": {
+                "entities": [str(x).strip() for x in extracted_entities if str(x).strip()],
+                "actions": [str(x).strip() for x in extracted_actions if str(x).strip()],
+                "constraints": [str(x).strip() for x in extracted_constraints if str(x).strip()],
+            },
+            "architecture": architecture,
+            "implementation_plan": implementation,
+        }
+
     def _run_make_delivery(
         self,
         *,
@@ -4157,7 +4317,7 @@ class OathweaverOrchestrator:
                 seed_artifact_text,
             )
             desktop_model = str(lane_model_config(self.repo_root, "make_desktop_app").get("model", "")).strip()
-            lock_model = desktop_model or "qwen2.5-coder:14b"
+            lock_model = desktop_model or "qwen3-coder:30b-a3b-q4_K_M"
             from shared_tools.premium_model_lock import PremiumModelLock
             premium_lock = PremiumModelLock(self.repo_root, client=self.ollama)
             lease = premium_lock.acquire(lock_model, timeout_sec=180.0)
@@ -4194,7 +4354,7 @@ class OathweaverOrchestrator:
                 seed_artifact_text,
             )
             tool_model = str(lane_model_config(self.repo_root, "make_tool").get("model", "")).strip()
-            lock_model = tool_model or "qwen2.5-coder:14b"
+            lock_model = tool_model or "qwen3-coder:30b-a3b-q4_K_M"
             from shared_tools.premium_model_lock import PremiumModelLock
             premium_lock = PremiumModelLock(self.repo_root, client=self.ollama)
             lease = premium_lock.acquire(lock_model, timeout_sec=180.0)
@@ -4395,6 +4555,7 @@ class OathweaverOrchestrator:
         seed_artifact_text: str = "",
         force_research: bool = False,
         force_make: bool = False,
+        force_plan: bool = False,
         thread_id: str = "",
         details_sink: dict[str, Any] | None = None,
         topic_context: str = "",
@@ -4582,6 +4743,8 @@ class OathweaverOrchestrator:
                 lane = _make_lane_for_target(inferred_target)
         if force_research:
             lane = "research"
+        elif force_plan:
+            lane = "make_plan"
         elif force_make:
             lane = _make_lane_for_target(inferred_target)
         elif turn_plan.lane_override and lane in {"research", "project", "personal"}:
@@ -4862,6 +5025,33 @@ class OathweaverOrchestrator:
             return self._complete_turn(
                 user_text=text,
                 lane="project",
+                reply_text=reply,
+                worker_result=out,
+                context_feedback=self._context_feedback(
+                    user_text=text,
+                    reply_text=reply,
+                    household_context=household_context,
+                ),
+            )
+
+        if lane == "make_plan":
+            if _is_cancelled():
+                return "Request cancelled before make_plan lane execution started."
+            self._last_project_mode = pipeline
+            self._last_progress_callback = progress_callback
+            self._last_cancel_checker = cancel_checker
+            out = self._run_make_plan(
+                text=text,
+                target=target,
+                mode=mode,
+            )
+            fallback = f"{out.get('message', 'Plan generation completed.')} Output: {out.get('path', '')}"
+            reply = self._make_summary_reply(lane=lane, out=out, fallback=fallback)
+            reply = self._append_daymarker_note(reply, event_note)
+            reply = self._append_daymarker_note(reply, reminder_note)
+            return self._complete_turn(
+                user_text=text,
+                lane=lane,
                 reply_text=reply,
                 worker_result=out,
                 context_feedback=self._context_feedback(

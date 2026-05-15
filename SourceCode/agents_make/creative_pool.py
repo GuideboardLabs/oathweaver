@@ -1,13 +1,13 @@
 """Creative writing pool — novels, memoirs, books, screenplays.
 
 Pipeline:
-    1. Story Planner  — qwen3:8b outlines narrative arc, scenes, character beats.
-    2. Scene Writer    — qwen3:8b (temp 0.7) drafts scenes sequentially with
+    1. Story Planner  — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL outlines narrative arc, scenes, character beats.
+    2. Scene Writer    — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL (temp 0.7) drafts scenes sequentially with
                          prior scene context for continuity.
-    3. Voice Critic    — qwen3:8b checks tense drift, POV breaks, pacing,
+    3. Voice Critic    — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL checks tense drift, POV breaks, pacing,
                          dialogue authenticity.
-    4. Revision Pass   — qwen3:8b applies critic notes to flagged scenes.
-    5. Compositor      — qwen3:8b assembles final chapter with smooth transitions.
+    4. Revision Pass   — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL applies critic notes to flagged scenes.
+    5. Compositor      — hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL assembles final chapter with smooth transitions.
 
 Kind-specific formatting:
     - novel:      scene headers, dialogue, interior monologue, chapter hooks
@@ -28,10 +28,10 @@ from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
-_MODEL_PLANNER    = "qwen3:8b"
-_MODEL_WRITER     = "qwen3:8b"
-_MODEL_CRITIC     = "qwen3:8b"
-_MODEL_COMPOSITOR = "qwen3:8b"
+_MODEL_PLANNER    = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_WRITER     = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_CRITIC     = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
+_MODEL_COMPOSITOR = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _CONTRACT_AUDITOR = OutputContractAuditor()
 
 

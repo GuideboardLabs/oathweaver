@@ -555,7 +555,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "sports_context_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on current schedules, rosters, recent form, rankings, and event context. "
                     "For combat sports: confirm weight class, title type (divisional vs symbolic belt such as BMF), "
@@ -572,7 +572,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "sports_risk_analyst",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on injury reports, availability uncertainty, current momentum, venue/officiating factors, "
                     "and what could shift the expected outcome."
@@ -583,7 +583,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "combat_card_context_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: professional combat sports only. Focus on bout card changes, weight-class context, "
                     "title type (divisional vs symbolic), and verified event timing."
@@ -599,7 +599,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "combat_risk_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: combat event uncertainty only. Focus on missed-weight scenarios, late replacement risk, "
                     "commission rulings, and fight-night variance factors."
@@ -610,7 +610,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "sports_event_timing_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: live sports event context only. Confirm start times, venue, weather or arena conditions, "
                     "broadcast availability, and recent lineup/injury updates."
@@ -626,7 +626,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "sports_event_history_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: matchup-specific event history only. Focus on recent head-to-heads, situational splits, "
                     "and schedule-rest travel context with concrete date anchors."
@@ -651,7 +651,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "technical_implementation_researcher",
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen3-coder:30b-a3b-q4_K_M",
                 "directive": (
                     "Focus on concrete implementation patterns, library/framework comparisons, code-level feasibility, "
                     "API shapes, version specifics, and known gotchas."
@@ -667,7 +667,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "technical_market_analyst",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on ecosystem maturity, adoption trends, community support, and competitive alternatives."
                 ),
@@ -687,7 +687,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "guideline_verifier",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Cross-check against current clinical guidelines (WHO, CDC, NIH, specialty societies). "
                     "Explicitly state the guideline version year (e.g., 'CDC 2023'). Flag when the most recent guideline is more than 3 years old. "
@@ -727,7 +727,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "species_guideline_verifier",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: species-specific veterinary guidance only. Validate recommendations against animal-care "
                     "guidelines (AAHA, AVMA, WSAVA, ACVIM, ASPCA poison resources) and include guideline years."
@@ -763,7 +763,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "clinical_guideline_verifier",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Cross-check against current pediatric and developmental guidelines (AAP, CDC, AOTA, ASHA, DSM-5-TR). "
                     "Explicitly state guideline version years. Flag guidelines older than 3 years. "
@@ -772,7 +772,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "neurodiversity_perspective_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Actively seek neurodiversity-affirming frameworks, perspectives, and research. "
                     "This means: (1) Look for research and guidance written from a strengths-based or identity-affirming lens, not deficit-only. "
@@ -785,7 +785,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "practical_family_advisor",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on actionable, practical strategies families can use. Prioritize approaches that have real-world parent/caregiver evidence. "
                     "Identify what school systems, therapists, and pediatricians can be asked for specifically. "
@@ -807,7 +807,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "fundamentals_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on valuation multiples, earnings/revenue trends, balance sheet health, competitive positioning."
                 ),
@@ -837,7 +837,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "business_strategy_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: business strategy and operations only. Focus on product-market fit, positioning, "
                     "pricing, channels, and execution tradeoffs rather than purely financial valuation."
@@ -853,7 +853,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "business_execution_risk_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: business execution risks only. Focus on hiring, sales-cycle friction, legal/compliance "
                     "constraints, vendor concentration, and operational bottlenecks."
@@ -878,7 +878,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "jurisdiction_and_precedent_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: jurisdiction and precedent only. Distinguish binding vs persuasive authority, procedural posture, "
                     "and unresolved splits between courts or regulators."
@@ -886,7 +886,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "legal_risk_and_compliance_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: legal risk framing only. Identify compliance exposure, penalties, safe-harbor conditions, "
                     "and where licensed counsel is required before action."
@@ -911,7 +911,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "education_policy_and_accreditation_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: educational policy only. Focus on accreditation standards, curricular requirements, "
                     "state or institutional policy constraints, and implementation timelines."
@@ -919,7 +919,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "education_equity_and_access_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: education equity and access only. Focus on cost, accessibility, learner support models, "
                     "and differential outcomes across demographic groups."
@@ -930,7 +930,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "travel_requirements_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: travel logistics only. Verify passport, visa, entry rules, customs constraints, and "
                     "official advisories with date-specific sources."
@@ -946,7 +946,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "travel_risk_and_safety_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: traveler safety only. Focus on current advisories, local hazards, healthcare access, "
                     "and contingency planning for schedule or border changes."
@@ -965,7 +965,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "food_safety_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: food safety only. Focus on contamination or recall risk, storage and handling thresholds, "
                     "allergen concerns, and authoritative safety guidance."
@@ -973,7 +973,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "food_practical_preparation_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: culinary execution only. Focus on preparation methods, substitution effects, "
                     "cost-quality tradeoffs, and reproducible outcomes."
@@ -984,7 +984,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "gaming_systems_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: game systems and balance only. Focus on mechanics, patch impacts, progression loops, "
                     "and design tradeoffs for players."
@@ -1000,7 +1000,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "gaming_community_and_platform_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: game community and platform context only. Focus on developer communications, moderation policy, "
                     "platform constraints, and player sentiment patterns."
@@ -1019,7 +1019,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "books_context_and_reception_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: literary context only. Focus on author intent, publication context, critical reception, "
                     "and comparative works within the canon or market segment."
@@ -1027,7 +1027,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "books_publishing_market_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: publishing landscape only. Focus on edition history, rights, imprint strategy, "
                     "and audience positioning."
@@ -1046,7 +1046,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "real_estate_regulatory_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: real-estate legal and zoning context only. Focus on permitting, zoning constraints, "
                     "tax implications, and tenancy rules by jurisdiction."
@@ -1054,7 +1054,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "real_estate_financing_risk_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: property financing and downside risk only. Focus on leverage, rate sensitivity, vacancy risk, "
                     "cap-rate pressure, and liquidity constraints."
@@ -1079,7 +1079,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "automotive_safety_and_recall_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: vehicle safety only. Focus on recalls, crash or defect advisories, warranty coverage, "
                     "and manufacturer remediation timelines."
@@ -1087,7 +1087,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "automotive_ownership_cost_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: ownership economics only. Focus on total cost of ownership, parts availability, "
                     "fuel or charging profile, and depreciation behavior."
@@ -1098,7 +1098,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "history_timeline_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on chronology, causal chains, periodization with explicit date anchors. "
                     "Identify pivotal turning points and distinguish immediate causes from structural forces."
@@ -1114,7 +1114,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "history_comparative_analyst",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on parallels with other periods or regions. What does this resemble? "
                     "What's different? What precedents exist and how reliable are they?"
@@ -1133,7 +1133,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "frontier_science_analyst",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on cutting-edge preprints, recent papers, emerging findings, and where the field is actively moving. "
                     "Flag contested vs widely accepted claims."
@@ -1141,7 +1141,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "science_application_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on real-world applications, technology readiness level, practical implications, "
                     "and how this science connects to existing technologies or societal challenges."
@@ -1166,7 +1166,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "computational_methods_researcher",
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen3-coder:30b-a3b-q4_K_M",
                 "directive": (
                     "Focus on algorithms, numerical methods, computational complexity, and implementation approaches. "
                     "Compare efficiency and accuracy tradeoffs with examples."
@@ -1185,7 +1185,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "policy_and_governance_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on what the policy, law, or governance structure actually says: text, legislative history, "
                     "implementation status, what it requires or prohibits. Stick to documented facts."
@@ -1193,7 +1193,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "stakeholder_and_power_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on key political actors, stated and actual interests, funding sources, alliances, "
                     "and how power dynamics shape outcomes."
@@ -1212,7 +1212,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "breaking_developments_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus EXCLUSIVELY on confirmed recent developments from web sources. "
                     "Every claim must cite a specific source URL. Timeline developments with dates. "
@@ -1230,7 +1230,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "context_and_trajectory_analyst",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "Focus on why this story is developing, what precedes it, and where key signals indicate it's heading. "
                     "Track narrative arc and inflection points."
@@ -1241,7 +1241,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "tv_production_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: television analysis only. Focus on production context, release cadence, "
                     "showrunner choices, and platform strategy."
@@ -1257,7 +1257,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "tv_audience_signal_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: TV audience and market signals only. Focus on viewership trajectories, "
                     "renewal or cancellation indicators, and franchise impact."
@@ -1268,7 +1268,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         return [
             {
                 "persona": "film_production_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: film production analysis only. Focus on director and studio choices, "
                     "development context, and release strategy."
@@ -1284,7 +1284,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "film_market_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: film market and audience outcomes only. Focus on box office patterning, "
                     "distribution windows, and audience reception signals."
@@ -1303,7 +1303,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "music_industry_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: music industry context only. Focus on label strategy, release model, touring dynamics, "
                     "rights context, and platform economics."
@@ -1311,7 +1311,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "music_reception_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: music reception only. Focus on critic viewpoints, audience reaction, chart behavior, "
                     "and community discourse with time-stamped sources."
@@ -1330,7 +1330,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "art_criticism_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: art criticism only. Focus on formal analysis, curatorial framing, and critical reception "
                     "from reputable art publications or institutional sources."
@@ -1338,7 +1338,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
             },
             {
                 "persona": "art_market_researcher",
-                "model": "qwen3:8b",
+                "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
                 "directive": (
                     "STAY IN DOMAIN: art market context only. Focus on provenance signals, exhibition history, auction trends, "
                     "and market-position indicators."
@@ -1391,7 +1391,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
     return [
         {
             "persona": "context_and_background_researcher",
-            "model": "qwen3:8b",
+            "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
             "directive": (
                 "Focus on background context, key actors, historical origins, and why this topic exists. "
                 "Establish essential who/what/when/where."
@@ -1407,7 +1407,7 @@ def _profile_agent_templates(profile: str) -> list[dict[str, Any]]:
         },
         {
             "persona": "implications_researcher",
-            "model": "qwen3:8b",
+            "model": "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL",
             "directive": (
                 "Focus on second-order effects, downstream consequences, stakeholder impacts, "
                 "and what matters most for someone who needs to act on this."
@@ -1973,7 +1973,7 @@ def _run_fill_agents(
         fill_cfg_list.append({
             "persona": f"{persona}_gap_fill",
             "directive": f"{base_directive}\n\nFocus specifically on these gaps:\n{gap_text}",
-            "model": str(model_cfg.get("model", "qwen3:8b")).strip(),
+            "model": str(model_cfg.get("model", "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL")).strip(),
             "temperature": float(model_cfg.get("temperature", 0.3)),
             "num_ctx": int(model_cfg.get("num_ctx", 12288)),
             "think": False,

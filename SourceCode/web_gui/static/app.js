@@ -20,6 +20,12 @@ const COMPOSER_PLACEHOLDERS = {
     "Describe what you need...",
     "Create something...",
   ],
+  plan: [
+    "Planning request...",
+    "What should I plan?",
+    "Outline the implementation...",
+    "Design the rollout...",
+  ],
 };
 const HTTP_URL_REGEX = /https?:\/\/[^\s<>"'`]+/gi;
 const MARKDOWN_LINK_URL_REGEX = /\[[^\]]*]\((https?:\/\/[^\s)]+)\)/gi;
@@ -3428,6 +3434,7 @@ const app = window.Vue.createApp({
       const mode = String(item?.mode || "").trim().toLowerCase();
       if (mode === "forage") return "Research";
       if (mode === "make") return "Make";
+      if (mode === "plan") return "Plan";
       return "Talk";
     },
 
@@ -3454,7 +3461,9 @@ const app = window.Vue.createApp({
         return false;
       }
       const selectedLoras = this.normalizeLoraSelection(this.composerSelectedLoras);
-      const sendMode = this.inputMode === "forage" ? "forage" : (this.inputMode === "make" ? "make" : "talk");
+      const sendMode = this.inputMode === "forage"
+        ? "forage"
+        : (this.inputMode === "make" ? "make" : (this.inputMode === "plan" ? "plan" : "talk"));
       const item = this.buildQueuedMessageItem({
         conversationId,
         content: typedContent,
@@ -4367,7 +4376,7 @@ const app = window.Vue.createApp({
     },
 
     setComposerMode(mode) {
-      const next = mode === "forage" || mode === "make" || mode === "talk" ? mode : "talk";
+      const next = mode === "forage" || mode === "make" || mode === "plan" || mode === "talk" ? mode : "talk";
       if (next !== "make" && this.pendingExtendsRequestId) {
         this.clearPendingMakeOutputExtension();
       }
@@ -10681,7 +10690,9 @@ const app = window.Vue.createApp({
 
       const sendMode = fromQueue
         ? (String(queuedItem?.mode || "talk").trim() || "talk")
-        : (this.inputMode === "forage" ? "forage" : (this.inputMode === "make" ? "make" : "talk"));
+        : (this.inputMode === "forage"
+          ? "forage"
+          : (this.inputMode === "make" ? "make" : (this.inputMode === "plan" ? "plan" : "talk")));
       const likelyForagingRequest = sendMode === "forage";
       const likelyRenderRequest = false;
       const extendsRequestId = sendMode === "make"
@@ -10737,7 +10748,7 @@ const app = window.Vue.createApp({
         }
       })();
 
-      if (sendMode === "forage" || sendMode === "make") {
+      if (sendMode === "forage" || sendMode === "make" || sendMode === "plan") {
         // Reset globally to Talk as soon as a Discovery/Make request is sent.
         // This avoids accidentally sending subsequent turns in the wrong mode.
         this.resetComposerMode();
@@ -10797,7 +10808,7 @@ const app = window.Vue.createApp({
           formData.append("request_id", requestId);
           formData.append("image_style", imageStyle);
           formData.append("selected_loras", JSON.stringify(selectedLoras));
-          if (sendMode === "make" && this.makeType) {
+          if ((sendMode === "make" || sendMode === "plan") && this.makeType) {
             formData.append("make_type", this.makeType);
           }
           if (sendMode === "make" && extendsRequestId) {
@@ -10817,7 +10828,7 @@ const app = window.Vue.createApp({
             image_style: imageStyle,
             selected_loras: selectedLoras,
           };
-          if (sendMode === "make" && this.makeType) {
+          if ((sendMode === "make" || sendMode === "plan") && this.makeType) {
             jsonBody.make_type = this.makeType;
           }
           if (sendMode === "make" && extendsRequestId) {
@@ -13458,7 +13469,7 @@ const app = window.Vue.createApp({
       const savedMode = localStorage.getItem("oathweaver_input_mode");
       if (savedMode === "command") {
         storedMode = "make";
-      } else if (savedMode === "talk" || savedMode === "forage" || savedMode === "make") {
+      } else if (savedMode === "talk" || savedMode === "forage" || savedMode === "make" || savedMode === "plan") {
         storedMode = savedMode;
       }
       const savedProject = localStorage.getItem("oathweaver_active_project");

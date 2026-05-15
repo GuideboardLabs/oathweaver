@@ -38,12 +38,12 @@ from shared_tools.llm_retry import chat_with_self_fix_retry
 from shared_tools.ollama_client import OllamaClient
 
 
-_MODEL_SPEC   = "qwen3:8b"
-_MODEL_ARCH   = "qwen3-coder:30b-a3b-q4_K_M"
-_MODEL_IMPL   = "qwen3-coder:30b-a3b-q4_K_M"
-_MODEL_README = "qwen3:8b"
-# Fallback if upgraded model unavailable
-_MODEL_IMPL_FALLBACK = "qwen2.5-coder:7b"
+_MODEL_CODER  = "qwen3-coder:30b-a3b-q4_K_M"
+_MODEL_SPEC   = _MODEL_CODER
+_MODEL_ARCH   = _MODEL_CODER
+_MODEL_IMPL   = _MODEL_CODER
+_MODEL_README = _MODEL_CODER
+_MODEL_FALLBACKS: list[str] = []
 _CONTRACT_AUDITOR = OutputContractAuditor()
 
 
@@ -226,7 +226,7 @@ def _run_architect(client: OllamaClient, spec: str, app_name: str) -> str:
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=2.0,
-            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            fallback_models=_MODEL_FALLBACKS,
             validator=_contract_validator(
                 stage="desktop_architect",
                 required_markers=("=== FILE:",),
@@ -269,7 +269,7 @@ def _run_viewmodels(client: OllamaClient, spec: str, app_name: str, question: st
             timeout=420,
             retry_attempts=3,
             retry_backoff_sec=2.0,
-            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            fallback_models=_MODEL_FALLBACKS,
             validator=_contract_validator(
                 stage="desktop_viewmodels",
                 required_markers=("=== FILE:", "ViewModels"),
@@ -310,7 +310,7 @@ def _run_views(client: OllamaClient, spec: str, viewmodels_code: str, app_name: 
             timeout=420,
             retry_attempts=3,
             retry_backoff_sec=2.0,
-            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            fallback_models=_MODEL_FALLBACKS,
             validator=_contract_validator(
                 stage="desktop_views",
                 required_markers=("=== FILE:", ".axaml"),
@@ -351,7 +351,7 @@ def _run_services(client: OllamaClient, spec: str, app_name: str, question: str)
             timeout=360,
             retry_attempts=3,
             retry_backoff_sec=2.0,
-            fallback_models=[_MODEL_IMPL_FALLBACK, _MODEL_SPEC],
+            fallback_models=_MODEL_FALLBACKS,
             validator=_contract_validator(
                 stage="desktop_services",
                 required_markers=("=== FILE:", "Service"),

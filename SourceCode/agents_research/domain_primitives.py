@@ -45,7 +45,7 @@ def extract_primitives(
     if focus not in {"implementation_focused", "benchmark_focused", "risk_focused", "domain_focused"}:
         return {"enabled": False, **_default_primitives()}
 
-    model = str(model_cfg.get("model", "qwen3:8b")).strip() or "qwen3:8b"
+    model = str(model_cfg.get("model", "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL")).strip() or "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
     fallback = model_cfg.get("fallback_models", []) if isinstance(model_cfg.get("fallback_models", []), list) else []
     system_prompt = (
         "Extract project domain primitives from research synthesis. Return ONLY a JSON object with keys: "

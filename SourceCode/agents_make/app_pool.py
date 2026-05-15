@@ -46,6 +46,9 @@ from agents_make.canon.app_spec import AppSpec, parse_spec_text, spec_to_json
 from agents_make.canon import codegen
 from agents_make.canon.lints import _classify, run_policy_lints
 
+_CODER_PRIMARY = "qwen3-coder:30b-a3b-q4_K_M"
+_CODER_FALLBACK_MODELS: list[str] = []
+
 
 # ---------------------------------------------------------------------------
 # SQLite canonical patterns — injected into every Python-generating agent
@@ -1014,7 +1017,7 @@ def _fix_python(
     try:
         result = chat_with_self_fix_retry(
             client,
-            model="qwen2.5-coder:7b",
+            model=_CODER_PRIMARY,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.1,
@@ -1023,6 +1026,7 @@ def _fix_python(
             timeout=300,
             retry_attempts=3,
             retry_backoff_sec=1.5,
+            fallback_models=_CODER_FALLBACK_MODELS,
             validator=lambda text: None if "```python" in str(text or "") else "missing_python_code_block",
             max_self_fix_attempts=2,
         )
@@ -1047,7 +1051,7 @@ def _chat(
     try:
         retry_result = chat_with_self_fix_retry(
             client,
-            model="qwen2.5-coder:7b",
+            model=_CODER_PRIMARY,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
@@ -1056,6 +1060,7 @@ def _chat(
             timeout=timeout,
             retry_attempts=4,
             retry_backoff_sec=1.5,
+            fallback_models=_CODER_FALLBACK_MODELS,
             validator=validator,
             max_self_fix_attempts=self_fix_attempts,
         )

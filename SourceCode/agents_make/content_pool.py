@@ -24,9 +24,9 @@ from shared_tools.model_routing import lane_model_config
 from shared_tools.ollama_client import OllamaClient
 
 
-_MODEL_DRAFTER  = "qwen3:8b"
+_MODEL_DRAFTER  = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 _MODEL_CRITIC   = "deepseek-r1:8b"
-_MODEL_POLISH   = "qwen3:8b"
+_MODEL_POLISH   = "hf.co/unsloth/Qwen3-8B-GGUF:UD-Q5_K_XL"
 
 
 def _today() -> str:

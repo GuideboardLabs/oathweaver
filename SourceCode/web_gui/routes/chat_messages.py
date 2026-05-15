@@ -1061,14 +1061,21 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
         talk_text = _extract_talk_text(raw_content)
         is_forage_request = requested_mode == "forage"
         is_make_request = requested_mode == "make"
+        is_plan_request = requested_mode == "plan"
 
         is_make_lane_request = is_make_request and not raw_content.startswith("/")
+        is_plan_lane_request = is_plan_request and not raw_content.startswith("/")
         is_talk_request = (
             requested_mode == "talk"
             or talk_text is not None
-            or (not is_forage_request and not is_make_request and not raw_content.startswith("/"))
+            or (
+                not is_forage_request
+                and not is_make_request
+                and not is_plan_request
+                and not raw_content.startswith("/")
+            )
         )
-        if is_make_lane_request and not raw_content and attachments:
+        if (is_make_lane_request or is_plan_lane_request) and not raw_content and attachments:
             return {"error": "Describe what to build."}, 400
         if not is_make_lane_request:
             extends_request_id = ""
@@ -1098,8 +1105,8 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
             reply_to_data,
             repo_root=ctx.repo_root_for_profile(profile),
         )
-        if is_make_lane_request and not requested_make_type and raw_content and not raw_content.startswith("/"):
-            reply_text = "I would love to do that for you, but you forgot to pick a mode!"
+        if (is_make_lane_request or is_plan_lane_request) and not requested_make_type and raw_content and not raw_content.startswith("/"):
+            reply_text = "I would love to do that for you, but you forgot to pick a type!"
             store.add_message(conversation_id, "assistant", reply_text, mode=user_mode, request_id=request_id)
             ctx.job_manager.finish(
                 profile,
@@ -1116,11 +1123,11 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
         pipeline_store = ctx.pipeline_for(profile)
         project_mode = pipeline_store.get(convo_project)
         request_project_mode = dict(project_mode)
-        if is_make_lane_request:
+        if is_make_lane_request or is_plan_lane_request:
             request_project_mode["mode"] = "make"
             if requested_make_type:
                 request_project_mode["target"] = requested_make_type
-            if extends_request_id:
+            if extends_request_id and is_make_lane_request:
                 request_project_mode["extends_request_id"] = extends_request_id
         convo_topic_id = str(convo.get("topic_id", "")).strip()
         convo_topic_context = ""
@@ -1186,6 +1193,9 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
         if is_forage_request:
             lane_guess = "research"
             is_foraging_request = True
+        elif is_plan_lane_request:
+            lane_guess = f"plan:{effective_make_type or 'auto'}"
+            is_building_request = True
         elif is_make_lane_request:
             # Use make_type from UI picker first, then fall back to project target
             lane_guess = f"build:{effective_make_type or 'auto'}"
@@ -1474,6 +1484,7 @@ def register_message_routes(bp: Blueprint, ctx: AppContext) -> None:
                     seed_artifact_text=seed_artifact_text,
                     force_research=is_forage_request,
                     force_make=is_make_lane_request,
+                    force_plan=is_plan_lane_request,
                     thread_id=conversation_id,
                     details_sink=talk_details,
                     progress_callback=_pool_progress,
