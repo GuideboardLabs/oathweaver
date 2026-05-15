@@ -11,7 +11,7 @@ which is separate from third-party licenses.
 
 Current direct Python dependencies are listed in:
 
-- [requirements.txt](requirements.txt)
+- [requirements.lock](requirements.lock)
 
 Before distribution, verify and include the current upstream license notices
 for each dependency and for any transitive dependencies you ship.

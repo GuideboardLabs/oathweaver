@@ -11,7 +11,7 @@ from tests.common import ensure_runtime  # noqa: F401
 from auditor.benchmark_import import BenchmarkImport
 from cag.memory_store import CAGMemoryStore
 from core.kernel_commands import KernelCommandService
-from interfaces.cli.main import build_parser
+from interfaces.cli.main import _parse_history, _parse_mutate, build_parser
 from interfaces.tui.command_router import TUICommandRouter
 
 
@@ -169,6 +169,20 @@ class Phase10InterfaceUnificationTests(unittest.TestCase):
         payload2 = json.loads(out2.text)
         self.assertTrue(payload2.get("ok"))
 
+    def test_tui_router_benchmark_workflow_and_resume_input_validation(self) -> None:
+        router = TUICommandRouter(self.repo_root)
+        router.kernel = self.service
+        router.kernel.benchmark_workflow_eval = lambda **_kwargs: {"ok": True, "run_id": "run_123"}  # type: ignore[method-assign]
+
+        out = router.dispatch("/bench-workflow run_123 8gb_vram_16gb_ram")
+        self.assertFalse(out.error)
+        payload = json.loads(out.text)
+        self.assertTrue(payload.get("ok"))
+
+        bad_resume = router.dispatch('/resume thread_1 compose "{not-json}"')
+        self.assertTrue(bad_resume.error)
+        self.assertIn("mutate_json must be valid JSON object", bad_resume.text)
+
     def test_cli_parser_includes_phase10_scriptable_commands(self) -> None:
         parser = build_parser()
         names = sorted(parser._subparsers._group_actions[0].choices.keys())  # type: ignore[attr-defined]
@@ -182,6 +196,19 @@ class Phase10InterfaceUnificationTests(unittest.TestCase):
             "stage-resume",
         ]:
             self.assertIn(expected, names)
+
+    def test_cli_parsers_handle_non_trivial_history_and_mutation_payloads(self) -> None:
+        history = _parse_history('[{\"role\":\"user\",\"content\":\"one\"},{\"role\":\"assistant\",\"content\":\"two\"}]')
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["role"], "user")
+
+        mutate = _parse_mutate('{\"force\": true, \"node\": \"compose\"}')
+        self.assertTrue(bool(mutate.get("force", False)))
+
+        with self.assertRaises(ValueError):
+            _parse_history('{\"not\":\"a-list\"}')
+        with self.assertRaises(ValueError):
+            _parse_mutate('[\"not\",\"an\",\"object\"]')
 
     def test_stage_resume_uses_replay_turn(self) -> None:
         with patch("core.kernel_commands.service.replay_turn", return_value={"ok": True, "replay_id": "r1"}) as mocked:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -96,6 +97,52 @@ class CagMemoryFacadeTests(unittest.TestCase):
         semantic_rows = recall.get("results", {}).get("semantic", [])
         self.assertTrue(semantic_rows)
         self.assertTrue(any(str(row.get("source", "")) == "topic_memory" for row in semantic_rows))
+
+    def test_corrupt_topic_memory_json_fails_open(self) -> None:
+        topics_dir = self.repo_root / "Runtime" / "memory" / "topics"
+        topics_dir.mkdir(parents=True, exist_ok=True)
+        (topics_dir / "bad_topic.json").write_text("{ not-json", encoding="utf-8")
+        (self.repo_root / "Runtime" / "memory" / "topic_index.json").write_text("{ not-json", encoding="utf-8")
+
+        facade = CAGMemoryFacade(self.repo_root)
+        recall = facade.recall("runtime memory question", kinds=("semantic",), project="general")
+        self.assertIsInstance(recall, dict)
+        self.assertIn("results", recall)
+
+    def test_recall_handles_large_row_sets_without_overflow(self) -> None:
+        facade = CAGMemoryFacade(self.repo_root)
+        fake_rows = []
+        for idx in range(10_000):
+            fake_rows.append(
+                {
+                    "text": f"Scheduler context memory record {idx}",
+                    "type": "fact",
+                    "scope_level": "topic",
+                    "status": "accepted",
+                    "source": "test",
+                    "updated_at": "2026-05-13T12:00:00+00:00",
+                    "confidence": 0.7,
+                    "memory_id": f"m_{idx}",
+                    "topic": "runtime",
+                    "domain": "computer_science",
+                    "project": "general",
+                }
+            )
+        facade.store.list_rows_for_projects = lambda **_kwargs: fake_rows  # type: ignore[method-assign]
+
+        recall = facade.recall("scheduler runtime memory", kinds=("semantic",), project="general", k_per_kind=3)
+        rows = recall.get("results", {}).get("semantic", [])
+        self.assertLessEqual(len(rows), 3)
+
+    def test_store_lock_contention_fails_open(self) -> None:
+        facade = CAGMemoryFacade(self.repo_root)
+
+        def _raise_locked(**_kwargs):
+            raise sqlite3.OperationalError("database is locked")
+
+        facade.store.list_rows_for_projects = _raise_locked  # type: ignore[method-assign]
+        recall = facade.recall("any query", kinds=("semantic",), project="general")
+        self.assertEqual(recall.get("results", {}).get("semantic", []), [])
 
 
 if __name__ == "__main__":

@@ -240,6 +240,24 @@ class InferenceRouterCompatTests(unittest.TestCase):
         self.assertTrue(explanation["loaded"])
         self.assertIn("estimated_fit", explanation)
 
+    def test_chat_reports_fallback_chain_failure_when_all_backends_down(self) -> None:
+        router = InferenceRouter(ROOT)
+        router._server_declares_model = MagicMock(return_value=False)
+        router._ollama = MagicMock()
+        router._ollama.chat.side_effect = RuntimeError("backend unavailable")
+
+        with self.assertRaises(RuntimeError) as ctx:
+            router.chat(
+                model="qwen3:8b",
+                system_prompt="sys",
+                user_prompt="hello",
+                fallback_models=["deepseek-r1:8b"],
+                retry_attempts=1,
+            )
+        message = str(ctx.exception)
+        self.assertIn("qwen3:8b", message)
+        self.assertIn("deepseek-r1:8b", message)
+
 
 if __name__ == "__main__":
     unittest.main()

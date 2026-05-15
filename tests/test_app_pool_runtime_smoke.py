@@ -24,6 +24,11 @@ class AppPoolRuntimeSmokeTests(unittest.TestCase):
                     os.environ["OATHWEAVER_SKIP_RUNTIME_SMOKE"] = original
             self.assertEqual(failures, [])
 
+    def test_runtime_smoke_returns_empty_when_spec_is_none(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="runtime_smoke_no_spec_") as tmp:
+            failures = _runtime_smoke_check(Path(tmp), spec=None)
+        self.assertEqual(failures, [])
+
 
 if __name__ == "__main__":
     unittest.main()

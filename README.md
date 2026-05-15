@@ -653,12 +653,14 @@ powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1 -WebPort 505
 
 ## Changelog and Release Notes
 
+- [CHANGELOG.md](CHANGELOG.md)
+- [docs/release_notes_v0.9.2-rc.md](docs/release_notes_v0.9.2-rc.md)
+- [docs/release_notes_phase18_optimization.md](docs/release_notes_phase18_optimization.md)
+- [docs/release_notes_phase17_research_quality.md](docs/release_notes_phase17_research_quality.md)
 - [docs/changelogs/phase19_accuracy_semantic_ui.md](docs/changelogs/phase19_accuracy_semantic_ui.md)
 - [docs/changelogs/phase18c_confidence_and_memory.md](docs/changelogs/phase18c_confidence_and_memory.md)
 - [docs/changelogs/phase18b_research_speed.md](docs/changelogs/phase18b_research_speed.md)
 - [docs/changelogs/phase18a_query_routing.md](docs/changelogs/phase18a_query_routing.md)
-- [docs/release_notes_phase18_optimization.md](docs/release_notes_phase18_optimization.md)
-- [docs/release_notes_phase17_research_quality.md](docs/release_notes_phase17_research_quality.md)
 
 ---
 
@@ -666,8 +668,12 @@ powershell -ExecutionPolicy Bypass -File .\start_oathweaver_web.ps1 -WebPort 505
 
 - [INSTALL_GUIDE.md](INSTALL_GUIDE.md) — recipient-focused install guide
 - [CONTRIBUTING.md](CONTRIBUTING.md) — contribution workflow and standards
+- [SECURITY.md](SECURITY.md) — security reporting policy and scope
+- [RELEASE_PROCESS.md](RELEASE_PROCESS.md) — release gates, tagging flow, and artifact process
+- [UPGRADE_GUIDE.md](UPGRADE_GUIDE.md) — upgrade and rollback guidance
 - [Workspace tools](docs/workspace_tools.md) — utility scripts and tooling notes
 - [Phase changelogs](docs/changelogs/) — milestone-level updates
+- [Historical docs archive](docs/changelogs/historical/README.md) — archived planning and phase notes
 
 ---
 

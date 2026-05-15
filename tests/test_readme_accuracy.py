@@ -24,6 +24,11 @@ class ReadmeAccuracyTests(unittest.TestCase):
         self.assertIn("Canon v1", readme)
         self.assertIn("runtime smoke", readme)
 
+    def test_readme_release_section_points_at_lockfile_and_changelog(self) -> None:
+        readme = (Path(ROOT) / "README.md").read_text(encoding="utf-8")
+        self.assertIn("requirements.lock", readme)
+        self.assertIn("CHANGELOG.md", readme)
+
 
 if __name__ == "__main__":
     unittest.main()

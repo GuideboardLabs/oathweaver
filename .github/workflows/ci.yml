@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  tests-passed-and-coverage-met:
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -22,9 +22,25 @@ jobs:
         run: python -m compileall SourceCode tests smoke_test.py run_integration_tests.py tools
       - name: Smoke test
         run: python smoke_test.py
-      - name: Unit and integration tests
-        run: python run_integration_tests.py
+      - name: Unit and integration tests with coverage gate
+        run: |
+          pytest -q tests \
+            --cov=SourceCode \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=70 | tee coverage.txt
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-py${{ matrix.python-version }}
+          path: |
+            coverage.xml
+            coverage.txt
+          if-no-files-found: error
       - name: UI smoke test
         run: python tools/ui_phase_smoke.py
+      - name: Browser headless smoke
+        run: python tools/browser_headless_smoke.py
+        continue-on-error: true
       - name: Repo health check
         run: python tools/repo_health_check.py

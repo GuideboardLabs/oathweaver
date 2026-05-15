@@ -10,6 +10,8 @@ if [[ -f "$INSTALL_LIB" ]]; then
     # shellcheck disable=SC1090
     source "$INSTALL_LIB"
 fi
+DEFAULT_OLLAMA_INSTALL_URL="https://raw.githubusercontent.com/ollama/ollama/v0.18.0/scripts/install.sh"
+DEFAULT_OLLAMA_INSTALL_SHA256="25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f"
 
 SKIP_NODE=0
 SKIP_PREREQ_INSTALL=0
@@ -109,8 +111,10 @@ ensure_ollama() {
         fi
         echo "Ollama is required but was not found."
         if confirm "Install Ollama now?"; then
-            local install_url="${OATHWEAVER_OLLAMA_INSTALL_URL:-https://ollama.com/install.sh}"
-            local expected_sha="${OATHWEAVER_OLLAMA_INSTALL_SHA256:-25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f}"
+            local install_url="${OATHWEAVER_OLLAMA_INSTALL_URL:-$DEFAULT_OLLAMA_INSTALL_URL}"
+            local expected_sha="${OATHWEAVER_OLLAMA_INSTALL_SHA256:-$DEFAULT_OLLAMA_INSTALL_SHA256}"
+            item "Default pinned installer source: $DEFAULT_OLLAMA_INSTALL_URL"
+            item "Override via OATHWEAVER_OLLAMA_INSTALL_URL and OATHWEAVER_OLLAMA_INSTALL_SHA256."
             if [[ -n "$expected_sha" ]] && ! declare -F ow_verify_sha256 >/dev/null 2>&1; then
                 die "Checksum pinning requested but tools/install/lib.sh is unavailable."
             fi

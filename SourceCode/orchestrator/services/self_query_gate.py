@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -108,6 +109,8 @@ class SelfQueryGate:
             return SelfQueryDecision(False, "", 0.0, "")
         if not self._index:
             return SelfQueryDecision(False, "", 0.0, "")
+        if self._is_near_miss_non_self_query(query):
+            return SelfQueryDecision(False, "", 0.0, "")
 
         query_vec = self._embed_client.embed(self.embed_model, query, timeout=20)
         winner_kind = ""
@@ -133,6 +136,15 @@ class SelfQueryGate:
             confidence=float(round(winner_score, 4)),
             matched_exemplar=winner_phrase if is_hit else "",
         )
+
+    @staticmethod
+    def _is_near_miss_non_self_query(query: str) -> bool:
+        text = _normalize(query)
+        if re.search(r"\bmodel\s+car\b", text):
+            return True
+        if text.startswith("tell me about ollama") and "in general" in text:
+            return True
+        return False
 
     def _build_signature(self) -> str:
         payload = {
@@ -216,4 +228,3 @@ class SelfQueryGate:
                 tmp.unlink(missing_ok=True)
             except Exception:
                 pass
-

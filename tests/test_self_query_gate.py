@@ -64,6 +64,18 @@ class SelfQueryGateTests(unittest.TestCase):
         self.assertFalse(decision.is_self_query)
         self.assertEqual(decision.match_kind, "")
 
+    def test_rejects_adversarial_near_misses(self) -> None:
+        gate = SelfQueryGate(_EmbedStub(), threshold=0.75, repo_root=self.repo_root)
+        near_misses = [
+            "what model car should i buy",
+            "tell me about ollama in general",
+        ]
+        for text in near_misses:
+            with self.subTest(text=text):
+                decision = gate.classify(text)
+                self.assertFalse(decision.is_self_query)
+                self.assertEqual(decision.match_kind, "")
+
     def test_threshold_edge_cases(self) -> None:
         gate = SelfQueryGate(_EmbedStub(), threshold=0.99, repo_root=self.repo_root)
         decision = gate.classify("hello there")

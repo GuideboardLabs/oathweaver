@@ -9,9 +9,20 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$versionFile = Join-Path $RepoRoot "VERSION"
+$packageVersion = "0.0.0-dev"
+if (Test-Path $versionFile) {
+    $rawVersion = (Get-Content -Path $versionFile -TotalCount 1).Trim()
+    if ($rawVersion) {
+        $packageVersion = $rawVersion
+    }
+}
+else {
+    Write-Warning "VERSION file not found. Falling back to version label: $packageVersion"
+}
 
 if (-not $OutputZip) {
-    $OutputZip = Join-Path $RepoRoot ("Oathweaver_clean_{0:yyyyMMdd_HHmmss}.zip" -f (Get-Date))
+    $OutputZip = Join-Path $RepoRoot ("Oathweaver_{0}_clean_{1:yyyyMMdd_HHmmss}.zip" -f $packageVersion, (Get-Date))
 }
 
 $OutputZip = [System.IO.Path]::GetFullPath($OutputZip)
@@ -46,7 +57,7 @@ try {
     Write-Host "Creating clean Oathweaver ZIP..." -ForegroundColor Cyan
     Write-Host "Stage: $stageRoot"
 
-    $installerExeRelative = "OathweaverInstaller.exe"
+    $installerExeRelative = "OathweaverInstaller_$packageVersion.exe"
     $installerExePath = Join-Path $RepoRoot $installerExeRelative
     if ($BuildInstallerExe) {
         $buildScript = Join-Path $RepoRoot "build_installer_exe.ps1"
@@ -75,10 +86,12 @@ try {
     $includeFiles = @(
         ".gitignore",
         "README.md",
+        "VERSION",
         "INSTALL_GUIDE.md",
         "LICENSE",
         "THIRD_PARTY_NOTICES.md",
         "CONTRIBUTING.md",
+        "requirements.lock",
         "requirements.txt",
         "start_oathweaver.ps1",
         "start_oathweaver_web.ps1",

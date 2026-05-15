@@ -43,6 +43,17 @@ def _load_or_create_api_token(path: Path) -> str:
     return token
 
 
+def _load_existing_api_token(path: Path) -> str:
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if not token:
+        return ""
+    ensure_secret_mode(path)
+    return token
+
+
 def create_openai_compatible_app(repo_root: Path, *, bind_host: str | None = None):
     """Create a minimal OpenAI-compatible local API wrapper over kernel commands.
 
@@ -66,8 +77,9 @@ def create_openai_compatible_app(repo_root: Path, *, bind_host: str | None = Non
     def _auth_gate():  # type: ignore[no-untyped-def]
         if not require_auth:
             return None
+        current_token = _load_existing_api_token(token_path) or api_token
         auth_header = str(request.headers.get("Authorization", "")).strip()
-        expected = f"Bearer {api_token}"
+        expected = f"Bearer {current_token}"
         if not auth_header or not hmac.compare_digest(auth_header, expected):
             return jsonify({"error": {"message": "Unauthorized"}}), 401
         return None

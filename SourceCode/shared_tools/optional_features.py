@@ -18,6 +18,7 @@ def optional_feature_status() -> dict[str, dict[str, Any]]:
     pillow_ready = _has_module("PIL")
     pytesseract_ready = _has_module("pytesseract")
     discord_ready = _has_module("discord")
+    slack_ready = _has_module("slack_bolt")
     tesseract_ready = shutil.which("tesseract") is not None
 
     document_missing: list[str] = []
@@ -37,6 +38,10 @@ def optional_feature_status() -> dict[str, dict[str, Any]]:
     discord_missing: list[str] = []
     if not discord_ready:
         discord_missing.append("discord.py")
+
+    slack_missing: list[str] = []
+    if not slack_ready:
+        slack_missing.append("slack-bolt")
 
     return {
         "document_extraction": {
@@ -58,6 +63,11 @@ def optional_feature_status() -> dict[str, dict[str, Any]]:
             "available": True,
             "missing": [],
             "install_hint": "",
+        },
+        "slack_bot": {
+            "available": not slack_missing,
+            "missing": slack_missing,
+            "install_hint": "pip install -r requirements-optional-bots.txt",
         },
     }
 

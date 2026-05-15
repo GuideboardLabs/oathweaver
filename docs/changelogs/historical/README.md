@@ -1,0 +1,1 @@
+This folder archives planning-era and phase-by-phase documents that remain useful for historical context but are no longer part of the active day-to-day docs surface; keeping them here preserves project history while keeping top-level `docs/` focused on current install, runtime, and release information.

@@ -7,13 +7,25 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+$versionFile = Join-Path $RepoRoot "VERSION"
+$packageVersion = "0.0.0-dev"
+if (Test-Path $versionFile) {
+    $rawVersion = (Get-Content -Path $versionFile -TotalCount 1).Trim()
+    if ($rawVersion) {
+        $packageVersion = $rawVersion
+    }
+}
+else {
+    Write-Warning "VERSION file not found. Falling back to version label: $packageVersion"
+}
+
 $installScriptPath = Join-Path $RepoRoot "install_oathweaver.ps1"
 if (-not (Test-Path $installScriptPath)) {
     throw "install_oathweaver.ps1 not found at: $installScriptPath"
 }
 
 if (-not $OutputExe) {
-    $OutputExe = Join-Path $RepoRoot "OathweaverInstaller.exe"
+    $OutputExe = Join-Path $RepoRoot ("OathweaverInstaller_{0}.exe" -f $packageVersion)
 }
 $OutputExe = [System.IO.Path]::GetFullPath($OutputExe)
 $outDir = Split-Path $OutputExe -Parent
@@ -49,7 +61,7 @@ internal static class Program
             if (string.IsNullOrWhiteSpace(scriptPath))
             {
                 MessageBox.Show(
-                    "Could not find install_oathweaver.ps1 near this launcher.\nPlace OathweaverInstaller.exe in the project root (or a child folder).",
+                    "Could not find install_oathweaver.ps1 near this launcher.\nPlace this installer launcher in the project root (or a child folder).",
                     "Oathweaver Installer",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error

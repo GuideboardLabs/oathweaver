@@ -113,13 +113,16 @@ class CAGMemoryFacade:
 
     def _rows_for_project(self, project: str) -> list[dict[str, Any]]:
         project_key = str(project or "general").strip() or "general"
-        rows = self.store.list_rows_for_projects(
-            projects=[project_key, "general"],
-            include_expired=False,
-            include_superseded=False,
-            limit=500,
-        )
-        return rows
+        try:
+            rows = self.store.list_rows_for_projects(
+                projects=[project_key, "general"],
+                include_expired=False,
+                include_superseded=False,
+                limit=500,
+            )
+        except Exception:
+            return []
+        return rows if isinstance(rows, list) else []
 
     def _records_from_cag(self, query: str, project: str) -> list[MemoryRecord]:
         out: list[MemoryRecord] = []

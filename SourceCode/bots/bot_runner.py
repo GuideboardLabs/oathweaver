@@ -38,3 +38,19 @@ def start_bots(repo_root: Path) -> None:
             LOGGER.info("Discord bot thread started.")
         except Exception:
             LOGGER.exception("Failed to start Discord bot.")
+
+    slack_cfg = cfg.get("slack", {})
+    if (
+        slack_cfg.get("enabled")
+        and slack_cfg.get("bot_token")
+        and slack_cfg.get("app_token")
+    ):
+        try:
+            from bots.slack_bot import SlackBot
+            bot = SlackBot(repo_root, slack_cfg["bot_token"], slack_cfg["app_token"])
+            bot.start()
+            with _bots_lock:
+                _running_bots.append(bot)
+            LOGGER.info("Slack bot thread started.")
+        except Exception:
+            LOGGER.exception("Failed to start Slack bot.")

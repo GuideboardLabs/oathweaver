@@ -99,6 +99,19 @@ class LlmRetryTests(unittest.TestCase):
         second_prompt = str(client.calls[1].get("user_prompt", ""))
         self.assertLess(len(second_prompt), 12000)
 
+    def test_zero_attempt_config_still_executes_one_attempt(self) -> None:
+        client = _FakeClient(["result"])
+        result = chat_with_self_fix_retry(
+            client,
+            model="qwen3:8b",
+            system_prompt="sys",
+            user_prompt="user",
+            max_self_fix_attempts=0,
+        )
+        self.assertEqual(result.text, "result")
+        self.assertEqual(result.attempts_used, 1)
+        self.assertEqual(len(client.calls), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

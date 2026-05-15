@@ -84,12 +84,6 @@ def register_owner_routes(bp: Blueprint, ctx: AppContext) -> None:
         safe: dict[str, dict[str, Any]] = {}
         for platform, pcfg in cfg.items():
             availability = feature_status.get(f"{platform}_bot", {})
-            if platform == "slack":
-                availability = {
-                    "available": False,
-                    "missing": ["Slack bot integration is documented but not implemented yet"],
-                    "install_hint": "",
-                }
             safe[platform] = {
                 "enabled": bool(pcfg.get("enabled", False)),
                 "configured": bool(str(pcfg.get("bot_token", "")).strip()),

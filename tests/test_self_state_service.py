@@ -12,6 +12,7 @@ class _RouterStub:
         self.memory_calls = 0
         self.explain_calls = 0
         self.validate_calls = 0
+        self.reachable = True
 
     def explain_route(self, task_class: str = "chat_layer") -> dict[str, object]:
         _ = task_class
@@ -32,7 +33,7 @@ class _RouterStub:
 
     def health_report(self) -> dict[str, object]:
         self.health_calls += 1
-        return {"backends": [{"name": "ollama", "reachable": True, "models": ["dolphin3:8b"]}]}
+        return {"backends": [{"name": "ollama", "reachable": self.reachable, "models": ["dolphin3:8b"]}]}
 
     def memory_state(self) -> dict[str, object]:
         self.memory_calls += 1
@@ -130,6 +131,37 @@ class SelfStateServiceTests(unittest.TestCase):
         state = sparse.compute("general", role="owner")
         self.assertEqual(state.chat_layer_model, "dolphin3:8b")
         self.assertEqual(state.vram_used_gb, 0.0)
+
+    def test_backend_unreachable_refresh_replaces_stale_reachable_state(self) -> None:
+        first = self.service.compute("general", role="owner")
+        self.assertIn("reachable", first.to_prompt_block("backend"))
+
+        self.router.reachable = False
+        self.service._health_cache["ts"] = 0.0
+        second = self.service.compute("general", role="owner")
+        block = second.to_prompt_block("backend")
+        self.assertIn("unreachable", block)
+        self.assertNotIn("backends.ollama: reachable", block)
+
+    def test_unknown_hardware_profile_warning_surfaces_in_prompt_block(self) -> None:
+        service = SelfStateService(
+            router=self.router,
+            capability_registry=_CapabilityRegistryStub(),
+            cag_store=_CAGStoreStub(),
+            hardware_profile_provider=lambda: {
+                "name": "unknown_profile",
+                "display_name": "Unknown profile",
+                "hardware": {},
+                "scheduler": {},
+                "model_policy": {},
+            },
+            project_slug_provider=lambda: "general",
+        )
+        self.router.validate_config = lambda profile=None: {"warnings": ["resolution warning"], "errors": []}  # type: ignore[method-assign]
+        state = service.compute("general", role="owner")
+        block = state.to_prompt_block("general")
+        self.assertIn("validation.warnings", block)
+        self.assertIn("resolution warning", block)
 
 
 if __name__ == "__main__":

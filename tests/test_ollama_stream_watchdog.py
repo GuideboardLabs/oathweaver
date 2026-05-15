@@ -23,6 +23,18 @@ class _FakeStreamResponse:
         return iter(self._lines)
 
 
+class _MidStreamTimeoutResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):  # type: ignore[no-untyped-def]
+        return False
+
+    def __iter__(self):
+        yield b'{"message":{"content":"partial"},"done":false}\n'
+        raise socket.timeout("timed out mid-stream")
+
+
 class OllamaStreamWatchdogTests(unittest.TestCase):
     def test_stream_chat_accumulates_ndjson_chunks(self) -> None:
         client = OllamaClient()
@@ -60,6 +72,28 @@ class OllamaStreamWatchdogTests(unittest.TestCase):
     def test_stream_chat_treats_timeout_urlerror_as_stalled(self) -> None:
         client = OllamaClient()
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timed out")):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._post_json_stream_chat(
+                    {"model": "qwen3:8b", "stream": True, "messages": []},
+                    timeout=30,
+                    idle_timeout_sec=4,
+                )
+        self.assertIn("stalled", str(ctx.exception).lower())
+
+    def test_stream_chat_idle_timeout_precedence_uses_min_of_idle_and_overall(self) -> None:
+        client = OllamaClient()
+        with patch("urllib.request.urlopen", side_effect=socket.timeout("timed out")):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._post_json_stream_chat(
+                    {"model": "qwen3:8b", "stream": True, "messages": []},
+                    timeout=3,
+                    idle_timeout_sec=20,
+                )
+        self.assertIn("3s", str(ctx.exception))
+
+    def test_stream_chat_mid_stream_cut_raises_watchdog_error(self) -> None:
+        client = OllamaClient()
+        with patch("urllib.request.urlopen", return_value=_MidStreamTimeoutResponse()):
             with self.assertRaises(RuntimeError) as ctx:
                 client._post_json_stream_chat(
                     {"model": "qwen3:8b", "stream": True, "messages": []},
