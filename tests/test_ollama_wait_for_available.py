@@ -8,6 +8,52 @@ from shared_tools.ollama_client import OllamaClient
 
 
 class OllamaWaitForAvailableTests(unittest.TestCase):
+    def test_chat_auto_enables_thinking_for_reasoning_models_by_default(self) -> None:
+        client = OllamaClient()
+        seen_payloads: list[dict] = []
+
+        def fake_stream(payload: dict, *, timeout: int, idle_timeout_sec: int) -> str:
+            seen_payloads.append(dict(payload))
+            return "ok"
+
+        client._post_json_stream_chat = MagicMock(side_effect=fake_stream)
+
+        out = client.chat("qwen3:8b", "system", "user")
+
+        self.assertEqual(out, "ok")
+        self.assertEqual(seen_payloads[0].get("think"), True)
+
+    def test_chat_respects_explicit_false_think_for_reasoning_models(self) -> None:
+        client = OllamaClient()
+        seen_payloads: list[dict] = []
+
+        def fake_stream(payload: dict, *, timeout: int, idle_timeout_sec: int) -> str:
+            seen_payloads.append(dict(payload))
+            return "ok"
+
+        client._post_json_stream_chat = MagicMock(side_effect=fake_stream)
+
+        out = client.chat("qwen3:14b", "system", "user", think=False, num_predict=48)
+
+        self.assertEqual(out, "ok")
+        self.assertEqual(seen_payloads[0].get("think"), False)
+        self.assertEqual(seen_payloads[0]["options"]["num_predict"], 48)
+
+    def test_chat_respects_explicit_true_think_for_non_reasoning_models(self) -> None:
+        client = OllamaClient()
+        seen_payloads: list[dict] = []
+
+        def fake_stream(payload: dict, *, timeout: int, idle_timeout_sec: int) -> str:
+            seen_payloads.append(dict(payload))
+            return "ok"
+
+        client._post_json_stream_chat = MagicMock(side_effect=fake_stream)
+
+        out = client.chat("qwen2.5-coder:7b", "system", "user", think=True)
+
+        self.assertEqual(out, "ok")
+        self.assertEqual(seen_payloads[0].get("think"), True)
+
     def test_wait_for_available_uses_tags_and_show_not_chat(self) -> None:
         client = OllamaClient()
         client._get_json = MagicMock(return_value={"models": [{"name": "qwen3:8b"}]})
