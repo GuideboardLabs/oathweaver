@@ -202,7 +202,7 @@ class OllamaClient:
                 },
             }
             effective_think = think
-            if self._is_reasoning_model(model_name):
+            if effective_think is None and self._is_reasoning_model(model_name):
                 effective_think = True
             if effective_think is not None:
                 payload["think"] = effective_think
