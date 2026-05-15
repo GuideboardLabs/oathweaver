@@ -92,19 +92,41 @@ export OATHWEAVER_WEB_HOST="$WEB_HOST"
 export OATHWEAVER_WEB_PORT="$WEB_PORT"
 [[ -n "$WEB_PASSWORD" ]] && export OATHWEAVER_WEB_PASSWORD="$WEB_PASSWORD"
 
-# --- Restart Ollama ---
+# --- Manage or reuse Ollama ---
 if [[ "$NO_RESTART_OLLAMA" -eq 0 ]]; then
     pkill -x ollama 2>/dev/null || true
     sleep 1
+    nohup "$OLLAMA_EXE" serve > /dev/null 2>&1 &
+else
+    echo "Using existing Ollama process (--no-restart-ollama)."
 fi
 
-nohup "$OLLAMA_EXE" serve > /dev/null 2>&1 &
+ollama_ready_url() {
+    local raw="$1"
+    local scheme="http"
+    local hostport="$raw"
+    if [[ "$hostport" == http://* ]]; then
+        hostport="${hostport#http://}"
+    elif [[ "$hostport" == https://* ]]; then
+        scheme="https"
+        hostport="${hostport#https://}"
+    fi
+    hostport="${hostport%%/*}"
+    if [[ "$hostport" == 0.0.0.0:* ]]; then
+        hostport="127.0.0.1:${hostport#*:}"
+    elif [[ "$hostport" == "[::]:"* ]]; then
+        hostport="127.0.0.1:${hostport##*:}"
+    fi
+    echo "${scheme}://${hostport}/api/tags"
+}
+
+OLLAMA_READY_URL="$(ollama_ready_url "$OLLAMA_HOST_VAL")"
 
 # --- Wait for Ollama ready ---
 echo "Waiting for Ollama to be ready..."
 READY=0
 for i in $(seq 1 30); do
-    if curl -sf --max-time 2 "http://127.0.0.1:11434/api/tags" > /dev/null 2>&1; then
+    if curl -sf --max-time 2 "$OLLAMA_READY_URL" > /dev/null 2>&1; then
         READY=1
         break
     fi
@@ -112,11 +134,15 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$READY" -eq 0 ]]; then
-    echo "ERROR: Ollama did not become ready on http://127.0.0.1:11434"
+    echo "ERROR: Ollama did not become ready on ${OLLAMA_READY_URL}"
     exit 1
 fi
 
-echo "Ollama started from: $OLLAMA_EXE"
+if [[ "$NO_RESTART_OLLAMA" -eq 0 ]]; then
+    echo "Ollama started from: $OLLAMA_EXE"
+else
+    echo "Ollama is reachable at: $OLLAMA_READY_URL"
+fi
 echo "OLLAMA_MODELS: $OLLAMA_MODELS"
 echo "OLLAMA_HOST: $OLLAMA_HOST"
 echo "OATHWEAVER_WEB_PASSWORD set: $([ -n "${OATHWEAVER_WEB_PASSWORD:-}" ] && echo true || echo false)"
