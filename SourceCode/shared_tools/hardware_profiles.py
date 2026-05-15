@@ -10,6 +10,7 @@ from scheduler.resource_budget import DEFAULT_PROFILE, HardwareBudgetProfile
 
 ENV_HARDWARE_PROFILE = "OATHWEAVER_HARDWARE_PROFILE"
 CONFIG_RELATIVE_PATH = Path("SourceCode") / "configs" / "hardware_profiles.json"
+LOCAL_CONFIG_RELATIVE_PATH = Path("SourceCode") / "configs" / "hardware_profiles.local.json"
 
 
 def _coerce_int(value: Any, default: int) -> int:
@@ -82,21 +83,48 @@ def _builtin_config() -> dict[str, Any]:
     }
 
 
-def load_hardware_profiles(repo_root: Path) -> dict[str, Any]:
-    """Load structured hardware profiles, falling back to the legacy default."""
-    config_path = Path(repo_root) / CONFIG_RELATIVE_PATH
+def _load_profile_payload(config_path: Path) -> dict[str, Any] | None:
     if not config_path.exists():
-        return _builtin_config()
+        return None
     try:
         payload = json.loads(config_path.read_text(encoding="utf-8"))
     except Exception:
-        return _builtin_config()
+        return None
     if not isinstance(payload, dict):
-        return _builtin_config()
+        return None
     profiles = payload.get("profiles")
     if not isinstance(profiles, dict) or not profiles:
-        return _builtin_config()
+        return None
     return payload
+
+
+def _merge_profile_payload(base: dict[str, Any], overlay: dict[str, Any] | None) -> dict[str, Any]:
+    merged = deepcopy(base)
+    if not isinstance(overlay, dict):
+        return merged
+
+    default_profile = str(overlay.get("default_profile", "")).strip()
+    if default_profile:
+        merged["default_profile"] = default_profile
+
+    base_profiles = merged.get("profiles")
+    if not isinstance(base_profiles, dict):
+        base_profiles = {}
+        merged["profiles"] = base_profiles
+    overlay_profiles = overlay.get("profiles")
+    if isinstance(overlay_profiles, dict):
+        for name, profile in overlay_profiles.items():
+            if isinstance(profile, dict):
+                base_profiles[str(name)] = deepcopy(profile)
+    return merged
+
+
+def load_hardware_profiles(repo_root: Path) -> dict[str, Any]:
+    """Load structured hardware profiles, then apply optional local-only overrides."""
+    root = Path(repo_root)
+    base = _load_profile_payload(root / CONFIG_RELATIVE_PATH) or _builtin_config()
+    local = _load_profile_payload(root / LOCAL_CONFIG_RELATIVE_PATH)
+    return _merge_profile_payload(base, local)
 
 
 def resolve_active_hardware_profile(repo_root: Path, name: str | None = None) -> dict[str, Any]:

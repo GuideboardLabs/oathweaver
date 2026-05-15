@@ -12,6 +12,7 @@ from tests.common import ROOT  # noqa: F401
 from shared_tools.hardware_profiles import (
     CONFIG_RELATIVE_PATH,
     ENV_HARDWARE_PROFILE,
+    LOCAL_CONFIG_RELATIVE_PATH,
     hardware_profile_to_router_policy,
     hardware_profile_to_scheduler,
     resolve_active_hardware_profile,
@@ -138,6 +139,83 @@ class HardwareProfileTests(unittest.TestCase):
         self.assertEqual(profile["name"], CUSTOM_PROFILE_NAME)
         self.assertEqual(profile["hardware"]["system_ram_gb"], 24)
         self.assertEqual(profile["scheduler"]["warm_depth"], 0)
+
+    def test_local_profile_file_adds_host_specific_profiles(self) -> None:
+        config_path = self.repo_root / LOCAL_CONFIG_RELATIVE_PATH
+        config_path.write_text(
+            json.dumps(
+                {
+                    "profiles": {
+                        "host_cuda_48gb": {
+                            "name": "host_cuda_48gb",
+                            "hardware": {
+                                "system_ram_gb": 48,
+                                "gpu_backend": "cuda",
+                                "gpu_vram_gb": 8,
+                                "unified_memory": False,
+                            },
+                            "scheduler": {
+                                "max_context_tokens": 12288,
+                                "warning_context_tokens": 8192,
+                                "max_stage_context_tokens": 2400,
+                                "max_parallel_models": 1,
+                                "max_active_model_calls": 1,
+                                "on_deck_depth": 1,
+                                "warm_depth": 0,
+                                "allow_neural_prefetch": False,
+                            },
+                        }
+                    }
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        profile = resolve_active_hardware_profile(self.repo_root, "host_cuda_48gb")
+
+        self.assertEqual(profile["name"], "host_cuda_48gb")
+        self.assertEqual(profile["hardware"]["system_ram_gb"], 48)
+        self.assertEqual(profile["scheduler"]["max_context_tokens"], 12288)
+
+    def test_local_profile_file_can_override_default_profile(self) -> None:
+        config_path = self.repo_root / LOCAL_CONFIG_RELATIVE_PATH
+        config_path.write_text(
+            json.dumps(
+                {
+                    "default_profile": CUSTOM_PROFILE_NAME,
+                    "profiles": {
+                        CUSTOM_PROFILE_NAME: {
+                            "name": CUSTOM_PROFILE_NAME,
+                            "hardware": {
+                                "system_ram_gb": 32,
+                                "gpu_backend": "cuda",
+                                "gpu_vram_gb": 8,
+                                "unified_memory": False,
+                            },
+                            "scheduler": {
+                                "max_context_tokens": 8192,
+                                "warning_context_tokens": 6144,
+                                "max_stage_context_tokens": 2000,
+                                "max_parallel_models": 1,
+                                "max_active_model_calls": 1,
+                                "on_deck_depth": 1,
+                                "warm_depth": 0,
+                                "allow_neural_prefetch": False,
+                            },
+                        }
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        profile = resolve_active_hardware_profile(self.repo_root)
+
+        self.assertEqual(profile["name"], CUSTOM_PROFILE_NAME)
+        self.assertEqual(profile["hardware"]["system_ram_gb"], 32)
+        self.assertEqual(profile["scheduler"]["max_context_tokens"], 8192)
 
     def test_unknown_profile_falls_back_to_default_with_warning(self) -> None:
         profile = resolve_active_hardware_profile(self.repo_root, "not_a_real_profile")
