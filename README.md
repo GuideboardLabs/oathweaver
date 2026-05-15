@@ -429,6 +429,40 @@ Oathweaver also consumes external MCP servers (filesystem, fetch) via [SourceCod
 - Configure host/port via `OATHWEAVER_WEB_HOST` and `OATHWEAVER_WEB_PORT`.
 - Set `OATHWEAVER_WEB_PASSWORD` when exposing beyond localhost.
 
+## Local Hardware Profiles
+
+Shared defaults live in `SourceCode/configs/hardware_profiles.json`. Host-specific tuning belongs in
+`SourceCode/configs/hardware_profiles.local.json`, which is ignored by git and merged over the shared config
+at startup. Select a profile with `OATHWEAVER_HARDWARE_PROFILE`.
+
+```json
+{
+  "default_profile": "local_8gb_vram_48gb_ram_cuda",
+  "profiles": {
+    "local_8gb_vram_48gb_ram_cuda": {
+      "name": "local_8gb_vram_48gb_ram_cuda",
+      "display_name": "Local: 48GB RAM / 8GB CUDA",
+      "hardware": {
+        "system_ram_gb": 48,
+        "gpu_backend": "cuda",
+        "gpu_vram_gb": 8,
+        "unified_memory": false
+      },
+      "scheduler": {
+        "max_context_tokens": 12288,
+        "warning_context_tokens": 8192,
+        "max_stage_context_tokens": 2400,
+        "max_parallel_models": 1,
+        "max_active_model_calls": 1,
+        "on_deck_depth": 1,
+        "warm_depth": 0,
+        "allow_neural_prefetch": false
+      }
+    }
+  }
+}
+```
+
 ---
 
 ## Repository Layout
